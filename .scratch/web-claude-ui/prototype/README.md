@@ -62,7 +62,20 @@ variant-a.js    layout A only
 variant-b.js    layout B only
 variant-c.js    layout C only
 switcher.js     the floating bar + ?variant= + keyboard, and it mounts variants
+verify.mjs      headless-Chrome check that the four interactions still work
 ```
+
+## Checking an edit
+
+`node verify.mjs` (Node 22+, no dependencies; set `CHROME_PATH` if your browser
+isn't in a standard place). It drives the prototype over CDP — drawer, file
+click, terminal command, streaming chat, project switch, variant switch — fails
+on any console error, and drops step screenshots into `<os tmpdir>/proto-shots/`.
+
+Worth running after any change here: the four bugs this prototype shipped with
+(icons rendering the text `undefined`, two panes that never grew, the
+`file://` variant switcher going dead) were all invisible in a static render
+and all caught by this.
 
 Variants share *widgets* on purpose (so the comparison stays about structure)
 and share no *layout*.
