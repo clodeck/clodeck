@@ -1,7 +1,7 @@
 # 03 — Visual prototype of the UI
 
 Type: prototype
-Status: open
+Status: claimed
 
 ## Question
 

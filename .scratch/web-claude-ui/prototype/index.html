@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  ============================================================================
+  PROTOTYPE — throwaway. Do not ship. Do not import from production code.
+  ============================================================================
+  Question: what should the UI look like — project switcher + chat pane +
+  terminal + read-only file viewer, modeled on claudecodeui?
+
+  Three structurally different layout variants, switchable with the floating
+  bar at the bottom or by URL:  ?variant=A | ?variant=B | ?variant=C
+  (if the browser blocks history.replaceState on file://, the variant also
+  lands in the hash: #variant=A)
+
+  No build step. No backend. In-memory mock data only (see mock.js).
+  Open this file in a browser, or: run `python -m http.server` in this folder.
+  ============================================================================
+-->
+<html lang="en" data-variant="A">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE · deck — UI variants</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="mock.js"></script>
+  <script src="common.js"></script>
+  <script src="variant-a.js"></script>
+  <script src="variant-b.js"></script>
+  <script src="variant-c.js"></script>
+  <script src="switcher.js"></script>
+</body>
+</html>
