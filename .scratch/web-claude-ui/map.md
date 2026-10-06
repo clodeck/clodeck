@@ -14,7 +14,8 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 ## Decisions so far
 
-<!-- none yet -->
+- [01 — Agent SDK session, streaming and resume model](issues/01-agent-sdk-session-streaming.md): everything via `query({prompt, options})` → `AsyncGenerator<SDKMessage>`; `options.cwd` binds the project, `for await` streams `system→assistant→user→tool_progress→result`, resume via `session_id` + `options.resume`/`forkSession`/`continue`.
+- [02 — Per-project web terminal (PTY)](issues/02-web-terminal-pty.md): node-pty (local `forkpty`), one pty per project in a `Map<id, IPty>`, raw bytes over one WebSocket via `@xterm/addon-attach` with out-of-band resize; security via WSS + auth + origin check, validate project path against a root allowlist, run unprivileged/container.
 
 ## Not yet specified
 
