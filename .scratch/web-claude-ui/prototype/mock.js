@@ -198,7 +198,7 @@ window.MOCK = {
       ]},
       { name: 'package.json', type: 'file', lang: 'json', lines: [
         '{',
-        '  "name": "deck",',
+        '  "name": "clodeck",',
         '  "private": true,',
         '  "type": "module",',
         '  "scripts": {',

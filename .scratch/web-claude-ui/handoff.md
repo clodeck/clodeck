@@ -53,9 +53,9 @@ Model selection and live file editing are confirmed **out of MVP** (map
 1. **The wayfinder effort is complete.** All eight tickets (01–08) are resolved and
    map "Not yet specified" is empty — the destination (spec + prototype) is reached.
    There is no next ticket.
-2. **Remaining, user-owned (not tickets):** a git remote, and the product name (see
-   "Open, not yet on the map"). The production build itself is out of scope for this
-   effort (map "Out of scope").
+2. **Nothing left open.** The product name (Clodeck) and the git remote are both
+   done. The production build itself is out of scope for this effort (map "Out of
+   scope") — it is the next, separate effort.
 
 ## Facts that live nowhere else
 
@@ -76,9 +76,9 @@ Model selection and live file editing are confirmed **out of MVP** (map
    in-memory tree, never disk.
 3. **The product name is Clodeck** (decided 2026-10-09; was the "deck" placeholder).
    npm, GitHub org/repo, and the .com were all checked free before it was chosen.
-4. **There is no git remote.** `git remote -v` is empty, so "work from another
-   machine" currently means copying the folder. Adding a remote is an open,
-   untracked decision — see below.
+4. **Git remote is set:** `origin` → `https://github.com/clodeck/clodeck.git`
+   (replaced the old `ehsannku/ClaudeUi`). The repo exists on GitHub and is empty —
+   the first push will create `main`.
 5. **Prototype structure:** variants share *widgets* (chat, terminal, file tree,
    code view in `common.js`) on purpose, so the comparison stays about structure;
    they share no *layout*. The file-drawer additions are opt-in via
@@ -86,9 +86,7 @@ Model selection and live file editing are confirmed **out of MVP** (map
 
 ## Open, not yet on the map
 
-- **A git remote.** Until one exists, this repo cannot move between machines and
-  nothing can be pushed. It is not a wayfinder ticket and probably doesn't
-  deserve to be one — it's a one-line setup decision the user owns.
+_none — the product name and the git remote are both done; the repo is ready to go public._
 
 ## Resume
 
