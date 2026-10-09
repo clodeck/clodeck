@@ -3,6 +3,7 @@
   // `tsconfig.build.json` narrows this to the files that ship in `dist`.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "types": ["node"],
     "noEmit": true
   },
   "include": ["src"]

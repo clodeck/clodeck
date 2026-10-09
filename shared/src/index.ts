@@ -1,14 +1,18 @@
 /**
- * @clodeck/shared — the contract package.
+ * `@clodeck/shared` — the contract package.
  *
  * Both `server` and `web` import this, so a shape is defined once and cannot
- * drift between backend and frontend. Ticket 02 lands the domain types here
- * (`Project`, the `ServerEvent` / `ClientMessage` envelopes, and the structural
- * `SDKMessage` mirror).
+ * drift between backend and frontend: a contract change breaks compilation on
+ * both sides at the same time.
  *
- * For now the package holds only what proves the wiring is real rather than
- * theoretical: build, declaration emit, and cross-package import.
+ * - {@link Project} — the domain entity the switcher lists.
+ * - `protocol.ts` — the ServerEvent / ClientMessage envelopes.
+ * - `sdk.ts` — structural mirrors of the Agent SDK messages the client renders
+ *   (no dependency on the SDK itself; that stays server-only).
+ *
+ * The envelope and SDK types are declared here ahead of the transport that
+ * carries them, so the chat slice never re-models them.
  */
-
-/** Wire-format version stamped on every envelope the client and server exchange. */
-export const PROTOCOL_VERSION = 1;
+export * from './project.js';
+export * from './protocol.js';
+export * from './sdk.js';
