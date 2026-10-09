@@ -1,6 +1,7 @@
 import type { Project } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
+import { ChatPanel } from './chat/ChatPanel';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { useProjects } from './useProjects';
 
@@ -60,7 +61,8 @@ function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-line lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:divide-x lg:divide-y-0">
-        <Stub title="Chat" note="Streaming chat on the Agent SDK lands in the next slice." />
+        {/* Keyed by project so switching projects remounts a fresh chat session. */}
+        <ChatPanel key={project.id} project={project} />
         <div className="grid min-h-0 grid-rows-2 divide-y divide-line">
           <Stub title="Terminal" note="The per-project shell terminal lands in a later slice." />
           <Stub title="Files" note="The read-only file viewer lands in a later slice." />
