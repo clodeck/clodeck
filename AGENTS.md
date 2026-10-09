@@ -8,7 +8,7 @@ Respond to the user in **Finglish** (Romanized Persian). The user's own messages
 
 This repo hosts a **wayfinder** effort. Destination: a *spec* plus a *visual prototype* for a **web UI that rides on the Claude Agent SDK** — remote browser access to Claude Code across multiple project directories, running on a dedicated server, visually modeled on `claudecodeui` (github.com/siteboon/claudecodeui).
 
-- **Issue tracker:** local markdown under `.scratch/<effort>/` (no git remote is configured, so the local tracker is the default). Map = `.scratch/<effort>/map.md`; tickets = `.scratch/<effort>/issues/NN-<slug>.md`.
+- **Issue tracker:** local markdown under `.scratch/<effort>/` — the local tracker is still the default now that the repo has a GitHub remote (`clodeck/clodeck`). Map = `.scratch/<effort>/map.md`; tickets = `.scratch/<effort>/issues/NN-<slug>.md`.
 - **Domain docs:** `GLOSSARY.md` / `docs/adr/` created lazily by the domain-modeling skill.
 
 ## Standing decisions (this effort)
