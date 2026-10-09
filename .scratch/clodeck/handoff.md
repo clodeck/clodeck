@@ -1,66 +1,100 @@
 # Handoff — clodeck (the production build)
 
-**Updated:** 2026-10-09
-**Effort spec:** [spec.md](spec.md) — the slice it describes (monorepo scaffold + `GET /api/projects`) is **complete**.
+**Updated:** 2026-10-10
+**Effort spec:** [spec-02-chat-transport.md](spec-02-chat-transport.md) — the slice it describes is **complete**.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
 
-The first slice is **built, documented, and verified**. Tickets **01–05 are resolved** on branch
-`clodeck/01-monorepo-tooling-scaffold` (one commit per ticket, plus one commit of `code-review`
-follow-ups, on top of `main`).
+Two slices are **built, documented, and verified**, both on branch `clodeck/06-11-chat-transport`
+(which will have been merged into `main` before you read this):
 
 | # | Ticket | Status |
 |---|--------|--------|
-| 01 | [Monorepo & tooling scaffold](issues/01-monorepo-tooling-scaffold.md) | resolved |
-| 02 | [Shared domain types](issues/02-shared-domain-types.md) | resolved |
-| 03 | [Server projects endpoint](issues/03-server-projects-endpoint.md) | resolved |
-| 04 | [Web shell + project switcher](issues/04-web-shell-project-switcher.md) | resolved |
-| 05 | [Root docs + dev loop](issues/05-root-docs-dev-loop.md) | resolved |
+| 06 | [SDK dependency, mirror pin, widening](issues/06-sdk-dep-pin-mirror.md) | resolved |
+| 07 | [SDK provider facade, session types, fake](issues/07-sdk-provider-fake.md) | resolved |
+| 08 | [WebSocket bus, control messages, approvals](issues/08-ws-bus-control-approvals.md) | resolved |
+| 09 | [Session history REST](issues/09-session-history-rest.md) | resolved |
+| 10 | [Web chat, streaming renderer, approval modal](issues/10-web-chat-renderer.md) | resolved |
+| 11 | [Web history, resume, continue-latest](issues/11-web-history-resume.md) | resolved |
 
-The path works end to end in a clean clone: `PROJECTS_ROOT` → allowlist-filtered discovery →
-`GET /api/projects` → Vite proxy → the switcher, all of it reachable through the commands in the
-root README, with `tsx watch` reloading the server on a source edit.
+Slice 01 (tickets 01–05, monorepo + `GET /api/projects`) was already complete; see
+[spec.md](spec.md). Together they mean the path is real end to end: `PROJECTS_ROOT` → allowlist →
+project switcher → a project's Agent SDK session streaming over `/ws` → tool cards, the approval
+modal, session history and resume.
 
 ## What the next session is for
 
-**The chat / transport slice** — the next effort, and the one the shared contracts were declared
-for. No ticket set exists for it yet; split it out of the wayfinder spec (`.scratch/web-claude-ui/`)
-the way `spec.md` was split, then implement. In scope per `spec.md` §Out of Scope: the WebSocket
-event bus (`/ws`) and the `ClientMessage` control messages, streaming `query()` against the Agent
-SDK, session history/resume.
+The wayfinder spec's remaining slices, none of which has a ticket set yet:
 
-Facts it needs:
+- **Per-project terminal** (wayfinder 02) — xterm.js in the browser, a PTY per project.
+- **Read-only file viewer / file drawer** (wayfinder 03).
+- **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**` *and* `/ws` are
+  unauthenticated, which is exactly why `main.ts` binds loopback by default. The encapsulated
+  `/api` scope and the `HOST` override are already in place; `/ws` is a sibling route that the same
+  principal-aware hook must front.
+- **Docker image / compose / Caddy** (wayfinder 08) — `GET /healthz` is already there for it.
 
-- **The `SDKMessage` mirror in `shared/src/sdk.ts` is still unverified.** The SDK is deliberately not
-  a dependency yet, so the assignability check (`const payload: SDKMessage = sdkMessage`) was never
-  compiled — it lands with the chat bus. Add `@anthropic-ai/claude-agent-sdk` to `server` only, then
-  pin the mirror against the real types.
-- The envelope types (`shared/src/protocol.ts`) are declared and unused. That was the point: the
-  transport should wire them, not re-model them.
-- `/api/**` is still unauthenticated, which is why `main.ts` binds loopback by default (auth is the
-  wayfinder's 07; the encapsulated `/api` scope and the `HOST` override are already in place for it).
-- Root `dev` is now the documented command (README) — it builds `shared` once, then runs `server`
-  (`tsx watch`) and `web` (Vite) together via `concurrently`. A `shared/` edit during `dev` needs
-  `npm run build:shared`; that caveat is documented, not fixed (see ticket 05).
+Split the next slice into tickets the way `spec.md` and `spec-02-chat-transport.md` were split, then
+implement with `/implement-spec`.
 
 ## Facts that live nowhere else
 
+- **The mirror pin is load-bearing and subtle.** `server/src/sdk/mirror.ts` is the only place the real
+  SDK union meets the hand-written mirror in `shared/src/sdk.ts`. Its `case` arms *are* the pin. The
+  three named `system` arms assign to an **annotated** target (`const mirrored: SDKSystemInitMessage =
+  message`) on purpose: the mirror's `SDKSystemOtherMessage` catch-all types `subtype: string`, so a
+  plain `return message` would absorb any system message and pin nothing. Add a fourth arm the same
+  way. `import type` only — the module has no runtime SDK dependency, which is what keeps the tests
+  fast and offline.
+- **Exactly one mirror field has ever needed widening**: `UserApiMessage.role` gained `'system'`,
+  because the API's `MessageParam.role` is `'user' | 'assistant' | 'system'`. Everything else the
+  ticket predicted (branded `uuid`, literal `assistant.error`, `BetaRawMessageStreamEvent`) was
+  already absorbed. Widen the mirror; never redesign the envelope.
+- **`shared/src/protocol.ts` is frozen.** No ticket has edited it since slice 01. If a change seems to
+  need one, that is a signal to re-read the ticket, not to edit the file.
+- **`SdkProvider` is the only SDK surface the server knows** (`server/src/sdk/provider.ts`, no SDK
+  import). The real implementation lives in `server/src/sdk/anthropic.ts`; everything else — the bus,
+  the REST routes, every test — talks to the facade. `server/src/testing/fake-provider.ts` is the
+  scripted fake; `holdRuns`/`releaseRuns`/`failRuns` exist so `turn_in_progress`, `interrupt` and the
+  mid-turn failure path are reachable deterministically.
+- **`server/src/testing/` is excluded from `dist`** (`server/tsconfig.build.json`). `npm run dev:fake`
+  (root) boots the app on the fake provider — no API key, no network. Use it for any UI work.
+- **`snapshot.payload.lastSeq` is always `0`.** `seq` is per-connection and resets on reconnect (the
+  envelope's own doc comment), so a fresh connection has seen nothing; the snapshot itself is `seq: 1`
+  and is always the first frame.
+- **`resume` only arms a target.** It never sends a prompt; the next `send_prompt` consumes it. The
+  client clears its banner on `stream_status: turn_started`, and keeps it on a `turn_in_progress`
+  rejection (the server consumed nothing).
+- **Known warts, recorded in tickets 10 and 11 rather than hidden**: an optimistic user bubble
+  survives a `turn_in_progress` rejection; an optimistic bubble can be dropped by a snapshot that
+  lands before its echo; there is no way to *cancel* an armed resume (the protocol has no
+  clear-target message); a reload loses the resume *banner* even though the server's target survives
+  (the snapshot carries no resume target); pressing Resume while the socket is not OPEN no-ops
+  silently while the banner still shows. The React layer has **no rendered test** — the spec puts
+  browser e2e out of scope, and the client is verified by typecheck/build plus reducer tests and
+  by-hand socket checks.
+- **The code review declined these on purpose** (do not "fix" them without new information): the
+  parse→dispatch split across `ws/client-message.ts` and `ws/bus.ts` (that separation *is* the trust
+  boundary); the local `Envelope` interface in `ws/turn-manager.ts` (drift is caught at the
+  `EmitDraft` emit site); `SdkRunInput.signal` / `SdkRunInput.permissionMode` (both pinned by the
+  spec's provider interface though no caller sets them today).
+- **`ws` is a devDependency** and is imported **type-only** in `server/src/ws/bus.ts`; the production
+  dependency is `@fastify/websocket`. Adding a runtime `ws` import to server source would change that.
+
+## Environment notes (still true)
+
 - Tracker = local markdown, one file per ticket, numbered from `01`, under `.scratch/clodeck/`. There
   is no `docs/agents/issue-tracker.md`; `AGENTS.md` carries the convention.
-- Two facts from the clean-clone run, recorded in full in ticket 05's Evidence: `npm install` prints
-  `npm warn allow-scripts … esbuild@… (postinstall)` (npm 11 declining to run install scripts
-  unreviewed — harmless, esbuild's binary is an optional dependency), and Vite binds `localhost` →
-  `[::1]:5173` on Windows, so **probe the dev client at `localhost`, never `127.0.0.1`** — the
-  backend is the opposite, binding `127.0.0.1:3001`, which is what Vite's proxy targets.
-- The symlink-to-a-file exclusion test is POSIX-only — creating a file symlink on Windows needs
-  elevation or Developer Mode.
-- `web` has Tailwind v4 wired through `@tailwindcss/vite`; the palette lives as `@theme` tokens in
-  `web/src/index.css` (taken from the verified prototype, Variant A).
+- Worktrees are cheap here: `npm install` in a fresh worktree takes seconds off the npm cache, and the
+  Agent SDK adds ~40s the first time only.
+- Vite binds `localhost` → `[::1]:5173` on Windows, so probe the dev client at `localhost`, never
+  `127.0.0.1`; the backend is the opposite, binding `127.0.0.1:3001`, which is what the proxy targets.
+- The symlink-to-a-file test is POSIX-only (creating a file symlink on Windows needs elevation or
+  Developer Mode); it is skipped via `it.skipIf(win32)`.
 
 ## Resume
 
 ```
-next effort: the chat/transport slice — split it out of .scratch/web-claude-ui/ per the clodeck
-spec's Out of Scope, then implement (start with the SDK assignability check in shared/src/sdk.ts)
+next slice: the per-project terminal (wayfinder 02) — split it into tickets first, then /implement-spec
 ```

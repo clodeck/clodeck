@@ -5,10 +5,11 @@ Remote browser access to Claude Code across multiple project directories: a chat
 a terminal and a read-only file viewer alongside. One user, one dedicated server that also hosts the
 project folders.
 
-**Status: first vertical slice.** Project discovery, `GET /api/projects`, and the project switcher
-work end to end. Chat, terminals, the file viewer, auth, and the WebSocket event bus are scaffolded
-for but not built — [the spec](.scratch/clodeck/spec.md) and its [tickets](.scratch/clodeck/issues)
-are the plan of record.
+**Status: two slices in.** Project discovery, `GET /api/projects` and the project switcher work end
+to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at `/ws`, tool
+cards, the approval modal, and session history / resume over REST. Terminals, the file viewer and
+auth are scaffolded for but not built — the specs and tickets under
+[`.scratch/clodeck/`](.scratch/clodeck) are the plan of record.
 
 ## Layout
 
@@ -17,8 +18,8 @@ Three npm workspaces, scoped `@clodeck/*`:
 | Package | What it owns |
 |---|---|
 | [`shared/`](shared) | `@clodeck/shared` — the domain types (`Project`) and the transport contracts (the event/message envelopes, the Agent SDK message mirror). Both other packages import it, so a contract change breaks compilation on both sides at once. |
-| [`server/`](server) | `@clodeck/server` — the Node/Fastify backend: project discovery over the filesystem, and the HTTP surface (`/healthz`, `/api/**`). |
-| [`web/`](web) | `@clodeck/web` — the React + Vite + Tailwind client: the project switcher today, the chat / terminal / file-drawer surfaces later. |
+| [`server/`](server) | `@clodeck/server` — the Node/Fastify backend: project discovery over the filesystem, the Agent SDK behind a provider facade, the session bus at `/ws`, and the HTTP surface (`/healthz`, `/api/**`). |
+| [`web/`](web) | `@clodeck/web` — the React + Vite + Tailwind client: the project switcher and the streaming chat surface today, the terminal / file drawer later. |
 
 ## Requirements
 
@@ -32,6 +33,7 @@ Every command runs from the repo root.
 |---|---|
 | `npm install` | Installs all three workspaces. |
 | `npm run dev` | Builds `shared`, then runs the server (`tsx watch` — reloads on change) and the web client (Vite dev server) together. |
+| `npm run dev:fake` | The same, but the server runs the scripted fake Agent SDK provider instead of the real one — the whole chat surface with no API key and no network. Use this for UI work. |
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
@@ -47,7 +49,8 @@ happens. For the same reason, editing `shared/` while `npm run dev` is running n
 |---|---|---|
 | `PROJECTS_ROOT` | — | The directory whose immediate child directories are the projects. Unset or empty → an empty list, never an error. |
 | `PORT` | `3001` | The server's port. |
-| `HOST` | `127.0.0.1` | The server's bind address. Loopback by default, because `/api/**` is still unauthenticated; a container sets it to bind its own interface. |
+| `HOST` | `127.0.0.1` | The server's bind address. Loopback by default, because `/api/**` and `/ws` are still unauthenticated; a container sets it to bind its own interface. |
+| `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
 
 `clodeck.config.json` is the fallback for deployments that would rather not export an environment
 variable. It is read from the server's working directory — which is `server/`, not the repo root,
@@ -65,9 +68,14 @@ mkdir -p ~/clodeck-projects/hello
 PROJECTS_ROOT=~/clodeck-projects npm run dev
 ```
 
-Then open <http://localhost:5173>. The Vite dev server proxies `/api` to the backend on
-`127.0.0.1:3001`, so the client develops against the real endpoint with no CORS setup. Drop another
-directory into the projects root and press the switcher's refresh.
+Then open <http://localhost:5173>. The Vite dev server proxies both `/api` and `/ws` to the backend
+on `127.0.0.1:3001`, so the client develops against the real endpoints with no CORS setup. Drop
+another directory into the projects root and press the switcher's refresh; select a project and the
+chat panel opens a session against it.
+
+Without an API key, run `npm run dev:fake` instead — the server then answers from a scripted fake
+provider, so the whole chat surface (streaming, tool cards, the approval modal, history and resume)
+is exercisable offline.
 
 On Windows PowerShell:
 
