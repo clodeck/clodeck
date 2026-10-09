@@ -83,18 +83,66 @@ window.VARIANTS.A = {
       h('div', { class: 'panel-head' }, drawerTabs, h('span', { class: 'spacer' }), drawerClose),
       drawerHost);
 
-    let termPane = null, tree = null, code = null, codeHead = null;
+    let termPane = null, tree = null, code = null, codeHead = null, fileDetails = null, dlBtn = null, pvBtn = null, editBtn = null;
+
+    function downloadOpenFile() {
+      const f = openFile && P.findFile(projectId, openFile);
+      if (!f) return;
+      const blob = new Blob([f.lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = f.name;
+      document.body.append(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+    function syncEditBtn() {
+      const editing = code.isEditing();
+      editBtn.innerHTML = (editing ? P.ICONS.pencil : P.ICONS.lock) + (editing ? 'editable' : 'read-only');
+      editBtn.classList.toggle('accent', editing);
+      editBtn.title = editing ? 'Switch to read-only' : 'Switch to editable';
+    }
+    function renderFileHead() {
+      const f = openFile && P.findFile(projectId, openFile);
+      if (!f) { fileDetails.textContent = ''; dlBtn.style.display = 'none'; pvBtn.style.display = 'none'; editBtn.style.display = 'none'; return; }
+      const m = P.fileMeta(f);
+      fileDetails.textContent = m.size + ' · ' + m.modified + ' · ' + m.perm;
+      dlBtn.style.display = '';
+      pvBtn.style.display = f.lang === 'md' ? '' : 'none';
+      pvBtn.textContent = code.previewOn() ? 'Source' : 'Preview';
+      editBtn.style.display = '';
+      syncEditBtn();
+    }
     function buildFilesPane() {
-      tree = P.FileTree({ projectId, onOpen: (p) => { openFile = p; code.show(p); } });
+      tree = P.FileTree({
+        projectId, toolbar: true,
+        onOpen: (p) => { openFile = p; code.show(p); renderFileHead(); },
+        onRename: (oldPath, newPath, isDir) => {
+          if (isDir) { if (openFile === oldPath || (openFile && openFile.startsWith(oldPath + '/'))) { openFile = null; code.show(null); renderFileHead(); } }
+          else if (openFile === oldPath) { openFile = newPath; code.show(newPath); renderFileHead(); }
+        },
+        onDelete: (path, isDir) => {
+          if (isDir ? (openFile === path || (openFile && openFile.startsWith(path + '/'))) : (openFile === path)) { openFile = null; code.show(null); renderFileHead(); }
+        },
+        onMove: (srcPath, destDir) => {
+          if (openFile === srcPath) { const nm = srcPath.split('/').pop(); openFile = destDir ? destDir + '/' + nm : nm; code.show(openFile); renderFileHead(); }
+        },
+      });
       codeHead = h('span', { class: 'mono', style: 'text-transform:none;letter-spacing:0;color:var(--fg-2)' }, 'no file selected');
+      fileDetails = h('span', { class: 'file-details' });
+      dlBtn = h('button', { class: 'icon-btn', style: 'width:22px;height:22px;display:none', title: 'Download', html: P.ICONS.download });
+      dlBtn.onclick = downloadOpenFile;
+      pvBtn = h('button', { class: 'chip ghost', style: 'display:none;cursor:pointer;height:20px', title: 'Toggle markdown preview' }, 'Preview');
+      pvBtn.onclick = () => { code.togglePreview(); pvBtn.textContent = code.previewOn() ? 'Source' : 'Preview'; };
+      editBtn = h('button', { class: 'chip', style: 'display:none;cursor:pointer;height:20px', html: P.ICONS.lock + 'read-only', title: 'Switch to editable' });
+      editBtn.onclick = () => { code.toggleEdit(); syncEditBtn(); };
       code = P.CodeView({ projectId });
       code.setHead(codeHead);
       const right = h('div', { style: 'flex:1;display:flex;flex-direction:column;min-width:0;border-left:1px solid var(--line)' },
-        h('div', { class: 'panel-head', style: 'background:var(--bg-1)' }, codeHead, h('span', { class: 'spacer' }),
-          h('span', { class: 'chip' }, icon('lock'), 'read-only')),
+        h('div', { class: 'panel-head', style: 'background:var(--bg-1)' }, codeHead, fileDetails, h('span', { class: 'spacer' }),
+          pvBtn, dlBtn, editBtn),
         code.el);
       return h('div', { style: 'display:flex;min-height:0;height:100%' },
-        h('div', { style: 'width:250px;flex:none;display:flex;flex-direction:column;min-height:0' }, tree.el),
+        h('div', { style: 'width:300px;flex:none;display:flex;flex-direction:column;min-height:0' }, tree.el),
         right);
     }
     function buildTermPane() {
@@ -119,7 +167,7 @@ window.VARIANTS.A = {
       });
       drawerHost.innerHTML = '';
       if (tab === 'terminal') { const el = buildTermPane(); drawerHost.append(el); termPane.focus(); }
-      else { drawerHost.append(buildFilesPane()); if (openFile) { code.show(openFile); tree.setOn(openFile); } }
+      else { drawerHost.append(buildFilesPane()); if (openFile) { code.show(openFile); tree.setOn(openFile); renderFileHead(); } }
     }
 
     /* if the drawer is open and the project changes, rebuild its body */
@@ -127,7 +175,7 @@ window.VARIANTS.A = {
       if (!drawerTab) return;
       drawerHost.innerHTML = '';
       if (drawerTab === 'terminal') { drawerHost.append(buildTermPane()); }
-      else { drawerHost.append(buildFilesPane()); if (openFile) { code.show(openFile); tree.setOn(openFile); } }
+      else { drawerHost.append(buildFilesPane()); if (openFile) { code.show(openFile); tree.setOn(openFile); renderFileHead(); } }
     }
 
     function renderAll() {

@@ -20,4 +20,4 @@ This repo hosts a **wayfinder** effort. Destination: a *spec* plus a *visual pro
 - Each project = one directory = one Agent SDK session + terminal + read-only file viewer; a project switcher on top.
 - Stack: Node/TypeScript backend (Agent SDK TypeScript) + React/Vite/Tailwind + xterm.js. (.NET considered and rejected: the Agent SDK ships TypeScript/Python only — no .NET binding — so a .NET backend would shell out to a sidecar anyway.)
 - Auth: single-account login (like claudecodeui) over HTTPS — no Tailscale, no raw HTTP basic-auth.
-- MVP scope: streaming chat + session history/resume + project switcher + read-only file viewer + shell terminal. Out of MVP: git explorer, plugins, browser-use, live file editing.
+- MVP scope: streaming chat + session history/resume + project switcher + read-only file viewer + shell terminal. Out of MVP: git explorer, plugins, browser-use, live file editing, model selection (UI model picker).

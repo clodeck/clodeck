@@ -38,6 +38,12 @@ deps, no backend, no network. (If your browser is fussy about `file://`, run
 - **Terminal:** click it and type. Try `ls`, `pwd`, `git status`, `git log`,
   `npm test`, `npm run dev`, `cat src/ChatPane.tsx`, `clear`.
 - **File viewer:** click any file. Read-only everywhere, on purpose.
+- **File drawer (variant A):** toolbar with Upload (drag-and-drop, 200 MB cap) /
+  New file / New folder / Refresh / tree⇄list toggle. New items land in the
+  selected folder; drag a file onto a folder (with confirm) to move it. Each row
+  has a ⋯ menu for Rename (inline) / Delete (confirm). Viewer header: Download,
+  Markdown preview (Preview⇄Source), per-file metadata (size · modified ·
+  permissions), and a read-only⇄editable toggle.
 - **Resize** (variant B): drag the gutters between panes.
 
 The floating bar also shows the live state — `project … · session …` — and that
@@ -82,7 +88,7 @@ and share no *layout*.
 
 ## Status
 
-Unresolved — this ticket is HITL and closes on the user's verdict. Once a
-variant wins (or a hybrid is named), the verdict goes into
-`../issues/03-visual-prototype.md` and the losing variants stay here or move to
-a throwaway branch.
+Resolved — verdict: **Variant A (chat-first, tools on demand)**. The file drawer
+gained toolbar actions + file actions/details (see the File drawer bullet above).
+B and C remain here as reference; the verdict is recorded in
+`../issues/03-visual-prototype.md`.

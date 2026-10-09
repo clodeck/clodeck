@@ -93,8 +93,23 @@ const step = async (label, expr, name, wait = 400) => {
 /* A — chat-first: drawer, terminal, streaming chat */
 await step('A: open the Files drawer', `document.querySelector('.rail button[title="Files drawer"]').click(); 'ok'`);
 await step('A: click src/ChatPane.tsx in the tree',
-  `[...document.querySelectorAll('.tree-row')].find(r => r.textContent.trim() === 'ChatPane.tsx').click();
+  `[...document.querySelectorAll('.tree-row')].find(r => r.querySelector('.name')?.textContent.trim() === 'ChatPane.tsx').click();
    document.querySelectorAll('.code tbody tr').length`, 'A-files');
+await step('A: toggle the file into edit mode and back',
+  `const eb = document.querySelector('button.chip[title="Switch to editable"]');
+   eb.click();
+   const hasEdit = !!document.querySelector('.code-edit');
+   eb.click();
+   JSON.stringify({ hasEdit, rowsAfter: document.querySelectorAll('.code tbody tr').length })`, 'A-edit');
+await step('A: open a row menu and cancel a delete',
+  `const row = document.querySelector('.tree-row:not(.dir)');
+   row.querySelector('.row-more').click();
+   const menu = row.querySelector('.row-menu');
+   const items = [...menu.querySelectorAll('.mi')].map(b => b.textContent);
+   menu.querySelector('.mi.danger').click();
+   const modalShown = !!document.querySelector('.modal-box');
+   document.querySelector('.modal .btn').click();
+   JSON.stringify({ items, modalShown, modalGone: !document.querySelector('.modal') })`, 'A-menu');
 await step('A: switch drawer to Terminal', `document.querySelector('.rail button[title="Terminal drawer"]').click(); 'ok'`);
 await step('A: run `npm test` in the fake shell',
   `const s1 = document.querySelector('.term-input'); s1.value = 'npm test';
@@ -114,7 +129,7 @@ await step('A: close drawer', `document.querySelector('.rail button[title="Chat"
 /* B — three-pane: variant switch + file open */
 await step('B: switch variant', `location.hash = 'variant=B'; 'ok'`, 'B-initial', 900);
 await step('B: click a file in the explorer',
-  `[...document.querySelectorAll('.tree-row')].find(r => r.textContent.trim() === 'transcript.ts').click();
+  `[...document.querySelectorAll('.tree-row')].find(r => r.querySelector('.name')?.textContent.trim() === 'transcript.ts').click();
    document.querySelector('.code .src')?.textContent.trim()`, 'B-file');
 
 /* C — command deck: project switch moves sessions + terminal */
