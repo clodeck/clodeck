@@ -108,10 +108,11 @@ export interface AssistantApiMessage {
 /**
  * The API message inside a `user` SDK message: tool results (the SDK feeds
  * them back) and echoed user input. `role` stays wide because the API types
- * `MessageParam.role` as `'user' | 'assistant'`.
+ * `MessageParam.role` as `'user' | 'assistant' | 'system'` — a real SDK
+ * `user` message can carry any of the three.
  */
 export interface UserApiMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string | readonly ContentBlock[];
 }
 
