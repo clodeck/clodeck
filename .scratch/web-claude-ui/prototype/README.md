@@ -53,9 +53,7 @@ state survives a variant switch, so the bar reads as a control, not chrome.
 
 Everything. No Agent SDK, no PTY, no filesystem, no auth, no persistence. The
 chat reply and the shell responses are canned strings in `mock.js`. Project and
-session names are invented. The product name shows as **deck (placeholder
-name)** — the map says this UI has to carry its own name and one hasn't been
-picked yet.
+session names are invented. The product name shows as **Clodeck**.
 
 ## Layout of the code
 

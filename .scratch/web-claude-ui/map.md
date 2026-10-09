@@ -7,7 +7,7 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 ## Notes
 
 - Domain: a personal (single-user) web UI over the Claude Agent SDK (TypeScript). Backend Node/TS; frontend React/Vite/Tailwind + xterm.js; Docker deploy.
-- Constraint: cannot use "Claude Code" branding or claude.ai login; API-key auth only (SDK terms). The UI must carry its own name (placeholder until the user picks one).
+- Constraint: cannot use "Claude Code" branding or claude.ai login; API-key auth only (SDK terms). The UI's own name is **Clodeck**.
 - Standing decisions live in `AGENTS.md` — read it each session.
 - Skills each session: grilling + domain-modeling; prototype skill for the look ticket; research skill for fact tickets.
 - Tracker: local markdown under `.scratch/web-claude-ui/`.

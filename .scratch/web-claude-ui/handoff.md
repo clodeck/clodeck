@@ -74,8 +74,8 @@ Model selection and live file editing are confirmed **out of MVP** (map
    metadata (size · modified · permissions). All still mock: metadata is derived
    in `common.js` (`fileMeta`), and create/rename/delete/move/edit mutate the
    in-memory tree, never disk.
-3. **The product name is still a placeholder** ("deck (placeholder name)"). That
-   naming decision is fog, not a ticket — don't ticket it until it's sharp.
+3. **The product name is Clodeck** (decided 2026-10-09; was the "deck" placeholder).
+   npm, GitHub org/repo, and the .com were all checked free before it was chosen.
 4. **There is no git remote.** `git remote -v` is empty, so "work from another
    machine" currently means copying the folder. Adding a remote is an open,
    untracked decision — see below.
@@ -89,7 +89,6 @@ Model selection and live file editing are confirmed **out of MVP** (map
 - **A git remote.** Until one exists, this repo cannot move between machines and
   nothing can be pushed. It is not a wayfinder ticket and probably doesn't
   deserve to be one — it's a one-line setup decision the user owns.
-- **The product name** (see fact 3).
 
 ## Resume
 

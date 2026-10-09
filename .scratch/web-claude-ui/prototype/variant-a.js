@@ -19,7 +19,7 @@ window.VARIANTS.A = {
 
     /* ── rail ─────────────────────────────────────────────────────────── */
     const rail = h('div', { class: 'rail', style: 'grid-row:1 / span 2' },
-      h('div', { class: 'brand', html: P.ICONS.logo, title: 'deck — placeholder name' }));
+      h('div', { class: 'brand', html: P.ICONS.logo, title: 'Clodeck' }));
     const btnChat = h('button', { class: 'icon-btn on', title: 'Chat', html: P.ICONS.chat });
     const btnTerm = h('button', { class: 'icon-btn', title: 'Terminal drawer', html: P.ICONS.terminal });
     const btnFiles = h('button', { class: 'icon-btn', title: 'Files drawer', html: P.ICONS.eye });

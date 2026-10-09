@@ -19,9 +19,8 @@ window.VARIANTS.C = {
 
     /* ── header ───────────────────────────────────────────────────────── */
     const header = h('div', { class: 'topbar', style: 'height:48px;background:var(--bg)' },
-      h('div', { class: 'brand', html: P.ICONS.logo, title: 'deck — placeholder name' }),
-      h('div', { class: 'title' }, 'deck'),
-      h('span', { class: 'chip ghost', style: 'margin-left:-4px' }, 'placeholder name'),
+      h('div', { class: 'brand', html: P.ICONS.logo, title: 'Clodeck' }),
+      h('div', { class: 'title' }, 'Clodeck'),
       h('div', { class: 'spacer', style: 'flex:1' }),
       h('button', { class: 'icon-btn', style: 'width:auto;height:30px;padding:0 10px;gap:8px;display:flex;background:var(--bg-2);border:1px solid var(--line)' },
         icon('search'), h('span', { style: 'font-size:12px;color:var(--fg-3)' }, 'Jump to project…'),

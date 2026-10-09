@@ -29,7 +29,7 @@ window.VARIANTS.B = {
     document.addEventListener('mousedown', () => { popup.style.display = 'none'; });
 
     const topbar = h('div', { class: 'topbar' },
-      h('div', { class: 'brand', html: P.ICONS.logo, title: 'deck — placeholder name' }),
+      h('div', { class: 'brand', html: P.ICONS.logo, title: 'Clodeck' }),
       h('div', { style: 'position:relative' }, projBtn, popup),
       h('div', { style: 'width:1px;height:22px;background:var(--line)' }),
       tabs,
