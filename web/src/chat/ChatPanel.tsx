@@ -1,8 +1,11 @@
-import type { ApprovalRequestPayload, ApprovalResponsePayload, Project } from '@clodeck/shared';
+import type { ApprovalRequestPayload, ApprovalResponsePayload, Project, ResumePayload } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
-import type { ChatEntry, ChatView, ToolEntry, TurnResult } from './reducer';
+import { EntryView, formatInput } from './EntryView';
+import type { ChatView, TurnResult } from './reducer';
+import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
+import { useSessions } from './useSessions';
 
 /**
  * The chat surface: the streaming transcript, a composer that sends
@@ -11,10 +14,19 @@ import { useChat, type ChatConnection } from './useChat';
  * bubble and is reconciled by the complete block, tools become cards with their
  * results collapsed underneath, subagent frames nest, and anything unknown is
  * dropped rather than crashing the render.
+ *
+ * Since ticket 11 it also carries history: a list of the project's past sessions
+ * and the read-only transcript of one, both folded to the same view model and
+ * rendered by the same `EntryView`. Opening a transcript never touches the live
+ * socket, so a reload or a reconnect still has the run's own `snapshot` to
+ * rebuild from.
  */
 export function ChatPanel({ project }: { project: Project }): ReactElement {
-  const { view, connection, sendPrompt, interrupt, respond, dismissError } = useChat(project);
+  const { view, connection, sendPrompt, interrupt, respond, resume, dismissError } = useChat(project);
+  const sessions = useSessions(project);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const approval = view.pendingApprovals[0];
+  const viewingHistory = sessions.transcript.status !== 'closed';
 
   return (
     <section className="relative flex min-h-0 flex-col" aria-label="Chat">
@@ -28,29 +40,69 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={interrupt}
-          disabled={view.state !== 'running'}
-          className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
-        >
-          Interrupt
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setBrowserOpen((open) => !open);
+            }}
+            aria-expanded={browserOpen}
+            className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+          >
+            History
+          </button>
+          <button
+            type="button"
+            onClick={interrupt}
+            disabled={view.state !== 'running'}
+            className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+          >
+            Interrupt
+          </button>
+        </div>
       </header>
 
+      {browserOpen && (
+        <SessionBrowser
+          state={sessions.sessions}
+          currentSessionId={view.sessionId}
+          onReload={sessions.reload}
+          onOpen={(sessionId) => {
+            sessions.open(sessionId);
+            setBrowserOpen(false);
+          }}
+          onResume={(target) => {
+            // Only sets the target; the transcript returns to the live chat so
+            // the user sees the resumed turn the next send produces.
+            resume(target);
+            sessions.close();
+            setBrowserOpen(false);
+          }}
+          onClose={() => {
+            setBrowserOpen(false);
+          }}
+        />
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {view.entries.length === 0 && view.streamingText === '' ? <EmptyChat /> : null}
-        <ol className="flex flex-col gap-3">
-          {view.entries.map((entry, index) => (
-            <li key={index}>
-              <EntryView entry={entry} />
-            </li>
-          ))}
-        </ol>
-        {view.streamingText !== '' && <StreamingBubble text={view.streamingText} />}
+        {viewingHistory ? (
+          <TranscriptPanel
+            state={sessions.transcript}
+            onResume={(target) => {
+              resume(target);
+              sessions.close();
+            }}
+            onClose={sessions.close}
+          />
+        ) : (
+          <LiveTranscript view={view} />
+        )}
       </div>
 
       <footer className="flex flex-col gap-2 border-t border-line px-4 py-2">
+        {view.resumeTarget !== null && (
+          <ResumeBanner target={view.resumeTarget} sessionTitle={resumeTargetTitle(sessions.sessions, view.resumeTarget)} />
+        )}
         <LiveIndicators view={view} />
         {view.lastResult !== null && <ResultLine result={view.lastResult} />}
         {view.lastError !== null && (
@@ -64,76 +116,38 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Transcript                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
-  switch (entry.kind) {
-    case 'user':
-      return (
-        <div className="flex flex-col items-end gap-1">
-          <span className="text-[10px] tracking-wider text-ink-dim uppercase">You</span>
-          <p className="max-w-[85%] rounded-lg bg-white/10 px-3 py-2 text-sm whitespace-pre-wrap text-ink">
-            {entry.text}
-          </p>
-        </div>
-      );
-    case 'assistant':
-      return <p className="text-sm whitespace-pre-wrap text-ink">{entry.text}</p>;
-    case 'thinking':
-      // Collapsible: reasoning is available but does not dominate the transcript.
-      return (
-        <details className="rounded border border-line bg-panel/60 px-3 py-2">
-          <summary className="cursor-pointer text-[11px] tracking-wider text-ink-dim uppercase">Thinking</summary>
-          <p className="mt-2 text-xs whitespace-pre-wrap text-ink-dim">{entry.text}</p>
-        </details>
-      );
-    case 'notice':
-      return <p className="text-center text-[11px] tracking-wider text-ink-dim uppercase">{entry.text}</p>;
-    case 'tool':
-      return <ToolCard entry={entry} />;
-  }
+/** The live chat body — the entries the socket has folded so far, plus the streaming bubble. */
+function LiveTranscript({ view }: { view: ChatView }): ReactElement {
+  return (
+    <>
+      {view.entries.length === 0 && view.streamingText === '' ? <EmptyChat /> : null}
+      <ol className="flex flex-col gap-3">
+        {view.entries.map((entry, index) => (
+          <li key={index}>
+            <EntryView entry={entry} />
+          </li>
+        ))}
+      </ol>
+      {view.streamingText !== '' && <StreamingBubble text={view.streamingText} />}
+    </>
+  );
 }
 
-function ToolCard({ entry }: { entry: ToolEntry }): ReactElement {
+/**
+ * Says what the next message will continue, so a resumed send is never a
+ * surprise. There is no cancel: the protocol carries no "clear the target"
+ * message, so the only way to drop it is to send and let it be consumed.
+ */
+function ResumeBanner({ target, sessionTitle }: { target: ResumePayload; sessionTitle: string | null }): ReactElement {
+  const continuing = 'mode' in target;
+  const label = continuing ? 'the most recent session' : (sessionTitle ?? target.sessionId);
+  const forked = !continuing && target.fork === true;
+
   return (
-    <div className="rounded border border-line bg-panel">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className="font-mono text-xs text-accent">{entry.name}</span>
-        <span className="truncate font-mono text-[10px] text-ink-dim">{summarizeInput(entry.input)}</span>
-      </div>
-
-      <details className="border-t border-line px-3 py-2">
-        <summary className="cursor-pointer text-[10px] tracking-wider text-ink-dim uppercase">Input</summary>
-        <pre className="mt-1 max-h-48 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-ink-dim">
-          {formatInput(entry.input)}
-        </pre>
-      </details>
-
-      {entry.result !== null && (
-        <details className="border-t border-line px-3 py-2">
-          <summary
-            className={`cursor-pointer text-[10px] tracking-wider uppercase ${entry.result.isError ? 'text-err' : 'text-ink-dim'}`}
-          >
-            {entry.result.isError ? 'Error' : 'Result'}
-          </summary>
-          <pre className="mt-1 max-h-64 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-ink-dim">
-            {formatContent(entry.result.content)}
-          </pre>
-        </details>
-      )}
-
-      {entry.children.length > 0 && (
-        <ol className="ml-3 flex flex-col gap-3 border-l border-line px-3 py-2">
-          {entry.children.map((child, index) => (
-            <li key={index}>
-              <EntryView entry={child} />
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
+    <p className="rounded border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] text-ink" role="status">
+      The next message continues <span className="font-semibold text-accent">{label}</span>
+      {forked && ' in a new fork'}.
+    </p>
   );
 }
 
@@ -327,39 +341,4 @@ function ConnectionPill({ connection }: { connection: ChatConnection }): ReactEl
   const label = connection === 'live' ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…';
   const tone = connection === 'live' ? 'text-accent' : 'text-ink-dim';
   return <span className={`text-[11px] ${tone}`}>{label}</span>;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Formatting helpers                                                         */
-/* -------------------------------------------------------------------------- */
-
-/** A one-line gist for the tool card header — falls back to the JSON. */
-function summarizeInput(input: unknown): string {
-  if (typeof input === 'object' && input !== null) {
-    const record = input as Record<string, unknown>;
-    for (const key of ['command', 'file_path', 'pattern', 'path', 'description']) {
-      const value = record[key];
-      if (typeof value === 'string') return value;
-    }
-  }
-  return '';
-}
-
-function formatInput(input: unknown): string {
-  if (typeof input === 'string') return input;
-  return safeStringify(input);
-}
-
-/** Tool results arrive as a string or a block array — render either legibly. */
-function formatContent(content: unknown): string {
-  if (typeof content === 'string') return content;
-  return safeStringify(content);
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value);
-  } catch {
-    return String(value);
-  }
 }

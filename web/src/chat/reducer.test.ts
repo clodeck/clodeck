@@ -3,6 +3,7 @@ import {
   type ApprovalRequestPayload,
   type SDKMessage,
   type ServerEvent,
+  type SessionMessage,
 } from '@clodeck/shared';
 import { describe, expect, it } from 'vitest';
 
@@ -10,6 +11,8 @@ import {
   applyServerEvent,
   dismissApproval,
   emptyView,
+  fromSessionMessages,
+  withResumeTarget,
   withUserPrompt,
   type ChatView,
 } from './reducer';
@@ -368,5 +371,176 @@ describe('chat reducer — snapshot, approvals, errors', () => {
     );
 
     expect(echoed.entries).toEqual([{ kind: 'user', text: 'hello' }]);
+  });
+});
+
+describe('chat reducer — history through the same renderer', () => {
+  // A stored transcript: the same turns a live run produces, but as the REST
+  // endpoint's `SessionMessage[]` (server/src/sessions.ts, shared/src/session.ts).
+  const transcript: readonly SessionMessage[] = [
+    { role: 'user', content: [{ type: 'text', text: 'run the tests' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'npm test' } }],
+    },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'All green.' }] },
+  ];
+
+  it('folds a transcript into the live entries: text, a tool card, its collapsed result', () => {
+    const view = fromSessionMessages(transcript);
+
+    expect(view.entries).toEqual([
+      { kind: 'user', text: 'run the tests' },
+      { kind: 'assistant', text: 'On it.' },
+      {
+        kind: 'tool',
+        toolUseId: 'tu_1',
+        name: 'Bash',
+        input: { command: 'npm test' },
+        result: { content: 'ok', isError: false },
+        children: [],
+      },
+      { kind: 'assistant', text: 'All green.' },
+    ]);
+  });
+
+  it('renders a stored thinking block as the same collapsible entry live produces', () => {
+    const view = fromSessionMessages([{ role: 'assistant', content: [{ type: 'thinking', thinking: 'pondering' }] }]);
+
+    expect(view.entries).toEqual([{ kind: 'thinking', text: 'pondering' }]);
+  });
+
+  it('nests a stored subagent frame under the tool card it belongs to', () => {
+    const view = fromSessionMessages([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { description: 'explore' } }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_inner', name: 'Grep', input: { pattern: 'x' } }],
+        parentToolUseId: 'task_1',
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'found it' }], parentToolUseId: 'task_1' },
+    ]);
+
+    expect(view.entries).toHaveLength(1);
+    const card = view.entries[0];
+    if (card?.kind !== 'tool') throw new Error('expected a tool card');
+    expect(card.children).toEqual([
+      { kind: 'tool', toolUseId: 'tu_inner', name: 'Grep', input: { pattern: 'x' }, result: null, children: [] },
+      { kind: 'assistant', text: 'found it' },
+    ]);
+  });
+
+  it('renders an empty history as an empty view, not an error', () => {
+    const view = fromSessionMessages([]);
+
+    expect(view.entries).toEqual([]);
+    expect(view.state).toBe('idle');
+  });
+
+  it('agrees with the live fold for the same conversation — one renderer, not two', () => {
+    // The identical turns, as SDK messages on the live path.
+    const live = applyServerEvent(
+      applyServerEvent(
+        applyServerEvent(
+          applyServerEvent(emptyView(), sdk(assistantText('On it.'))),
+          sdk(toolUse('tu_1', 'Bash', { command: 'npm test' })),
+        ),
+        sdk({
+          type: 'user',
+          session_id: SESSION,
+          parent_tool_use_id: null,
+          isSynthetic: true,
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }],
+          },
+        }),
+      ),
+      sdk(assistantText('All green.')),
+    );
+
+    // The history fold of the same turns (minus the leading user prompt, which
+    // the live path here never saw) is entry-for-entry identical.
+    expect(fromSessionMessages(transcript).entries.slice(1)).toEqual(live.entries);
+  });
+
+  it('rebuilds the same entries from a reconnect snapshot as from the transcript', () => {
+    // A running turn buffered these blocks; a reloaded socket receives them in
+    // `snapshot.blocks` and must land on the same view history reads back.
+    const recovered = applyServerEvent(
+      emptyView(),
+      snapshot(
+        [
+          toolUse('tu_1', 'Bash', { command: 'npm test' }),
+          {
+            type: 'user',
+            session_id: SESSION,
+            parent_tool_use_id: null,
+            isSynthetic: true,
+            message: {
+              role: 'user',
+              content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }],
+            },
+          },
+          assistantText('All green.'),
+        ],
+        'idle',
+      ),
+    );
+
+    expect(recovered.entries).toEqual([
+      {
+        kind: 'tool',
+        toolUseId: 'tu_1',
+        name: 'Bash',
+        input: { command: 'npm test' },
+        result: { content: 'ok', isError: false },
+        children: [],
+      },
+      { kind: 'assistant', text: 'All green.' },
+    ]);
+  });
+});
+
+describe('chat reducer — the resume target', () => {
+  const turnStarted: ServerEvent = {
+    v: PROTOCOL_VERSION,
+    seq: 1,
+    ts: '2026-01-01T00:00:00.000Z',
+    kind: 'stream_status',
+    payload: { status: 'turn_started' },
+  };
+
+  it('arms the next send with a target and shows it, sending no prompt itself', () => {
+    const view = withResumeTarget(emptyView(), { sessionId: SESSION, fork: true });
+
+    expect(view.resumeTarget).toEqual({ sessionId: SESSION, fork: true });
+    // Nothing was rendered as if a turn had happened.
+    expect(view.entries).toEqual([]);
+    expect(view.state).toBe('idle');
+  });
+
+  it('clears the target when the turn starts — the bus consumed it on that send', () => {
+    const armed = withResumeTarget(emptyView(), { mode: 'continue' });
+
+    expect(applyServerEvent(armed, turnStarted).resumeTarget).toBeNull();
+  });
+
+  it('keeps the target when a send is rejected, matching the bus which consumed nothing', () => {
+    const armed = withResumeTarget(emptyView(), { sessionId: SESSION });
+    const rejected = applyServerEvent(armed, {
+      v: PROTOCOL_VERSION,
+      seq: 1,
+      ts: '2026-01-01T00:00:00.000Z',
+      kind: 'error',
+      payload: { code: 'turn_in_progress', message: 'a turn is already running' },
+    });
+
+    expect(rejected.resumeTarget).toEqual({ sessionId: SESSION });
   });
 });

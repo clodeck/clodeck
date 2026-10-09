@@ -3,6 +3,7 @@ import {
   type ApprovalResponsePayload,
   type ClientMessage,
   type Project,
+  type ResumePayload,
   type ServerEvent,
 } from '@clodeck/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import {
   clearError,
   dismissApproval,
   emptyView,
+  withResumeTarget,
   withUserPrompt,
   type ChatView,
 } from './reducer';
@@ -32,6 +34,12 @@ export interface ChatController {
   interrupt: () => void;
   /** Answers the approval modal (Allow/Deny only for the MVP). */
   respond: (response: ApprovalResponsePayload) => void;
+  /**
+   * Arms the next `send_prompt` to resume from `target` — by id (optionally
+   * forked) or the latest session. Sends no prompt of its own (spec-02
+   * §"Turn lifecycle"): the resumed turn starts on the next send.
+   */
+  resume: (target: ResumePayload) => void;
   dismissError: () => void;
 }
 
@@ -148,7 +156,23 @@ export function useChat(project: Project): ChatController {
     setView(clearError);
   }, []);
 
-  return { view, connection, sendPrompt, interrupt, respond, dismissError };
+  const resume = useCallback(
+    (target: ResumePayload): void => {
+      // Shown at once so the next send is not a surprise; the bus holds the same
+      // target and clears it as the turn starts (reducer's `turn_started`).
+      setView((current) => withResumeTarget(current, target));
+      const message: ClientMessage = {
+        v: PROTOCOL_VERSION,
+        id: newMessageId(),
+        type: 'resume',
+        payload: target,
+      };
+      send(message);
+    },
+    [send],
+  );
+
+  return { view, connection, sendPrompt, interrupt, respond, resume, dismissError };
 }
 
 /** Unique per frame; the protocol only asks that a `ClientMessage` carry one. */

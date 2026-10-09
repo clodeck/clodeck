@@ -1,8 +1,10 @@
 import type {
   ApprovalRequestPayload,
   ContentBlock,
+  ResumePayload,
   SDKMessage,
   ServerEvent,
+  SessionMessage,
   SessionState,
   SnapshotPayload,
 } from '@clodeck/shared';
@@ -91,6 +93,12 @@ export interface ChatView {
   lastResult: TurnResult | null;
   pendingApprovals: readonly ApprovalRequestPayload[];
   lastError: { code: string; message: string } | null;
+  /**
+   * The target the next `send_prompt` will resume from. The bus holds the same
+   * value in memory and consumes it on the next send; the client mirrors it
+   * solely so the user can see what a send is about to continue (ticket 11).
+   */
+  resumeTarget: ResumePayload | null;
 }
 
 export function emptyView(): ChatView {
@@ -107,6 +115,7 @@ export function emptyView(): ChatView {
     lastResult: null,
     pendingApprovals: [],
     lastError: null,
+    resumeTarget: null,
   };
 }
 
@@ -154,7 +163,9 @@ function fromSnapshot(payload: SnapshotPayload): ChatView {
 function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' | 'interrupted'): ChatView {
   switch (status) {
     case 'turn_started':
-      return { ...view, state: 'running', lastError: null };
+      // The bus consumes the resume target as it starts the turn, so the banner
+      // goes with it — what was a pending target is now the turn in flight.
+      return { ...view, state: 'running', lastError: null, resumeTarget: null };
     case 'turn_ended':
       return flush({ ...view, state: 'idle' });
     case 'interrupted':
@@ -299,14 +310,19 @@ function applyUser(view: ChatView, message: Extract<SDKMessage, { type: 'user' }
 
   let next = view;
   for (const block of content) {
-    if (block.type === 'tool_result') {
-      next = attachResult(next, block);
-    } else if (block.type === 'text') {
-      const text = str(prop(block, 'text'));
-      if (text !== null) next = commitUserText(next, text, parentToolUseId);
-    }
+    next = applyUserBlock(next, block, parentToolUseId);
   }
   return next;
+}
+
+/** A `user`-side block: a tool result to collapse, or echoed prompt text. */
+function applyUserBlock(view: ChatView, block: ContentBlock, parentToolUseId: string | null): ChatView {
+  if (block.type === 'tool_result') return attachResult(view, block);
+  if (block.type === 'text') {
+    const text = str(prop(block, 'text'));
+    if (text !== null) return commitUserText(view, text, parentToolUseId);
+  }
+  return view;
 }
 
 function applyResult(view: ChatView, message: Extract<SDKMessage, { type: 'result' }>): ChatView {
@@ -358,6 +374,48 @@ export function dismissApproval(view: ChatView, requestId: string): ChatView {
 
 export function clearError(view: ChatView): ChatView {
   return view.lastError === null ? view : { ...view, lastError: null };
+}
+
+/**
+ * Mirrors a `resume` control message into the view. The message itself sends no
+ * prompt — it only arms the next `send_prompt` — so this is the whole client
+ * side of "resume": show what will be continued, and wait for `turn_started`
+ * (the bus's own signal that it consumed the target) to clear it.
+ */
+export function withResumeTarget(view: ChatView, target: ResumePayload): ChatView {
+  return { ...view, resumeTarget: target };
+}
+
+/* -------------------------------------------------------------------------- */
+/* History (a past transcript, through the same block rules)                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Folds a stored transcript into the view model the live renderer already
+ * consumes. History and live share one renderer by construction: a transcript
+ * replays the same `ContentBlock`s a live message carries, so this reuses the
+ * exact per-block rules above rather than a parallel path (spec-02 §"Session
+ * history & resume (REST)"; `shared/src/session.ts`).
+ */
+export function fromSessionMessages(messages: readonly SessionMessage[]): ChatView {
+  let view = emptyView();
+  for (const message of messages) {
+    view = applySessionMessage(view, message);
+  }
+  return view;
+}
+
+/** One stored turn — an `assistant` message or a `user` one (prompt or tool result). */
+export function applySessionMessage(view: ChatView, message: SessionMessage): ChatView {
+  const parentToolUseId = message.parentToolUseId ?? null;
+  let next = view;
+  for (const block of message.content) {
+    next =
+      message.role === 'assistant'
+        ? applyAssistantBlock(next, block, parentToolUseId)
+        : applyUserBlock(next, block, parentToolUseId);
+  }
+  return next;
 }
 
 /* -------------------------------------------------------------------------- */
