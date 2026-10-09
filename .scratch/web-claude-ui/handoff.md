@@ -50,12 +50,14 @@ Model selection and live file editing are confirmed **out of MVP** (map
 
 ## What the next session is for
 
-1. **The wayfinder effort is complete.** All eight tickets (01–08) are resolved and
-   map "Not yet specified" is empty — the destination (spec + prototype) is reached.
-   There is no next ticket.
-2. **Nothing left open.** The product name (Clodeck) and the git remote are both
-   done. The production build itself is out of scope for this effort (map "Out of
-   scope") — it is the next, separate effort.
+1. **Start the build — Clodeck.** The wayfinder effort (spec + prototype) is
+   complete, the product is named **Clodeck**, and the repo is live on GitHub at
+   `github.com/clodeck/clodeck` (branch `main`). The next, separate effort is the
+   production build.
+2. **First step of the build:** scaffold the monorepo (root workspace + `server/` +
+   `web/` + `shared/`), TypeScript-first (strict; the spec's discriminated unions —
+   `SDKMessage`, the 04 envelope — as real types), then the first vertical slice:
+   `GET /api/projects` end-to-end.
 
 ## Facts that live nowhere else
 
@@ -91,5 +93,5 @@ _none — the product name and the git remote are both done; the repo is ready t
 ## Resume
 
 ```
-(effort complete — no open ticket; see "What the next session is for")
+start the Clodeck build → scaffold monorepo + GET /api/projects (see "What the next session is for")
 ```
