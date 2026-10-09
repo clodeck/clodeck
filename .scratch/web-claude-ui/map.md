@@ -23,9 +23,10 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 - [05 — Project discovery](issues/05-project-discovery.md): **single-root filesystem scan** (`PROJECTS_ROOT` env var, config fallback) — immediate child dirs are projects (skip dotfiles/non-dirs/symlink-escapes; empty dirs ok); `id` = base64url(canonical path), `name` = basename; **on-demand rescan** (no watcher/poll in MVP); **keep-running + hide** on removal/rename; the root is the **allowlist**, enforced everywhere (id is an identifier, never a credential); discovery/allowlist kept modular so multi-user stays additive.
 
+- [06 — Session ↔ Project data model & persistence](issues/06-session-project-data-model.md): the SDK transcript store (`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`) is the single source of truth — **no server session DB**; **session** = SDK `session_id` (persisted, one resumable conversation), **turn** = 04's `turnId` (ephemeral); default-fresh + explicit resume (`continue: true` = one-click); history via `listSessions()`/`getSessionMessages()`, normalized to the live renderer shape; empty chats are client state (no row until first send); `~/.claude` is a Docker volume, `sessionStore` the future seam.
+
 ## Not yet specified
 
-- Session↔project data model & persistence (resume-by-id, where session state lives) — graduates after the SDK research.
 - Auth implementation detail (middleware, password/config storage, HTTPS termination) — graduates later.
 - Docker image specifics.
 

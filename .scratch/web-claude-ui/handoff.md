@@ -22,15 +22,23 @@ the root as the allowlist (enforced everywhere), plus a deliberate multi-user
 seam (modular discovery/allowlist; the reversible id is an identifier, never a
 credential). Full verdict in the ticket's `## Answer`; `map.md` carries the
 one-line summary.
+
+[06 — Session ↔ Project data model & persistence](issues/06-session-project-data-model.md)
+is **resolved**: the SDK transcript store is the single source of truth (no
+server session DB), session = SDK `session_id` / turn = 04's `turnId`, default-fresh
++ explicit resume, history normalized to the live renderer shape, empty chats are
+client state (no row until first send), `~/.claude` as a Docker volume, `sessionStore`
+as the future seam. Full verdict in the ticket's `## Answer`; `map.md` carries the
+one-line summary.
 Model selection and live file editing are confirmed **out of MVP** (map
 "Out of scope" + `AGENTS.md`).
 
 ## What the next session is for
 
-1. Open and run the next ticket — **session↔project data model & persistence**
-   (resume-by-id, where session state lives; map "Not yet specified"). It is the
-   remaining data-model gap and is now unblocked: the SDK research (01) and the
-   project model (05) are both settled. (Number it 06 if nothing is drafted yet.)
+1. Open and run the next ticket — **auth** (single-account login over HTTPS:
+   middleware, password/config storage, HTTPS termination; map "Not yet specified"
+   + `AGENTS.md` "Auth"). It graduates now that transport (04), projects (05), and
+   sessions (06) are settled — auth is the remaining gap before Docker specifics.
 2. **One ticket per session** — do not start anything past that.
 
 ## Facts that live nowhere else
@@ -70,5 +78,5 @@ Model selection and live file editing are confirmed **out of MVP** (map
 ## Resume
 
 ```
-/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 06 — session data model & persistence"
+/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 07 — auth"
 ```
