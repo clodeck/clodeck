@@ -109,4 +109,51 @@ describe('the scripted fake provider', () => {
     await expect(provider.listSessions('/projects/a')).resolves.toEqual(sessions);
     await expect(provider.getSessionMessages('s1', '/projects/a')).resolves.toEqual(messages);
   });
+
+  it('parks a run open until releaseRuns(), so a turn can be held mid-flight', async () => {
+    const provider = createFakeProvider({ messages: [assistant('one')], holdRuns: true });
+    const run = provider.query({ cwd: '/projects/a', prompt: 'hi' });
+
+    const collected: SDKMessage[] = [];
+    let finished = false;
+    const drain = (async () => {
+      for await (const message of run.messages) collected.push(message);
+      finished = true;
+    })();
+
+    await flushMicrotasks();
+    // The scripted queue has been delivered, but the stream has not returned.
+    expect(collected).toEqual([assistant('one')]);
+    expect(finished).toBe(false);
+
+    provider.releaseRuns();
+    await drain;
+    expect(finished).toBe(true);
+  });
+
+  it('leaves releaseRuns() a no-op when the run was never held', async () => {
+    const provider = createFakeProvider({ messages: [assistant('one')] });
+
+    provider.releaseRuns();
+    const run = provider.query({ cwd: '/projects/a', prompt: 'hi' });
+
+    expect(await collect(run.messages)).toEqual([assistant('one')]);
+  });
+
+  it('fails the stream after the scripted queue with failRuns()', async () => {
+    const provider = createFakeProvider({ messages: [assistant('one')], failRuns: true });
+    const run = provider.query({ cwd: '/projects/a', prompt: 'hi' });
+
+    const collected: SDKMessage[] = [];
+    await expect(async () => {
+      for await (const message of run.messages) collected.push(message);
+    }).rejects.toThrow(/scripted failure/);
+    // The queue still arrived before the failure.
+    expect(collected).toEqual([assistant('one')]);
+  });
 });
+
+/** Let every already-scheduled microtask run before the assertion looks. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}

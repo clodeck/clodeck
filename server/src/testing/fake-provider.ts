@@ -26,6 +26,18 @@ export interface FakeProviderOptions {
   sessions?: readonly SessionSummary[];
   /** Canned `getSessionMessages` result. */
   sessionMessages?: readonly SessionMessage[];
+  /**
+   * Park every run's stream open after the scripted queue instead of returning.
+   * A scripted turn otherwise drains inside a microtask — long before a second
+   * frame is read — so the bus's busy paths (`turn_in_progress`, `interrupt`)
+   * are only reachable deterministically against a run a test holds open.
+   */
+  holdRuns?: boolean;
+  /**
+   * Throw after the scripted queue instead of returning — a run that failed
+   * mid-turn, for the bus's error path. Takes precedence over `holdRuns`.
+   */
+  failRuns?: boolean;
 }
 
 /**
@@ -49,6 +61,8 @@ export interface FakeProvider extends SdkProvider {
    * the bus and watch the run's promise settle.
    */
   requestApproval(request: ApprovalRequestPayload): Promise<ApprovalResponsePayload>;
+  /** Let every held run finish. A no-op when `holdRuns` was not set. */
+  releaseRuns(): void;
 }
 
 export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvider {
@@ -58,13 +72,14 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   const inputs = createCallLog<SdkRunInput>();
   const modes = createCallLog<PermissionMode>();
   const interrupts = createCallLog<void>();
+  const hold = createGate();
 
   return {
     query(input) {
       inputs.record(input);
 
       return {
-        messages: streamMessages(scripted),
+        messages: streamMessages(scripted, endingFor(options, hold)),
         async interrupt() {
           interrupts.record(undefined);
         },
@@ -113,14 +128,61 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
       }
       return callback(request);
     },
+
+    releaseRuns() {
+      hold.open();
+    },
   };
 }
 
-/** Yields the scripted queue as a fresh generator per run, so every run replays it. */
-async function* streamMessages(queue: readonly SDKMessage[]): AsyncIterable<SDKMessage> {
+/**
+ * Yields the scripted queue as a fresh generator per run, so every run replays
+ * it. How it *ends* after the queue is the test's choice: normally it returns,
+ * a held run waits for `releaseRuns()`, and a failing run throws.
+ */
+async function* streamMessages(
+  queue: readonly SDKMessage[],
+  ending: Ending,
+): AsyncIterable<SDKMessage> {
   for (const message of queue) {
     yield message;
   }
+  if (ending.kind === 'fail') {
+    throw new Error('scripted failure');
+  }
+  if (ending.kind === 'hold') {
+    await ending.gate.wait();
+  }
+}
+
+type Ending = { kind: 'complete' } | { kind: 'hold'; gate: Gate } | { kind: 'fail' };
+
+function endingFor(options: FakeProviderOptions, gate: Gate): Ending {
+  if (options.failRuns === true) return { kind: 'fail' };
+  if (options.holdRuns === true) return { kind: 'hold', gate };
+  return { kind: 'complete' };
+}
+
+/** A one-shot latch: closed until `open()`, after which every waiter and every later `wait()` proceeds. */
+interface Gate {
+  wait(): Promise<void>;
+  open(): void;
+}
+
+function createGate(): Gate {
+  let opened = false;
+  const waiters: (() => void)[] = [];
+
+  return {
+    wait() {
+      if (opened) return Promise.resolve();
+      return new Promise((resolve) => waiters.push(resolve));
+    },
+    open() {
+      opened = true;
+      for (const resolve of waiters.splice(0)) resolve();
+    },
+  };
 }
 
 interface CallLog<T> {

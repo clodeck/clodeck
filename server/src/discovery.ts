@@ -14,6 +14,12 @@ import { warnToConsole, type Warn } from './logging.js';
  */
 export interface ProjectDiscovery {
   listProjects(): Promise<Project[]>;
+  /**
+   * Decode the id, re-validate through the allowlist, and require a directory.
+   * Null otherwise. Decoding an id is never authorization (wayfinder 05 §5), so
+   * every caller re-enters through this door rather than trusting the decode.
+   */
+  resolveProject(id: string): Promise<Project | null>;
 }
 
 export interface DiscoveryOptions {
@@ -24,6 +30,16 @@ export interface DiscoveryOptions {
 /** A project's id is the reversible `base64url` of its canonical path — no lookup table (05 §3). */
 function toProjectId(canonicalPath: string): string {
   return Buffer.from(canonicalPath, 'utf8').toString('base64url');
+}
+
+/**
+ * The inverse of `toProjectId`, for a string that arrived over the wire. The
+ * charset is checked first because `Buffer.from(…, 'base64url')` happily decodes
+ * arbitrary input into bytes, and those bytes should never become a path.
+ */
+function decodeProjectId(id: string): string | null {
+  if (id === '' || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+  return Buffer.from(id, 'base64url').toString('utf8');
 }
 
 export function createProjectDiscovery(
@@ -76,6 +92,26 @@ export function createProjectDiscovery(
       }
 
       return projects.sort((left, right) => left.name.localeCompare(right.name));
+    },
+
+    /**
+     * The id is client-supplied, so the decode only produces a *candidate*: the
+     * allowlist still has to accept it and it still has to be a directory. A
+     * non-allowlisted id therefore resolves to null exactly like a well-formed
+     * one pointing at nothing.
+     */
+    async resolveProject(id: string): Promise<Project | null> {
+      if (root === null || allowlist === null) return null;
+
+      const requested = decodeProjectId(id);
+      if (requested === null) return null;
+
+      const canonical = await allowlist.canonicalizeInsideRoot(requested);
+      if (canonical === null) return null;
+
+      if (!(await isDirectory(canonical))) return null;
+
+      return { id: toProjectId(canonical), name: path.basename(canonical), path: canonical };
     },
   };
 }

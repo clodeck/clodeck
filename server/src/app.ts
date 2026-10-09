@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { ProjectDiscovery } from './discovery.js';
 import type { SdkProvider } from './sdk/provider.js';
+import { registerWsBus } from './ws/bus.js';
+import { createTurnManager } from './ws/turn-manager.js';
 
 export interface AppOptions {
   /** The only filesystem reader the routes are given (wayfinder 05 §7). */
@@ -35,6 +37,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     },
     { prefix: '/api' },
   );
+
+  registerWsBus(app, { projects: options.projects, turns: createTurnManager(options.provider) });
 
   return app;
 }
