@@ -39,17 +39,23 @@ hash, timing-safe), TLS at a reverse proxy (Caddy) with direct-TLS fallback,
 principal-aware middleware (`"default"` principal = the multi-user seam), everything
 gated, per-IP login rate-limit + lockout. Full verdict in the ticket's `## Answer`;
 `map.md` carries the one-line summary.
+
+[08 — Docker image specifics](issues/08-docker-image.md) is **resolved**: two-service
+docker-compose (app + Caddy sidecar, app also standalone), multi-stage from
+`node:22-bookworm-slim` (glibc), `~/.claude` = named volume, `PROJECTS_ROOT` = bind
+mount, secrets via env/secret-file, non-root + `init: true` + `GET /healthz`. Full
+verdict in the ticket's `## Answer`; `map.md` carries the one-line summary.
 Model selection and live file editing are confirmed **out of MVP** (map
 "Out of scope" + `AGENTS.md`).
 
 ## What the next session is for
 
-1. Open and run the next ticket — **Docker image specifics** (the last item in
-   map "Not yet specified"; number it 08 if nothing is drafted yet). It graduates
-   now that auth (07) is settled: image layout, the `~/.claude` volume, the
-   `PROJECTS_ROOT` mount, the reverse-proxy sidecar, and how the app is configured
-   in-container.
-2. **One ticket per session** — do not start anything past that.
+1. **The wayfinder effort is complete.** All eight tickets (01–08) are resolved and
+   map "Not yet specified" is empty — the destination (spec + prototype) is reached.
+   There is no next ticket.
+2. **Remaining, user-owned (not tickets):** a git remote, and the product name (see
+   "Open, not yet on the map"). The production build itself is out of scope for this
+   effort (map "Out of scope").
 
 ## Facts that live nowhere else
 
@@ -88,5 +94,5 @@ Model selection and live file editing are confirmed **out of MVP** (map
 ## Resume
 
 ```
-/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 08 — docker image specifics"
+(effort complete — no open ticket; see "What the next session is for")
 ```

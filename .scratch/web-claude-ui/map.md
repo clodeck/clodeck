@@ -27,9 +27,11 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 - [07 — Auth & Permissions](issues/07-auth-permissions.md): single-account login over HTTPS via **httpOnly session cookie** (`SameSite=Strict` + origin check; WS auth rides the cookie) + in-memory server-side session store behind an interface; **password-only** (`UI_PASSWORD`/`UI_PASSWORD_FILE`, bcrypt/argon2 hash, timing-safe); TLS at a **reverse proxy (Caddy)** with direct-TLS fallback; **principal-aware** middleware (`"default"` principal = the multi-user seam), everything gated; per-IP login rate-limit + lockout.
 
+- [08 — Docker image specifics](issues/08-docker-image.md): docker-compose with **app + Caddy sidecar** (app also standalone), multi-stage from **`node:22-bookworm-slim` (glibc)** (node-pty + SDK native binary); `~/.claude` = named volume, `PROJECTS_ROOT` = bind mount, secrets via env/secret-file; non-root + `init: true` (tini) + `GET /healthz`.
+
 ## Not yet specified
 
-- Docker image specifics.
+_none — every open decision for this effort is resolved._
 
 ## Out of scope
 
