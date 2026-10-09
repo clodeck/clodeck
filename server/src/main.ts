@@ -1,11 +1,15 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
+import { createAnthropicProvider } from './sdk/anthropic.js';
 
 const DEFAULT_PORT = 3001;
 
 const config = loadConfig();
-const app = buildApp({ projects: createProjectDiscovery(config.projectsRoot) });
+const app = buildApp({
+  projects: createProjectDiscovery(config.projectsRoot),
+  provider: createAnthropicProvider(),
+});
 
 // Loopback by default: this slice serves `/api/**` unauthenticated, so it must
 // not be reachable from the network until the auth slice lands. A container

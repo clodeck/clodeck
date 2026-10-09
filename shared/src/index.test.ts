@@ -8,6 +8,8 @@ import {
   type Project,
   type SDKMessage,
   type ServerEvent,
+  type SessionMessage,
+  type SessionSummary,
 } from './index.js';
 
 /** Describes every event kind; a new kind makes this fail to compile. */
@@ -102,6 +104,28 @@ describe('@clodeck/shared', () => {
     const project: Project = { id: 'L3Byb2plY3RzL2Nsb2RlY2s', name: 'clodeck', path: '/projects/clodeck' };
 
     expect(Object.keys(project).sort()).toEqual(['id', 'name', 'path']);
+  });
+
+  it('is the single source of the session-history shapes', () => {
+    const summary: SessionSummary = {
+      id: 'a1b2c3',
+      title: 'a chat',
+      createdAt: '2026-10-09T00:00:00.000Z',
+      lastModified: '2026-10-09T01:00:00.000Z',
+      tag: 'work',
+    };
+    // The transcript reuses the live mirror's blocks, so one renderer serves both.
+    const message: SessionMessage = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'hi' },
+        { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a.ts' } },
+      ],
+      parentToolUseId: 't0',
+    };
+
+    expect(Object.keys(summary).sort()).toEqual(['createdAt', 'id', 'lastModified', 'tag', 'title']);
+    expect(message.content.map((block) => block.type)).toEqual(['text', 'tool_use']);
   });
 
   it('mirrors SDK messages widely enough to read text blocks and ignore unknown ones', () => {

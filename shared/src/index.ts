@@ -9,6 +9,7 @@
  * - `protocol.ts` — the ServerEvent / ClientMessage envelopes.
  * - `sdk.ts` — structural mirrors of the Agent SDK messages the client renders
  *   (no dependency on the SDK itself; that stays server-only).
+ * - `session.ts` — the session-history shapes the two REST endpoints serve.
  *
  * The envelope and SDK types are declared here ahead of the transport that
  * carries them, so the chat slice never re-models them.
@@ -16,3 +17,4 @@
 export * from './project.js';
 export * from './protocol.js';
 export * from './sdk.js';
+export * from './session.js';

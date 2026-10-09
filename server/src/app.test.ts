@@ -9,6 +9,7 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import { createSandbox, linkType, removeSandbox, type Sandbox } from './test-support.js';
+import { createFakeProvider } from './testing/fake-provider.js';
 
 /**
  * The HTTP boundary is where the endpoint's external behavior is pinned: real
@@ -34,6 +35,8 @@ describe('the server API', () => {
   function makeApp(projectsRoot: string | null): FastifyInstance {
     const app = buildApp({
       projects: createProjectDiscovery(projectsRoot, { warn: () => undefined }),
+      // The scripted fake, so no suite here ever needs an API key or the network.
+      provider: createFakeProvider(),
     });
     apps.push(app);
     return app;

@@ -10,6 +10,7 @@
     "build": "npm run clean && tsc --project tsconfig.build.json",
     "typecheck": "tsc --project tsconfig.json",
     "dev": "tsx watch src/main.ts",
+    "dev:fake": "tsx watch src/testing/dev-fake.ts",
     "start": "node dist/main.js",
     "test": "vitest run"
   },

@@ -1,10 +1,17 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { ProjectDiscovery } from './discovery.js';
+import type { SdkProvider } from './sdk/provider.js';
 
 export interface AppOptions {
   /** The only filesystem reader the routes are given (wayfinder 05 §7). */
   projects: ProjectDiscovery;
+  /**
+   * The only SDK the routes are given. Taking it here — rather than letting a
+   * route reach for the SDK — is what lets the whole app run against the
+   * scripted fake, with no API key and no network (spec-02 §Testing).
+   */
+  provider: SdkProvider;
 }
 
 /**
