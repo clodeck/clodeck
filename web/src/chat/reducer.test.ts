@@ -207,7 +207,55 @@ describe('chat reducer — streaming', () => {
       numTurns: 2,
       isError: false,
       errors: [],
+      canResume: false,
     });
+  });
+});
+
+describe('chat reducer — resuming a capped turn', () => {
+  function errorResult(
+    subtype: 'error_during_execution' | 'error_max_turns' | 'error_max_budget_usd' | 'error_max_structured_output_retries',
+  ): SDKMessage {
+    return {
+      type: 'result',
+      subtype,
+      session_id: SESSION,
+      is_error: true,
+      errors: ['stopped before the work finished'],
+      num_turns: 40,
+      stop_reason: null,
+      total_cost_usd: 0.42,
+      duration_ms: 9000,
+    };
+  }
+
+  it('marks a max-turns or max-budget result resumable, and no other result', () => {
+    // research 01 §3 offers "resume" on exactly these two stop conditions.
+    expect(apply(emptyView(), sdk(errorResult('error_max_turns'))).lastResult?.canResume).toBe(true);
+    expect(apply(emptyView(), sdk(errorResult('error_max_budget_usd'))).lastResult?.canResume).toBe(true);
+
+    // A plain mid-turn failure is one to fix, not to continue; a completed turn
+    // is not "capped" at all.
+    expect(apply(emptyView(), sdk(errorResult('error_during_execution'))).lastResult?.canResume).toBe(false);
+    expect(
+      apply(emptyView(), sdk(errorResult('error_max_structured_output_retries'))).lastResult?.canResume,
+    ).toBe(false);
+
+    const done = apply(
+      emptyView(),
+      sdk({
+        type: 'result',
+        subtype: 'success',
+        session_id: SESSION,
+        is_error: false,
+        result: 'All done.',
+        num_turns: 1,
+        stop_reason: 'end_turn',
+        total_cost_usd: 0.01,
+        duration_ms: 100,
+      }),
+    );
+    expect(done.lastResult?.canResume).toBe(false);
   });
 });
 

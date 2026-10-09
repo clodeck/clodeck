@@ -104,7 +104,22 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
           <ResumeBanner target={view.resumeTarget} sessionTitle={resumeTargetTitle(sessions.sessions, view.resumeTarget)} />
         )}
         <LiveIndicators view={view} />
-        {view.lastResult !== null && <ResultLine result={view.lastResult} />}
+        {view.lastResult !== null && (
+          <ResultLine
+            result={view.lastResult}
+            onResume={
+              view.lastResult.canResume
+                ? () => {
+                    // Arms the next send to continue this session — or the latest
+                    // one when the run never named a session. Like every resume it
+                    // sends no prompt itself; the resumed turn starts on the send
+                    // that follows (ticket 11).
+                    resume(view.sessionId !== null ? { sessionId: view.sessionId } : { mode: 'continue' });
+                  }
+                : null
+            }
+          />
+        )}
         {view.lastError !== null && (
           <ErrorBanner code={view.lastError.code} message={view.lastError.message} onDismiss={dismissError} />
         )}
@@ -192,12 +207,23 @@ function LiveIndicators({ view }: { view: ChatView }): ReactElement | null {
   );
 }
 
-function ResultLine({ result }: { result: TurnResult }): ReactElement {
+function ResultLine({ result, onResume }: { result: TurnResult; onResume: (() => void) | null }): ReactElement {
   return (
-    <p className={`text-[11px] ${result.isError ? 'text-err' : 'text-ink-dim'}`}>
-      {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'} · ${result.costUsd.toFixed(4)}
-      {result.stopReason !== null && ` · ${result.stopReason}`}
-    </p>
+    <div className={`flex items-center gap-3 text-[11px] ${result.isError ? 'text-err' : 'text-ink-dim'}`}>
+      <p>
+        {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'} · ${result.costUsd.toFixed(4)}
+        {result.stopReason !== null && ` · ${result.stopReason}`}
+      </p>
+      {onResume !== null && (
+        <button
+          type="button"
+          onClick={onResume}
+          className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+        >
+          Resume
+        </button>
+      )}
+    </div>
   );
 }
 

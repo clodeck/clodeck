@@ -121,33 +121,20 @@ export function useChat(project: Project): ChatController {
       if (trimmed === '') return;
       // Shown at once; the fold drops the bus's echo if one arrives.
       setView((current) => withUserPrompt(current, trimmed));
-      const message: ClientMessage = {
-        v: PROTOCOL_VERSION,
-        id: newMessageId(),
-        type: 'send_prompt',
-        payload: { prompt: trimmed },
-      };
-      send(message);
+      send(clientMessage({ type: 'send_prompt', payload: { prompt: trimmed } }));
     },
     [send],
   );
 
   const interrupt = useCallback((): void => {
-    const message: ClientMessage = { v: PROTOCOL_VERSION, id: newMessageId(), type: 'interrupt', payload: {} };
-    send(message);
+    send(clientMessage({ type: 'interrupt', payload: {} }));
   }, [send]);
 
   const respond = useCallback(
     (response: ApprovalResponsePayload): void => {
       // The modal closes as the answer goes out; the server parks nothing back.
       setView((current) => dismissApproval(current, response.requestId));
-      const message: ClientMessage = {
-        v: PROTOCOL_VERSION,
-        id: newMessageId(),
-        type: 'approval_response',
-        payload: response,
-      };
-      send(message);
+      send(clientMessage({ type: 'approval_response', payload: response }));
     },
     [send],
   );
@@ -161,18 +148,32 @@ export function useChat(project: Project): ChatController {
       // Shown at once so the next send is not a surprise; the bus holds the same
       // target and clears it as the turn starts (reducer's `turn_started`).
       setView((current) => withResumeTarget(current, target));
-      const message: ClientMessage = {
-        v: PROTOCOL_VERSION,
-        id: newMessageId(),
-        type: 'resume',
-        payload: target,
-      };
-      send(message);
+      send(clientMessage({ type: 'resume', payload: target }));
     },
     [send],
   );
 
   return { view, connection, sendPrompt, interrupt, respond, resume, dismissError };
+}
+
+/**
+ * One member of `ClientMessage` with its envelope fields removed. The conditional
+ * is what distributes the transform over the union; a plain `Omit` would collapse
+ * every member into one uncorrelated shape and lose the `type`/`payload` pairing.
+ */
+type WithoutEnvelope<Member> = Member extends { type: unknown } ? Omit<Member, 'v' | 'id'> : never;
+
+/** A frame before the transport stamps its envelope: `v` and `id` are not yet set. */
+type OutgoingMessage = WithoutEnvelope<ClientMessage>;
+
+/**
+ * Stamps the two fields every frame carries, so no call site hand-builds the
+ * envelope. Typed against {@link OutgoingMessage}, the discriminant still binds
+ * `type` to its payload: the wrong payload for a `type`, or an unknown field, is
+ * the same compile error it was when each message was built by hand.
+ */
+function clientMessage(message: OutgoingMessage): ClientMessage {
+  return { ...message, v: PROTOCOL_VERSION, id: newMessageId() };
 }
 
 /** Unique per frame; the protocol only asks that a `ClientMessage` carry one. */

@@ -72,6 +72,12 @@ export interface TurnResult {
   numTurns: number;
   isError: boolean;
   errors: readonly string[];
+  /**
+   * Whether the result is one a user can continue from. research 01 §3 offers
+   * "resume" on exactly two stop conditions — a turn that ran out of turns or
+   * budget — so the UI does not have to know those subtype strings itself.
+   */
+  canResume: boolean;
 }
 
 export interface ChatView {
@@ -326,33 +332,29 @@ function applyUserBlock(view: ChatView, block: ContentBlock, parentToolUseId: st
 }
 
 function applyResult(view: ChatView, message: Extract<SDKMessage, { type: 'result' }>): ChatView {
-  if (message.subtype === 'success') {
-    return {
-      ...view,
-      lastResult: {
-        subtype: 'success',
-        text: message.result,
-        costUsd: message.total_cost_usd,
-        stopReason: message.stop_reason,
-        numTurns: message.num_turns,
-        isError: message.is_error,
-        errors: [],
-      },
-    };
-  }
-  return {
-    ...view,
-    lastResult: {
-      subtype: message.subtype,
-      text: null,
-      costUsd: message.total_cost_usd,
-      stopReason: message.stop_reason,
-      numTurns: message.num_turns,
-      isError: message.is_error,
-      errors: message.errors,
-    },
+  // The fields every result carries, whichever arm builds it: cost is cumulative
+  // (read the latest, never summed), and both variants can be continued when the
+  // SDK capped the turn rather than failed it (research 01 §3).
+  const common = {
+    costUsd: message.total_cost_usd,
+    stopReason: message.stop_reason,
+    numTurns: message.num_turns,
+    isError: message.is_error,
+    canResume: RESUMABLE_SUBTYPES.has(message.subtype),
   };
+  const lastResult: TurnResult =
+    message.subtype === 'success'
+      ? { subtype: 'success', text: message.result, errors: [], ...common }
+      : { subtype: message.subtype, text: null, errors: message.errors, ...common };
+  return { ...view, lastResult };
 }
+
+/**
+ * The two stop conditions a user is expected to continue from — a turn that
+ * exhausted its turn or budget cap. Any other error subtype is a failure to fix,
+ * not a turn to resume.
+ */
+const RESUMABLE_SUBTYPES = new Set<string>(['error_max_turns', 'error_max_budget_usd']);
 
 /* -------------------------------------------------------------------------- */
 /* Local actions (the composer and the modal, not the server)                 */

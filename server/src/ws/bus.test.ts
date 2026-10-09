@@ -262,6 +262,56 @@ describe('the /ws event bus', () => {
     provider.releaseRuns();
   });
 
+  it('round-trips a gated AskUserQuestion through the same approval path', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const port = await listen(app);
+
+    const client = await connect(port, idFor(cwd));
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'build me a thing' } });
+    await client.nextMatching((event) => event.kind === 'stream_status');
+    await provider.waitForQueryInput(1);
+
+    // A clarifying question is a `canUseTool` gate like any other tool. Ticket
+    // 08 names AskUserQuestion specifically, so it is proven by a test that
+    // names it rather than by the callback being tool-name-agnostic.
+    const answer = provider.requestApproval(QUESTION_REQUEST);
+    const request = await client.nextMatching((event) => event.kind === 'approval_request');
+    expect(request).toMatchObject({ projectId: idFor(cwd), payload: QUESTION_REQUEST });
+    if (request.kind !== 'approval_request') {
+      throw new Error(`expected an approval_request, got ${request.kind}`);
+    }
+    expect(request.payload.toolName).toBe('AskUserQuestion');
+
+    // The UI renders the questions and returns the answers as the input — the
+    // `AskUserQuestion` shape from research 01 §5.
+    client.send({
+      v: 1,
+      id: 'c2',
+      type: 'approval_response',
+      payload: {
+        requestId: QUESTION_REQUEST.requestId,
+        behavior: 'allow',
+        updatedInput: {
+          questions: QUESTION_REQUEST.input['questions'],
+          answers: { 'Which database should I use?': 'Postgres' },
+        },
+      },
+    });
+
+    await expect(answer).resolves.toEqual({
+      requestId: QUESTION_REQUEST.requestId,
+      behavior: 'allow',
+      updatedInput: {
+        questions: QUESTION_REQUEST.input['questions'],
+        answers: { 'Which database should I use?': 'Postgres' },
+      },
+    });
+    provider.releaseRuns();
+  });
+
   it('answers an approval_response whose requestId matches no pending request', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
@@ -500,6 +550,32 @@ const APPROVAL_REQUEST: ApprovalRequestPayload = {
   input: { command: 'ls' },
   title: 'Claude wants to run Bash',
   displayName: 'Run Bash',
+};
+
+/**
+ * The clarifying-question gate: ticket 08 names `AskUserQuestion` alongside every
+ * other gated tool, and its input/answer shape differs from a plain tool call
+ * (research 01 §5), so it is driven end to end here rather than assumed.
+ */
+const QUESTION_REQUEST: ApprovalRequestPayload = {
+  requestId: 'req-q1',
+  toolUseID: 'tool-q1',
+  toolName: 'AskUserQuestion',
+  input: {
+    questions: [
+      {
+        question: 'Which database should I use?',
+        header: 'Database',
+        options: [
+          { label: 'Postgres', description: 'A relational server' },
+          { label: 'SQLite', description: 'An embedded file' },
+        ],
+        multiSelect: false,
+      },
+    ],
+  },
+  title: 'Claude has a question',
+  displayName: 'Answer a question',
 };
 
 function transcript(cwd: string): SDKMessage[] {
