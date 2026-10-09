@@ -25,9 +25,10 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 - [06 — Session ↔ Project data model & persistence](issues/06-session-project-data-model.md): the SDK transcript store (`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`) is the single source of truth — **no server session DB**; **session** = SDK `session_id` (persisted, one resumable conversation), **turn** = 04's `turnId` (ephemeral); default-fresh + explicit resume (`continue: true` = one-click); history via `listSessions()`/`getSessionMessages()`, normalized to the live renderer shape; empty chats are client state (no row until first send); `~/.claude` is a Docker volume, `sessionStore` the future seam.
 
+- [07 — Auth & Permissions](issues/07-auth-permissions.md): single-account login over HTTPS via **httpOnly session cookie** (`SameSite=Strict` + origin check; WS auth rides the cookie) + in-memory server-side session store behind an interface; **password-only** (`UI_PASSWORD`/`UI_PASSWORD_FILE`, bcrypt/argon2 hash, timing-safe); TLS at a **reverse proxy (Caddy)** with direct-TLS fallback; **principal-aware** middleware (`"default"` principal = the multi-user seam), everything gated; per-IP login rate-limit + lockout.
+
 ## Not yet specified
 
-- Auth implementation detail (middleware, password/config storage, HTTPS termination) — graduates later.
 - Docker image specifics.
 
 ## Out of scope

@@ -30,15 +30,25 @@ server session DB), session = SDK `session_id` / turn = 04's `turnId`, default-f
 client state (no row until first send), `~/.claude` as a Docker volume, `sessionStore`
 as the future seam. Full verdict in the ticket's `## Answer`; `map.md` carries the
 one-line summary.
+
+[07 — Auth & Permissions](issues/07-auth-permissions.md) is **resolved**:
+single-account login over HTTPS via an httpOnly session cookie (`SameSite=Strict`
++ origin check; WS auth rides the cookie), in-memory server-side session store
+behind an interface, password-only (`UI_PASSWORD`/`UI_PASSWORD_FILE`, bcrypt/argon2
+hash, timing-safe), TLS at a reverse proxy (Caddy) with direct-TLS fallback,
+principal-aware middleware (`"default"` principal = the multi-user seam), everything
+gated, per-IP login rate-limit + lockout. Full verdict in the ticket's `## Answer`;
+`map.md` carries the one-line summary.
 Model selection and live file editing are confirmed **out of MVP** (map
 "Out of scope" + `AGENTS.md`).
 
 ## What the next session is for
 
-1. Open and run the next ticket — **auth** (single-account login over HTTPS:
-   middleware, password/config storage, HTTPS termination; map "Not yet specified"
-   + `AGENTS.md` "Auth"). It graduates now that transport (04), projects (05), and
-   sessions (06) are settled — auth is the remaining gap before Docker specifics.
+1. Open and run the next ticket — **Docker image specifics** (the last item in
+   map "Not yet specified"; number it 08 if nothing is drafted yet). It graduates
+   now that auth (07) is settled: image layout, the `~/.claude` volume, the
+   `PROJECTS_ROOT` mount, the reverse-proxy sidecar, and how the app is configured
+   in-container.
 2. **One ticket per session** — do not start anything past that.
 
 ## Facts that live nowhere else
@@ -78,5 +88,5 @@ Model selection and live file editing are confirmed **out of MVP** (map
 ## Resume
 
 ```
-/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 07 — auth"
+/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 08 — docker image specifics"
 ```
