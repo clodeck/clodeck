@@ -126,6 +126,10 @@ export function applyServerEvent(view: ChatView, event: ServerEvent): ChatView {
       return withStreamStatus(view, event.payload.status);
     case 'error':
       return { ...view, lastError: { code: event.payload.code, message: event.payload.message } };
+    default:
+      // The envelope is a closed union, but the wire is untrusted: a kind this
+      // client does not know is ignored rather than left to fall through.
+      return view;
   }
 }
 
@@ -155,6 +159,8 @@ function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' 
       return flush({ ...view, state: 'idle' });
     case 'interrupted':
       return appendEntry(flush({ ...view, state: 'idle' }), { kind: 'notice', text: 'Interrupted' }, null);
+    default:
+      return view;
   }
 }
 

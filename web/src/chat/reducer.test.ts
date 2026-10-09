@@ -251,6 +251,19 @@ describe('chat reducer — nesting and unknowns', () => {
     expect(afterSystem.entries).toHaveLength(0);
     expect(afterSystem.state).toBe('idle');
   });
+
+  it('ignores an envelope kind the client does not know rather than crashing', () => {
+    const view = emptyView();
+    const unknown = {
+      v: PROTOCOL_VERSION,
+      seq: 1,
+      ts: '2026-01-01T00:00:00.000Z',
+      kind: 'future_kind',
+      payload: {},
+    } as unknown as ServerEvent;
+
+    expect(applyServerEvent(view, unknown)).toBe(view);
+  });
 });
 
 describe('chat reducer — snapshot, approvals, errors', () => {
