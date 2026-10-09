@@ -77,8 +77,8 @@ Model selection and live file editing are confirmed **out of MVP** (map
 3. **The product name is Clodeck** (decided 2026-10-09; was the "deck" placeholder).
    npm, GitHub org/repo, and the .com were all checked free before it was chosen.
 4. **Git remote is set:** `origin` → `https://github.com/clodeck/clodeck.git`
-   (replaced the old `ehsannku/ClaudeUi`). The repo exists on GitHub and is empty —
-   the first push will create `main`.
+   (replaced the old `ehsannku/ClaudeUi`). The repo is live on GitHub on branch
+   `main` (the local branch was renamed `master` → `main`).
 5. **Prototype structure:** variants share *widgets* (chat, terminal, file tree,
    code view in `common.js`) on purpose, so the comparison stays about structure;
    they share no *layout*. The file-drawer additions are opt-in via
