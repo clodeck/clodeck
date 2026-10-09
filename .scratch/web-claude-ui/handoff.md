@@ -15,19 +15,23 @@ payload), REST for CRUD/mutations, one active turn per project, keep-running +
 buffer + 60s reattach. The verdict and the full event/endpoint shape are recorded
 in the ticket's `## Answer`; `map.md` carries the one-line summary.
 
-[05 — Project discovery](issues/05-project-discovery.md) is **open and queued
-next** (its `GET /api/projects` endpoint is already fixed by 04's REST surface).
+[05 — Project discovery](issues/05-project-discovery.md) is **resolved**:
+single-root filesystem scan, immediate children = projects, `id` =
+base64url(canonical path), on-demand rescan, keep-running + hide on removal,
+the root as the allowlist (enforced everywhere), plus a deliberate multi-user
+seam (modular discovery/allowlist; the reversible id is an identifier, never a
+credential). Full verdict in the ticket's `## Answer`; `map.md` carries the
+one-line summary.
 Model selection and live file editing are confirmed **out of MVP** (map
 "Out of scope" + `AGENTS.md`).
 
 ## What the next session is for
 
-1. Run [05 — Project discovery](issues/05-project-discovery.md) — env var vs
-   config file vs filesystem scan for discovering the set of projects; refresh
-   semantics for a newly added directory; and the directory allowlist security
-   boundary. It is a **grilling** ticket; 04's `GET /api/projects` is the
-   endpoint it backs.
-2. **One ticket per session** — do not start anything past 05.
+1. Open and run the next ticket — **session↔project data model & persistence**
+   (resume-by-id, where session state lives; map "Not yet specified"). It is the
+   remaining data-model gap and is now unblocked: the SDK research (01) and the
+   project model (05) are both settled. (Number it 06 if nothing is drafted yet.)
+2. **One ticket per session** — do not start anything past that.
 
 ## Facts that live nowhere else
 
@@ -66,5 +70,5 @@ Model selection and live file editing are confirmed **out of MVP** (map
 ## Resume
 
 ```
-/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 05"
+/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 06 — session data model & persistence"
 ```

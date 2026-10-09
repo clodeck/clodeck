@@ -21,6 +21,8 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 - [04 — Backend transport and API shape](issues/04-backend-transport.md): **WebSocket (JSON), one multiplexed bus per browser session** for chat/tool events (SSE rejected), a thin normalized **envelope** (`sdk`/`approval_request`/`snapshot`/`stream_status`/`error` kinds, passthrough SDK payload), **REST for CRUD/mutations**, terminal stays on its own raw-byte WS. One active turn per project; keep-running + buffer + 60s reattach.
 
+- [05 — Project discovery](issues/05-project-discovery.md): **single-root filesystem scan** (`PROJECTS_ROOT` env var, config fallback) — immediate child dirs are projects (skip dotfiles/non-dirs/symlink-escapes; empty dirs ok); `id` = base64url(canonical path), `name` = basename; **on-demand rescan** (no watcher/poll in MVP); **keep-running + hide** on removal/rename; the root is the **allowlist**, enforced everywhere (id is an identifier, never a credential); discovery/allowlist kept modular so multi-user stays additive.
+
 ## Not yet specified
 
 - Session↔project data model & persistence (resume-by-id, where session state lives) — graduates after the SDK research.
