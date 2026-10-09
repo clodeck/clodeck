@@ -1,0 +1,24 @@
+{
+  "name": "@clodeck/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Clodeck backend: Agent SDK sessions, project discovery, and the HTTP/WS surface",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --project tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clodeck/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

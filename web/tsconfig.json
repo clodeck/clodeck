@@ -1,0 +1,14 @@
+{
+  // The browser half of the baseline: same strict rules, DOM libs, bundler
+  // resolution. Vite does the emitting, so this config never emits.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "noEmit": true
+  },
+  "include": ["src", "vite.config.ts"]
+}
