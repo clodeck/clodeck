@@ -1,32 +1,26 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, symlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createAllowlist } from './allowlist.js';
-
-/** Junctions need no elevation on Windows; real directory symlinks elsewhere. */
-const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+import { createSandbox, linkType, removeSandbox, type Sandbox } from './test-support.js';
 
 /**
  * The allowlist is the security boundary (wayfinder 05 §5), so it is tested
- * against real directories on disk — `fs` is never mocked. The sandbox is
- * realpath'd first so its own symlinks (macOS `/var` → `/private/var`, Windows
- * 8.3 names) cannot make the expectations lie.
+ * against real directories on disk — `fs` is never mocked.
  */
 describe('canonicalizeInsideRoot', () => {
-  let sandbox: string;
+  let sandbox: Sandbox;
   let root: string;
 
   beforeEach(async () => {
-    sandbox = await realpath(await mkdtemp(path.join(tmpdir(), 'clodeck-allowlist-')));
-    root = path.join(sandbox, 'projects');
-    await mkdir(root);
+    sandbox = await createSandbox('clodeck-allowlist-');
+    root = sandbox.root;
   });
 
   afterEach(async () => {
-    await rm(sandbox, { recursive: true, force: true });
+    await removeSandbox(sandbox);
   });
 
   it('accepts a directory inside the root and returns its canonical path', async () => {
@@ -39,7 +33,7 @@ describe('canonicalizeInsideRoot', () => {
   });
 
   it('rejects a `..` traversal out of the root', async () => {
-    const outside = path.join(sandbox, 'outside');
+    const outside = path.join(sandbox.dir, 'outside');
     await mkdir(outside);
 
     await expect(
@@ -63,7 +57,7 @@ describe('canonicalizeInsideRoot', () => {
   });
 
   it('rejects a symlink whose realpath escapes the root', async () => {
-    const outside = path.join(sandbox, 'outside');
+    const outside = path.join(sandbox.dir, 'outside');
     await mkdir(outside);
     const link = path.join(root, 'escape');
     await symlink(outside, link, linkType);

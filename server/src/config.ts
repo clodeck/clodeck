@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { warnToConsole, type Warn } from './logging.js';
+
 export interface ServerConfig {
   /** The projects root, or null when nothing is configured (an empty list, never an error). */
   projectsRoot: string | null;
@@ -10,7 +12,7 @@ export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
   /** Defaults to `clodeck.config.json` in the working directory. */
   configPath?: string;
-  warn?: (message: string) => void;
+  warn?: Warn;
 }
 
 const CONFIG_FILE_NAME = 'clodeck.config.json';
@@ -23,7 +25,7 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const env = options.env ?? process.env;
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? warnToConsole;
 
   const fromEnv = env['PROJECTS_ROOT']?.trim();
   if (fromEnv !== undefined && fromEnv !== '') {
@@ -40,7 +42,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
  * used. Only a file that exists but is unusable is reported: an absent config
  * file is the normal case.
  */
-function projectsRootFromFile(configPath: string, warn: (message: string) => void): string | null {
+function projectsRootFromFile(configPath: string, warn: Warn): string | null {
   let contents: string;
   try {
     contents = readFileSync(configPath, 'utf8');

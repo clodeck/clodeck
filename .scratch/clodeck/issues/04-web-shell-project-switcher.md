@@ -33,7 +33,11 @@ web/vite.config.ts          react + tailwind plugins, `/api` proxied to 127.0.0.
   comes from `@clodeck/shared`, and this covers the wire.
 - Beyond the ticket's letter, two small additions the shell needed to be a home for later slices:
   selecting a project (highlight + `aria-current`, derived from the fresh list so a deleted project
-  stops being selected) and stub Chat / Terminal / Files panels for the selected project.
+  stops being selected) and stub Chat / Terminal / Files panels for the selected project. The code
+  review flagged the selection as scope creep — the spec says "this slice renders only the project
+  switcher". It stays, deliberately: the shell's whole job is to be the home of per-project surfaces,
+  and a switcher that lists projects without selecting one leaves the next slice with nothing to
+  attach to. Removing it later is a two-line change.
 
 ## Evidence
 
@@ -55,3 +59,10 @@ no console errors
 ```
 
 Screenshots of each state were captured and inspected (error, listed, selected, loading).
+
+## Review follow-up
+
+The code review's Spec axis found one real defect beyond this ticket: a symlink inside the root
+pointing at a sibling directory made discovery return two projects with the same `id` (the id *is*
+the canonical path), which collides as a React key and marks two rows selected. Fixed in ticket 03's
+discovery with a regression test.

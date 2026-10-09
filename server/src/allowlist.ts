@@ -37,8 +37,11 @@ export function createAllowlist(root: string): Allowlist {
  * Containment by `path.relative`, which handles the separators and drive
  * letters of the host platform: an escape is `..`, `..<sep>…`, or a path on
  * another volume. A sibling merely *named* `..foo` is still inside.
+ *
+ * Private on purpose: `canonicalizeInsideRoot` is the one door, and it is the
+ * only thing that should ever see an un-resolved string.
  */
-export function isInsideRoot(root: string, candidate: string): boolean {
+function isInsideRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }

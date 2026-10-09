@@ -36,11 +36,18 @@ server/src/main.ts        boot: loadConfig -> discovery -> buildApp -> listen (P
   drops in front of it without touching the routes. This slice ships it unauthenticated, so
   `main.ts` binds loopback by default (`HOST` overrides for the container).
 - Ordering is `localeCompare` on the name (human alphabetical, per user story 9).
+- **A directory is listed exactly once.** Because the id *is* the canonical path, a symlink pointing
+  at a sibling (`alpha-alias → alpha`) would otherwise produce two rows sharing one id — a React key
+  collision, and one click selecting both. Real children are visited before symlinks, so a directory
+  keeps its own name and an alias never shadows it. Found by the code review, fixed with a test.
+- Known and deliberate: an in-root symlink is listed under the **link's** name (what the user sees)
+  while `path` is the real target; and a symlink resolving to the root itself is not special-cased —
+  the root is inside the allowlist by definition, and nothing in the ticket excludes it.
 
 ## Evidence
 
 ```
-npm test          → server: 14 passed | 1 skipped; shared 6; web 3
+npm test          → server: 15 passed | 1 skipped; shared 6; web 2
 npm run typecheck → clean; npm run build → clean
 ```
 

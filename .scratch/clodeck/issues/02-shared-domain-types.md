@@ -49,8 +49,9 @@ grep -rnE ":\s*any\b|<any>|as any" shared/src → no matches
 shared/dist       → index/project/protocol/sdk .js + .d.ts (+ maps); index.d.ts is the three re-exports
 ```
 
-`Project` is imported (type-only) by the server's tests (`server/src/app.test.ts`) and by
-`web/src/App.test.tsx`, so each consumer compiles against the built declarations.
+`Project` is imported by the server (`server/src/discovery.ts` and its tests) and by the web app
+(`web/src/useProjects.ts`, `web/src/App.tsx`), so both consumers compile against the built
+declarations.
 
 **Not verifiable yet (by design):** assignability of the real `SDKMessage` to the mirror. The SDK is
 not a dependency of this slice (it bundles a native binary), so the check lands with the chat bus,

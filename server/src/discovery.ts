@@ -4,7 +4,8 @@ import path from 'node:path';
 
 import type { Project } from '@clodeck/shared';
 
-import { createAllowlist, type Allowlist } from './allowlist.js';
+import { createAllowlist } from './allowlist.js';
+import { warnToConsole, type Warn } from './logging.js';
 
 /**
  * The discovery seam (wayfinder 05 §7): one interface, so a later multi-user
@@ -17,13 +18,11 @@ export interface ProjectDiscovery {
 
 export interface DiscoveryOptions {
   /** Where a misconfigured or unreadable root is reported (never a 500). */
-  warn?: (message: string) => void;
-  /** Defaults to the policy over `root`; injected in tests. */
-  allowlist?: Allowlist;
+  warn?: Warn;
 }
 
 /** A project's id is the reversible `base64url` of its canonical path — no lookup table (05 §3). */
-export function toProjectId(canonicalPath: string): string {
+function toProjectId(canonicalPath: string): string {
   return Buffer.from(canonicalPath, 'utf8').toString('base64url');
 }
 
@@ -31,8 +30,8 @@ export function createProjectDiscovery(
   root: string | null,
   options: DiscoveryOptions = {},
 ): ProjectDiscovery {
-  const warn = options.warn ?? ((message: string) => console.warn(message));
-  const allowlist = root === null ? null : (options.allowlist ?? createAllowlist(root));
+  const warn = options.warn ?? warnToConsole;
+  const allowlist = root === null ? null : createAllowlist(root);
 
   if (root === null) {
     warn('no projects root configured — set PROJECTS_ROOT or projectsRoot in clodeck.config.json');
@@ -55,8 +54,12 @@ export function createProjectDiscovery(
       }
 
       const projects: Project[] = [];
+      // A project's id *is* its canonical path, so a directory must be listed
+      // exactly once: a symlink pointing at a sibling would otherwise produce a
+      // second row with the same id (and the same path) under a different name.
+      const claimed = new Set<string>();
 
-      for (const entry of entries) {
+      for (const entry of [...entries].sort(compareEntries)) {
         if (entry.name.startsWith('.')) continue;
         // Plain files are skipped; a symlink is allowed through to the allowlist,
         // which decides by where it actually resolves.
@@ -66,13 +69,27 @@ export function createProjectDiscovery(
         if (canonical === null) continue;
         // The allowlist resolves symlinks, so this also rejects a link to a file.
         if (!(await isDirectory(canonical))) continue;
+        if (claimed.has(canonical)) continue;
 
+        claimed.add(canonical);
         projects.push({ id: toProjectId(canonical), name: entry.name, path: canonical });
       }
 
       return projects.sort((left, right) => left.name.localeCompare(right.name));
     },
   };
+}
+
+/**
+ * Real directories before symlinks, by name within each group — so a directory
+ * keeps its own name when an alias resolves to it, and the outcome never depends
+ * on `readdir` order.
+ */
+function compareEntries(left: Dirent, right: Dirent): number {
+  return (
+    Number(left.isSymbolicLink()) - Number(right.isSymbolicLink()) ||
+    left.name.localeCompare(right.name)
+  );
 }
 
 async function isDirectory(target: string): Promise<boolean> {

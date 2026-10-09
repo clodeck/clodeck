@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Project } from '@clodeck/shared';
@@ -9,9 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
-
-/** Junctions need no elevation on Windows; real directory symlinks elsewhere. */
-const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+import { createSandbox, linkType, removeSandbox, type Sandbox } from './test-support.js';
 
 /**
  * The HTTP boundary is where the endpoint's external behavior is pinned: real
@@ -19,20 +16,19 @@ const linkType = process.platform === 'win32' ? 'junction' : 'dir';
  * no private functions. `app.inject()` boots the handler without a socket.
  */
 describe('the server API', () => {
-  let sandbox: string;
+  let sandbox: Sandbox;
   let root: string;
   let apps: FastifyInstance[];
 
   beforeEach(async () => {
-    sandbox = await realpath(await mkdtemp(path.join(tmpdir(), 'clodeck-app-')));
-    root = path.join(sandbox, 'projects');
-    await mkdir(root);
+    sandbox = await createSandbox('clodeck-app-');
+    root = sandbox.root;
     apps = [];
   });
 
   afterEach(async () => {
     await Promise.all(apps.map((app) => app.close()));
-    await rm(sandbox, { recursive: true, force: true });
+    await removeSandbox(sandbox);
   });
 
   function makeApp(projectsRoot: string | null): FastifyInstance {
@@ -75,8 +71,8 @@ describe('the server API', () => {
     await mkdir(path.join(root, 'nested', 'deeper'), { recursive: true }); // `deeper` is not a project
     await mkdir(path.join(root, '.hidden'));
     await writeFile(path.join(root, 'notes.txt'), 'not a project');
-    await mkdir(path.join(sandbox, 'outside'));
-    await symlink(path.join(sandbox, 'outside'), path.join(root, 'escape'), linkType);
+    await mkdir(path.join(sandbox.dir, 'outside'));
+    await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'escape'), linkType);
     await symlink(path.join(root, 'nested', 'deeper'), path.join(root, 'linked'), linkType);
 
     const response = await makeApp(root).inject({ method: 'GET', url: '/api/projects' });
@@ -89,8 +85,20 @@ describe('the server API', () => {
     );
   });
 
+  it('lists a directory once when a sibling symlink resolves to it', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    await symlink(path.join(root, 'alpha'), path.join(root, 'alpha-alias'), linkType);
+
+    const response = await makeApp(root).inject({ method: 'GET', url: '/api/projects' });
+
+    const projects = (response.json() as { projects: Project[] }).projects;
+    // The id *is* the canonical path, so one directory must not arrive twice.
+    expect(projects.map((project) => project.name)).toEqual(['alpha']);
+    expect(new Set(projects.map((project) => project.id)).size).toBe(projects.length);
+  });
+
   it('answers 200 with an empty list when the root is missing or unconfigured', async () => {
-    const missing = await makeApp(path.join(sandbox, 'not-there')).inject({
+    const missing = await makeApp(path.join(sandbox.dir, 'not-there')).inject({
       method: 'GET',
       url: '/api/projects',
     });
@@ -117,12 +125,12 @@ describe('the server API', () => {
   });
 
   it('takes the projects root from the PROJECTS_ROOT environment variable', async () => {
-    const configured = path.join(sandbox, 'configured-root');
+    const configured = path.join(sandbox.dir, 'configured-root');
     await mkdir(path.join(configured, 'from-env'), { recursive: true });
 
     const config = loadConfig({
       env: { PROJECTS_ROOT: configured },
-      configPath: path.join(sandbox, 'absent.config.json'),
+      configPath: path.join(sandbox.dir, 'absent.config.json'),
     });
 
     const response = await makeApp(config.projectsRoot).inject({ method: 'GET', url: '/api/projects' });
@@ -132,9 +140,9 @@ describe('the server API', () => {
   });
 
   it('falls back to projectsRoot in the config file when the env var is absent', async () => {
-    const configured = path.join(sandbox, 'configured-root');
+    const configured = path.join(sandbox.dir, 'configured-root');
     await mkdir(path.join(configured, 'from-file'), { recursive: true });
-    const configPath = path.join(sandbox, 'clodeck.config.json');
+    const configPath = path.join(sandbox.dir, 'clodeck.config.json');
     await writeFile(configPath, JSON.stringify({ projectsRoot: configured }));
 
     const config = loadConfig({ env: {}, configPath });
@@ -147,13 +155,13 @@ describe('the server API', () => {
   });
 
   it('reports an unusable config file instead of failing, and serves an empty list', async () => {
-    const brokenPath = path.join(sandbox, 'broken.config.json');
+    const brokenPath = path.join(sandbox.dir, 'broken.config.json');
     await writeFile(brokenPath, '{ "projectsRoot": ');
     const warnings: string[] = [];
     const warn = (message: string) => warnings.push(message);
 
     const broken = loadConfig({ env: {}, configPath: brokenPath, warn });
-    const absent = loadConfig({ env: {}, configPath: path.join(sandbox, 'absent.config.json'), warn });
+    const absent = loadConfig({ env: {}, configPath: path.join(sandbox.dir, 'absent.config.json'), warn });
 
     expect(broken.projectsRoot).toBeNull();
     expect(warnings.join('\n')).toContain('broken.config.json');
