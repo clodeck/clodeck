@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+/* The palette of the verified prototype (Variant A): a muted dark shell in the
+   spirit of claudecodeui. Tokens, not literals, so later surfaces inherit it. */
+@theme {
+  --color-canvas: #0b0d10;
+  --color-panel: #12161c;
+  --color-line: #232b35;
+  --color-ink: #e7edf3;
+  --color-ink-dim: #8b98a8;
+  --color-accent: #c96442;
+  --color-err: #d95f5f;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+}
