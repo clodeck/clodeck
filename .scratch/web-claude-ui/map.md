@@ -19,6 +19,8 @@ A written **spec** plus a **visual prototype** for a web UI that rides on the Cl
 
 - [03 — Visual prototype of the UI](issues/03-visual-prototype.md): verdict **Variant A (chat-first, tools on demand)** — nav rail ▸ project+session sidebar ▸ chat stage; terminal and files in a bottom drawer. File drawer spec: toolbar (upload / new file / new folder / refresh / tree⇄list toggle) + file ops (create-in-folder, drag-move, rename, delete — all confirmed) + file actions (download, markdown preview, metadata, read-only⇄editable toggle). Terminal stays a drawer, not a peer pane.
 
+- [04 — Backend transport and API shape](issues/04-backend-transport.md): **WebSocket (JSON), one multiplexed bus per browser session** for chat/tool events (SSE rejected), a thin normalized **envelope** (`sdk`/`approval_request`/`snapshot`/`stream_status`/`error` kinds, passthrough SDK payload), **REST for CRUD/mutations**, terminal stays on its own raw-byte WS. One active turn per project; keep-running + buffer + 60s reattach.
+
 ## Not yet specified
 
 - Session↔project data model & persistence (resume-by-id, where session state lives) — graduates after the SDK research.

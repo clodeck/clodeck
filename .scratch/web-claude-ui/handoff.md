@@ -8,26 +8,26 @@ can pick the work up. Overwrite it each time; git history keeps the old ones.
 
 ## Where this stands
 
-Ticket [03 — Visual prototype of the UI](issues/03-visual-prototype.md) is
-**resolved**: the verdict is **Variant A (chat-first, tools on demand)**, and the
-File Drawer spec (toolbar + file actions + metadata) is recorded in the ticket's
-`## Answer`. The prototype now demonstrates that spec in variant A.
+Ticket [04 — Backend transport and API shape](issues/04-backend-transport.md) is
+**resolved**: WebSocket (JSON, one multiplexed bus per browser session) for
+chat/tool events (SSE rejected), a thin normalized envelope (passthrough SDK
+payload), REST for CRUD/mutations, one active turn per project, keep-running +
+buffer + 60s reattach. The verdict and the full event/endpoint shape are recorded
+in the ticket's `## Answer`; `map.md` carries the one-line summary.
 
-The frontier is [04 — Backend transport and API shape](issues/04-backend-transport.md),
-sitting **unblocked** (its blocker, 01, is resolved). That is the next ticket.
-
-[05 — Project discovery](issues/05-project-discovery.md) is also open (queued after
-04). Model selection and live file editing are confirmed **out of MVP** (map
+[05 — Project discovery](issues/05-project-discovery.md) is **open and queued
+next** (its `GET /api/projects` endpoint is already fixed by 04's REST surface).
+Model selection and live file editing are confirmed **out of MVP** (map
 "Out of scope" + `AGENTS.md`).
 
 ## What the next session is for
 
-1. Run [04 — Backend transport and API shape](issues/04-backend-transport.md) —
-   WebSocket vs SSE for streaming chat/tool events, and the backend API/event
-   shape that connects the SDK and the per-project terminal to the React client.
-   It is a **grilling** ticket (stress-test the choice), backed by the two
-   resolved research tickets 01 + 02.
-2. **One ticket per session** — do not also start [05 — Project discovery](issues/05-project-discovery.md).
+1. Run [05 — Project discovery](issues/05-project-discovery.md) — env var vs
+   config file vs filesystem scan for discovering the set of projects; refresh
+   semantics for a newly added directory; and the directory allowlist security
+   boundary. It is a **grilling** ticket; 04's `GET /api/projects` is the
+   endpoint it backs.
+2. **One ticket per session** — do not start anything past 05.
 
 ## Facts that live nowhere else
 
@@ -66,5 +66,5 @@ sitting **unblocked** (its blocker, 01, is resolved). That is the next ticket.
 ## Resume
 
 ```
-/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 04"
+/wayfinder .scratch/web-claude-ui/map.md   +  "ticket 05"
 ```
