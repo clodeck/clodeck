@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { ProjectDiscovery } from './discovery.js';
 import type { SdkProvider } from './sdk/provider.js';
+import { registerSessionRoutes } from './sessions.js';
 import { registerWsBus } from './ws/bus.js';
 import { createTurnManager } from './ws/turn-manager.js';
 
@@ -34,6 +35,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.register(
     async (api) => {
       api.get('/projects', async () => ({ projects: await options.projects.listProjects() }));
+      registerSessionRoutes(api, { projects: options.projects, provider: options.provider });
     },
     { prefix: '/api' },
   );
