@@ -5,11 +5,12 @@ Remote browser access to Claude Code across multiple project directories: a chat
 a terminal and a read-only file viewer alongside. One user, one dedicated server that also hosts the
 project folders.
 
-**Status: two slices in.** Project discovery, `GET /api/projects` and the project switcher work end
-to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at `/ws`, tool
-cards, the approval modal, and session history / resume over REST. Terminals, the file viewer and
-auth are scaffolded for but not built — the specs and tickets under
-[`.scratch/clodeck/`](.scratch/clodeck) are the plan of record.
+**Status: three slices in.** Project discovery, `GET /api/projects` and the project switcher work
+end to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at `/ws`, tool
+cards, the approval modal, and session history / resume over REST. So does the terminal: a
+per-project shell (node-pty behind a facade) streamed as raw bytes over `/ws/terminal` into an
+xterm.js panel, resized over REST. The read-only file viewer and auth are scaffolded for but not
+built — the specs and tickets under [`.scratch/clodeck/`](.scratch/clodeck) are the plan of record.
 
 ## Layout
 
@@ -42,6 +43,13 @@ Every command runs from the repo root.
 it through its built `exports` (`shared/dist`) — a clean clone has nothing to import until that
 happens. For the same reason, editing `shared/` while `npm run dev` is running needs a
 `npm run build:shared` (or a restart) before the server and client see the change.
+
+`npm run dev` passes `--raw` to `concurrently` on purpose — do not "restore" the `-n server,web`
+prefixes there. `concurrently`'s line-prefixing streams deadlock the *real* Agent SDK's import when
+the server runs under `tsx watch`: the server process starts, prints nothing, never listens, and the
+client's proxy answers 502 for `/api/projects`. `--raw` passes the children's output straight
+through and the loop works; the cost is the `[server]`/`[web]` prefixes. `dev:fake` never imports
+the SDK, so it keeps them.
 
 ## Configuration
 

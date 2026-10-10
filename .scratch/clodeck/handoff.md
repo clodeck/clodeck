@@ -6,9 +6,9 @@
 
 ## Where this stands
 
-Three slices are **built, documented, and verified**. Slices 01–02 are on `main`; the terminal slice
-is on branch **`clodeck/12-14-terminal` (tip `be87aa19`)** and is **not yet merged into `main`** —
-that is the first thing the next session (or you) should do.
+Three slices are **built, documented, and verified** — all on `main`. The terminal slice was merged
+as `7456803` and its branch deleted, so `main` carries the whole of it. One thing that session could
+not do remains: nobody has seen the terminal panel in a browser (ticket 14's gaps).
 
 | # | Ticket | Status |
 |---|--------|--------|
@@ -29,10 +29,11 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
 
 ## What the next session is for
 
-1. **Merge `clodeck/12-14-terminal` into `main`** (previous slices were merged by hand; there is no
-   `gh` CLI on this machine, so no PR).
-2. **One human check the machine could not do:** run `npm run dev`, open a project, and type into the
-   terminal once — the web panel itself has never been seen in a browser (see ticket 14's gaps).
+1. **One human check the machine could not do:** run `npm run dev` (with `PROJECTS_ROOT` set — see
+   below), open a project, and type into the terminal once. The web panel has never been seen in a
+   browser (ticket 14's gaps), and the shell is a real one on this path.
+2. **`main` is unpushed** — it is ahead of `origin/main` by the whole slice. There is no `gh` CLI on
+   this machine, so no PR either; pushing is a deliberate, separate act.
 3. The remaining wayfinder slices — still **unticketed**:
 
 - **Read-only file viewer / file drawer** (wayfinder 03). The `Files` cell in `web/src/App.tsx` is
@@ -133,12 +134,20 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
 - Vite binds `localhost` → `[::1]:5173` on Windows, so probe the dev client at `localhost`, never
   `127.0.0.1`; the backend is the opposite, binding `127.0.0.1:3001`, which is what the proxy targets.
   `/ws` is proxied with `ws: true`, so `/ws/terminal` rides the same prefix — no proxy change needed.
+- **`npm run dev` passes `--raw` to `concurrently` on purpose** (README has the reasoning): with the
+  `-n server,web` prefixes, `concurrently`'s line-prefixing streams deadlock the real Agent SDK's
+  import under `tsx watch`, and the server silently never listens (the client then 502s). This is
+  pre-existing — `dev:fake` never imports the SDK, which is exactly why it was never noticed. Restore
+  the prefixes and you re-break `npm run dev`.
+- **`npm run dev` needs `PROJECTS_ROOT`** (or `clodeck.config.json` in `server/`) or the project list
+  is empty by design — an empty list is not an error, so it looks like a broken UI when it is an
+  unconfigured server. `npm run dev:fake` plus a `PROJECTS_ROOT` is the offline loop.
 - The symlink-to-a-file test is POSIX-only (creating a file symlink on Windows needs elevation or
   Developer Mode); it is skipped via `it.skipIf(win32)`. It is the suite's only skip.
 
 ## Resume
 
 ```
-the terminal slice is built on clodeck/12-14-terminal (tip be87aa19) — merge it into main, then
-spec the next slice (read-only file viewer, or auth)
+the terminal slice is merged into main — look at the terminal panel in a browser once
+(npm run dev with PROJECTS_ROOT), then spec the next slice (read-only file viewer, or auth)
 ```
