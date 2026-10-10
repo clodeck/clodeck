@@ -1,19 +1,28 @@
-import type { Dirent } from 'node:fs';
-import { open, readdir, realpath, stat } from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  realpath,
+  rename as renameFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 import type { FileContent, FileEntry } from '@clodeck/shared';
 
 /**
  * The root-scoped filesystem access (spec-04 §"The type fence"): the only thing
- * that reads — and, next ticket, writes — a project's files. It is constructed
- * with the canonical project path `resolveProject` already returned, so the root
- * is trusted; every path that arrives *from the wire* is re-validated through
- * the same realpath-containment rule the allowlist uses before it becomes a
- * `ScopedPath`.
+ * that reads and writes a project's files. It is constructed with the canonical
+ * project path `resolveProject` already returned, so the root is trusted; every
+ * path that arrives *from the wire* is re-validated through the same
+ * realpath-containment rule the allowlist uses before it becomes a `ScopedPath`.
  *
  * There is no facade over `fs` (unlike the SDK / node-pty): `fs` is not a native
- * binary, so the reader is tested against real temp directories exactly like
+ * binary, so the module is tested against real temp directories exactly like
  * `discovery.test.ts`.
  */
 
@@ -26,10 +35,39 @@ declare const scoped: unique symbol;
  */
 export type ScopedPath = string & { readonly [scoped]: 'inside-root' };
 
+declare const filename: unique symbol;
+/**
+ * A single clean path segment — no `/` or `\`, no `.`/`..`, no NUL, not empty,
+ * length-capped. The only way to make one is `name()`, so a write function that
+ * takes this cannot be handed a name that traverses. Compile-time only, like
+ * `ScopedPath`.
+ */
+export type FileName = string & { readonly [filename]: 'single-segment' };
+
 export type ResolveResult =
   | { status: 'ok'; scoped: ScopedPath; kind: 'file' | 'directory' }
   | { status: 'not_found' }
   | { status: 'outside_root' };
+
+/** Where a write lands: an already-resolved parent directory plus one clean name. */
+export interface WriteTarget {
+  parent: ScopedPath;
+  name: FileName;
+}
+
+export type WriteTargetResult =
+  | { status: 'ok'; target: WriteTarget }
+  | { status: 'is_root' } // empty rel — the project root itself
+  | { status: 'not_found' } // parent missing
+  | { status: 'outside_root' } // parent escapes
+  | { status: 'not_a_directory' } // parent is a file
+  | { status: 'invalid_name' }; // basename not a single clean segment
+
+export type WriteResult =
+  | { status: 'ok' }
+  | { status: 'exists' } // create onto an existing name
+  | { status: 'not_found' } // rename/remove a missing name
+  | { status: 'symlink' }; // create through a symlink in the final segment
 
 export interface ScopedFs {
   /**
@@ -43,10 +81,46 @@ export interface ScopedFs {
   listDir(dir: ScopedPath): Promise<FileEntry[]>;
   /** Read one file (already resolved), capped and binary-aware. */
   readFile(file: ScopedPath): Promise<FileContent>;
+  /**
+   * Validate a client-supplied relative path as a *write target* and mint the
+   * only `WriteTarget` there is. `resolveWriteTarget` is the write door: it
+   * realpath's the parent directory (so the parent is a real, in-root directory
+   * with no symlink anywhere in it) and runs the basename through `name()` — so
+   * a `WriteTarget` is proof its parent is inside the root and its name is a
+   * single clean segment. The empty path is the root itself, which is never a
+   * valid target.
+   */
+  resolveWriteTarget(rel: string): Promise<WriteTargetResult>;
+  /** Create a new file (never overwrites, never follows a final-segment symlink). */
+  createFile(target: WriteTarget, content: Buffer): Promise<WriteResult>;
+  /** Create a new directory (never over an existing entry, never through a symlink). */
+  createDirectory(target: WriteTarget): Promise<WriteResult>;
+  /** Rename the target entry within its own directory (the entry itself, never a symlink's target). */
+  rename(target: WriteTarget, newName: FileName): Promise<WriteResult>;
+  /** Remove the target entry (a symlink is removed as the link, never followed). */
+  remove(target: WriteTarget): Promise<WriteResult>;
 }
+
+/** The largest single segment we mint; the host fs caps names at 255 bytes. */
+const MAX_NAME_BYTES = 255;
 
 /** How many bytes of a text file the preview reads; larger is truncated (spec-04). */
 const MAX_TEXT_BYTES = 256 * 1024;
+
+/**
+ * Validate a single path segment and mint the only `FileName` there is. Returns
+ * `null` for anything that is not a plain name: empty, `.`/`..`, a separator, a
+ * NUL, or a segment longer than the host fs allows. This is the write half's
+ * compile-time fence — a route-level `name(to)` refusal *and* the basename check
+ * inside `resolveWriteTarget` — but, like `resolve`, it is re-run on the wire
+ * string at runtime, not relied on for safety.
+ */
+export function name(input: string): FileName | null {
+  if (input === '' || input === '.' || input === '..') return null;
+  if (input.includes('/') || input.includes('\\') || input.includes('\0')) return null;
+  if (Buffer.byteLength(input, 'utf8') > MAX_NAME_BYTES) return null;
+  return input as FileName;
+}
 
 export function createScopedFs(projectPath: string): ScopedFs {
   const root = projectPath;
@@ -86,7 +160,76 @@ export function createScopedFs(projectPath: string): ScopedFs {
     }
   }
 
-  return { resolve, listDir, readFile };
+  async function resolveWriteTarget(rel: string): Promise<WriteTargetResult> {
+    if (rel === '') return { status: 'is_root' };
+
+    const parent = await resolve(path.dirname(rel));
+    if (parent.status === 'not_found') return { status: 'not_found' };
+    if (parent.status === 'outside_root') return { status: 'outside_root' };
+    if (parent.kind !== 'directory') return { status: 'not_a_directory' };
+
+    const base = name(path.basename(rel));
+    if (base === null) return { status: 'invalid_name' };
+
+    return { status: 'ok', target: { parent: parent.scoped, name: base } };
+  }
+
+  async function createFile(target: WriteTarget, content: Buffer): Promise<WriteResult> {
+    const full = path.join(target.parent, target.name);
+    const existing = await lstatOrNull(full);
+    if (existing !== null) return existing.isSymbolicLink() ? { status: 'symlink' } : { status: 'exists' };
+
+    try {
+      // `wx` is `O_CREAT | O_EXCL`: no overwrite, and no follow of a symlink that
+      // appears in the window between the `lstat` and the write.
+      await writeFile(full, content, { flag: 'wx' });
+      return { status: 'ok' };
+    } catch (error) {
+      if (isEexist(error)) return { status: 'exists' };
+      throw error;
+    }
+  }
+
+  async function createDirectory(target: WriteTarget): Promise<WriteResult> {
+    const full = path.join(target.parent, target.name);
+    const existing = await lstatOrNull(full);
+    if (existing !== null) return existing.isSymbolicLink() ? { status: 'symlink' } : { status: 'exists' };
+
+    try {
+      // Non-recursive `mkdir` is the directory twin of `wx`: it fails with
+      // EEXIST rather than writing over whatever is already there.
+      await mkdir(full);
+      return { status: 'ok' };
+    } catch (error) {
+      if (isEexist(error)) return { status: 'exists' };
+      throw error;
+    }
+  }
+
+  async function rename(target: WriteTarget, newName: FileName): Promise<WriteResult> {
+    const from = path.join(target.parent, target.name);
+    const existing = await lstatOrNull(from);
+    if (existing === null) return { status: 'not_found' };
+
+    // `parent` is realpath'd (no symlink anywhere in it), and `rename(2)` does
+    // not follow a symlink in the destination's final segment — so a rename is
+    // safe. Renaming a symlink *entry* renames the link, never its target.
+    await renameFile(from, path.join(target.parent, newName));
+    return { status: 'ok' };
+  }
+
+  async function remove(target: WriteTarget): Promise<WriteResult> {
+    const full = path.join(target.parent, target.name);
+    const existing = await lstatOrNull(full);
+    if (existing === null) return { status: 'not_found' };
+
+    // `rm` on a symlink removes the link itself, never its target; `recursive`
+    // is only set for a real directory (a dir *symlink* is unlinked as a link).
+    await rm(full, { recursive: existing.isDirectory(), force: true });
+    return { status: 'ok' };
+  }
+
+  return { resolve, listDir, readFile, resolveWriteTarget, createFile, createDirectory, rename, remove };
 }
 
 /**
@@ -172,4 +315,18 @@ async function realpathOrNull(target: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** `lstat` without following the final segment — `null` when the entry is absent. */
+async function lstatOrNull(target: string): Promise<Stats | null> {
+  try {
+    return await lstat(target);
+  } catch {
+    return null;
+  }
+}
+
+/** The `O_EXCL`/non-recursive-create race loser: something is already at the name. */
+function isEexist(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'EEXIST';
 }

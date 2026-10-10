@@ -1,10 +1,18 @@
-import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSandbox, linkType, removeSandbox, type Sandbox } from '../test-support.js';
-import { createScopedFs, type ScopedPath } from './scoped-fs.js';
+import {
+  createScopedFs,
+  name,
+  type FileName,
+  type ScopedPath,
+  type WriteTarget,
+} from './scoped-fs.js';
+
+const win32 = process.platform === 'win32';
 
 /**
  * The reader is exercised against real temp directories — no `fs` mocking —
@@ -130,6 +138,220 @@ describe('ScopedFs (read half)', () => {
 
       expect(content).toMatchObject({ kind: 'text', truncated: true, size: 300 * 1024 });
       expect((content as { content: string }).content).toHaveLength(256 * 1024);
+    });
+  });
+});
+
+/**
+ * The writer is exercised the same way: real temp directories, no `fs` mock, and
+ * the seam under test is the *door* — a raw relative string in, a `WriteTarget`
+ * (or a rejection) out. The symlink-in-window guards are POSIX-only, the suite's
+ * one sanctioned skip.
+ */
+describe('ScopedFs (write half)', () => {
+  let sandbox: Sandbox;
+  let proj: string;
+
+  beforeEach(async () => {
+    sandbox = await createSandbox('clodeck-fs-write-');
+    await mkdir(path.join(sandbox.root, 'proj'));
+    proj = await realpath(path.join(sandbox.root, 'proj'));
+  });
+
+  afterEach(async () => {
+    await removeSandbox(sandbox);
+  });
+
+  const fs = () => createScopedFs(proj);
+
+  /** Reach the write functions through `resolveWriteTarget` — the fence under test. */
+  async function writeTarget(rel: string): Promise<WriteTarget> {
+    const result = await fs().resolveWriteTarget(rel);
+    if (result.status !== 'ok') throw new Error(`resolveWriteTarget(${rel}) → ${result.status}`);
+    return result.target;
+  }
+
+  function fileName(input: string): FileName {
+    const result = name(input);
+    if (result === null) throw new Error(`name(${input}) → null`);
+    return result;
+  }
+
+  describe('name', () => {
+    it('accepts a plain single segment', () => {
+      expect(name('index.ts')).toBe('index.ts');
+    });
+
+    it('rejects separators, dot segments, NUL, empty, and over-length', () => {
+      expect(name('')).toBeNull();
+      expect(name('.')).toBeNull();
+      expect(name('..')).toBeNull();
+      expect(name('a/b')).toBeNull();
+      expect(name('a\\b')).toBeNull();
+      expect(name('bad\0name')).toBeNull();
+      expect(name('x'.repeat(256))).toBeNull();
+    });
+  });
+
+  describe('resolveWriteTarget', () => {
+    it('reports the empty path as the root', async () => {
+      expect(await fs().resolveWriteTarget('')).toEqual({ status: 'is_root' });
+    });
+
+    it('scopes the parent to the root and the basename for a top-level entry', async () => {
+      const result = await fs().resolveWriteTarget('a.txt');
+
+      expect(result).toEqual({ status: 'ok', target: { parent: proj, name: 'a.txt' } });
+    });
+
+    it('reports a missing parent as not_found', async () => {
+      expect(await fs().resolveWriteTarget('missing/a.txt')).toEqual({ status: 'not_found' });
+    });
+
+    it('reports a parent that is a file as not_a_directory', async () => {
+      await writeFile(path.join(proj, 'f.txt'), 'x');
+
+      expect(await fs().resolveWriteTarget('f.txt/x')).toEqual({ status: 'not_a_directory' });
+    });
+
+    it('reports an escaping parent as outside_root', async () => {
+      expect(await fs().resolveWriteTarget('../a.txt')).toEqual({ status: 'outside_root' });
+    });
+
+    it('reports a basename that is not a single segment as invalid_name', async () => {
+      await mkdir(path.join(proj, 'leaf'));
+
+      expect(await fs().resolveWriteTarget('leaf/..')).toEqual({ status: 'invalid_name' });
+    });
+  });
+
+  describe('createFile', () => {
+    it('creates a file holding the given bytes', async () => {
+      const target = await writeTarget('a.txt');
+
+      expect(await fs().createFile(target, Buffer.from('hello'))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('hello');
+    });
+
+    it('refuses to overwrite an existing file', async () => {
+      await writeFile(path.join(proj, 'a.txt'), 'first');
+      const target = await writeTarget('a.txt');
+
+      expect(await fs().createFile(target, Buffer.from('second'))).toEqual({ status: 'exists' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('first');
+    });
+
+    it.skipIf(win32)('refuses a symlink in the final segment and never escapes', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+      const target = await writeTarget('link');
+
+      expect(await fs().createFile(target, Buffer.from('x'))).toEqual({ status: 'symlink' });
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+    });
+  });
+
+  describe('createDirectory', () => {
+    it('creates a directory', async () => {
+      const target = await writeTarget('sub');
+
+      expect(await fs().createDirectory(target)).toEqual({ status: 'ok' });
+      expect((await lstat(path.join(proj, 'sub'))).isDirectory()).toBe(true);
+    });
+
+    it('refuses to create over an existing entry', async () => {
+      await mkdir(path.join(proj, 'sub'));
+      const target = await writeTarget('sub');
+
+      expect(await fs().createDirectory(target)).toEqual({ status: 'exists' });
+    });
+
+    it.skipIf(win32)('refuses a symlink in the final segment and never escapes', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+      const target = await writeTarget('link');
+
+      expect(await fs().createDirectory(target)).toEqual({ status: 'symlink' });
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+    });
+  });
+
+  describe('rename', () => {
+    it('renames an entry in place', async () => {
+      await writeFile(path.join(proj, 'old.txt'), 'x');
+      const target = await writeTarget('old.txt');
+
+      expect(await fs().rename(target, fileName('new.txt'))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'new.txt'), 'utf8')).toBe('x');
+      await expect(lstat(path.join(proj, 'old.txt'))).rejects.toThrow();
+    });
+
+    it('reports a missing source as not_found', async () => {
+      const target = await writeTarget('nope.txt');
+
+      expect(await fs().rename(target, fileName('other.txt'))).toEqual({ status: 'not_found' });
+    });
+  });
+
+  describe('remove', () => {
+    it('removes a file', async () => {
+      await writeFile(path.join(proj, 'gone.txt'), 'x');
+      const target = await writeTarget('gone.txt');
+
+      expect(await fs().remove(target)).toEqual({ status: 'ok' });
+      await expect(lstat(path.join(proj, 'gone.txt'))).rejects.toThrow();
+    });
+
+    it('removes a directory with its contents', async () => {
+      await mkdir(path.join(proj, 'sub'));
+      await writeFile(path.join(proj, 'sub', 'inner.txt'), 'x');
+      const target = await writeTarget('sub');
+
+      expect(await fs().remove(target)).toEqual({ status: 'ok' });
+      await expect(lstat(path.join(proj, 'sub'))).rejects.toThrow();
+    });
+
+    it('reports a missing entry as not_found', async () => {
+      const target = await writeTarget('nope.txt');
+
+      expect(await fs().remove(target)).toEqual({ status: 'not_found' });
+    });
+
+    it.skipIf(win32)('removes the link itself, not its target', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+      const target = await writeTarget('link');
+
+      expect(await fs().remove(target)).toEqual({ status: 'ok' });
+      await expect(lstat(path.join(proj, 'link'))).rejects.toThrow();
+      expect((await lstat(path.join(sandbox.dir, 'outside'))).isDirectory()).toBe(true);
+    });
+  });
+
+  describe('the root is unreachable', () => {
+    it('never mints a target for the empty path, so remove/rename cannot touch the root', async () => {
+      // `resolveWriteTarget('')` is `is_root`, so no `WriteTarget` exists for the
+      // root — and every write op joins `parent`/`name`, so it can only ever
+      // name a *child* of its parent. The root is unreachable by construction.
+      expect(await fs().resolveWriteTarget('')).toEqual({ status: 'is_root' });
+      expect((await lstat(proj)).isDirectory()).toBe(true);
+    });
+  });
+
+  describe('no escape', () => {
+    it('never creates outside the root through a traversal', async () => {
+      const result = await fs().resolveWriteTarget('../escape.txt');
+
+      expect(result).toEqual({ status: 'outside_root' });
+      await expect(lstat(path.join(sandbox.dir, 'escape.txt'))).rejects.toThrow();
+    });
+
+    it('never creates outside the root through an absolute path', async () => {
+      const outside = path.join(sandbox.dir, 'abs.txt');
+      const result = await fs().resolveWriteTarget(outside);
+
+      expect(result.status).not.toBe('ok');
+      await expect(lstat(outside)).rejects.toThrow();
     });
   });
 });
