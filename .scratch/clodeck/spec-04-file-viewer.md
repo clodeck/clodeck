@@ -90,7 +90,7 @@ export interface ScopedFs {
 ### The reader — read half (`server/src/files/scoped-fs.ts`)
 
 - `createScopedFs(projectPath: string): ScopedFs` — `projectPath` **hamishe** path-e canonical-i ast ke `resolveProject` bar gardande. Reader hich noghte-ye digari be `fs` nemikhonad; in module tanha filesystem-door-e in slice ast (read va write).
-- **`resolve(rel)`**: `rel` az `readRelPath`-e transport (syntax) rad shode; join → `realpath` → containment → `stat` → `{ status:'ok', scoped, kind: 'file'|'directory' }`. Har failure ye arm-e union ast, na throw:
+- **`resolve(rel)`**: `rel` az `relPath`-e transport (syntax) rad shode; join → `realpath` → containment → `stat` → `{ status:'ok', scoped, kind: 'file'|'directory' }`. Har failure ye arm-e union ast, na throw:
 
 ```ts
 export type ResolveResult =
@@ -139,14 +139,14 @@ export type WriteResult =
 
 - `registerFileRoutes(api, { projects })` dar hamin plugin-e `/api`-e `buildApp` register mishe; `buildApp` signature **taghir nemikonad**. Addressing-e yeksan: har operation `?path=` migirad (relative; empty = root). Reads: `path` = directory ya file. Writes: `path` = target entry (parent+name az un derive mishe).
 - **Reads**
-  - `GET /api/projects/:id/files?path=<rel>` → `{ entries: FileEntry[] }`. `resolveProject` null → `404`; `readRelPath` syntax reject → `400`; `resolve` → `not_found`/`outside_root` → `404`; `kind:'file'` → `400` ("not a directory"); `directory` → `listDir` → `200`.
+  - `GET /api/projects/:id/files?path=<rel>` → `{ entries: FileEntry[] }`. `resolveProject` null → `404`; `relPath` syntax reject → `400`; `resolve` → `not_found`/`outside_root` → `404`; `kind:'file'` → `400` ("not a directory"); `directory` → `listDir` → `200`.
   - `GET /api/projects/:id/files/content?path=<rel>` → `{ content: FileContent }`. `kind:'directory'` → `400`; `file` → `readFile` → `200` (binary ham `200`, na error).
 - **Writes**
   - `POST /api/projects/:id/files?path=<rel>` body `{ kind: 'file' | 'directory' }` → create (empty file / folder). `resolveWriteTarget` → map; `createFile(target, empty)` / `createDirectory(target)` → `WriteResult`. `ok` → `201`, `exists` → `409`, `symlink` → `400`.
   - `POST /api/projects/:id/files/rename?path=<rel>` body `{ to: string }` → `name(to)` null → `400`; `rename(target, newName)` → `200` / `404` (`not_found`).
   - `DELETE /api/projects/:id/files?path=<rel>` → `remove(target)` → `200` / `404`. (No body; confirmation client-side ast.)
   - `PUT /api/projects/:id/files/content?path=<rel>` raw body (octet-stream) → `createFile(target, body)` → `201` / `409` / `400`. Body cap `MAX_UPLOAD_BYTES = 200 MiB` (decision 03 default) via route `bodyLimit` → Fastify `413`. Upload = create, na overwrite (overwrite ba'd az editable-toggle miad).
-- **`readRelPath` (boundary-e syntax, ghabl az reader)**: `path` bayad relative bashad (na absolute, na drive-letter), hich segment-e `.`/`..`/empty/NUL nadare. Baray-e reads `path` in check ro darad; baray-e writes `resolveWriteTarget` + `name()` hamun ro mikone (chon `path` split mishe va basename az `name()` rad mishe). In check gheyre-tekfar ast — qavi-tarin check containment-e `realpath` ast; syntax-check 400-e zoodtar mide.
+- **`relPath` (boundary-e syntax, ghabl az reader)**: hame-ye route-ha — read va write — `path` ro az in check rad mikonan: bayad relative bashad (na absolute, na drive-letter), hich segment-e `.`/`..`/empty/NUL nadare. Baray-e writes `resolveWriteTarget` + `name()` ham dobare check mikonan (chon `path` split mishe va basename az `name()` rad mishe), amma digar tanha check-e write nistand. In check gheyre-tekfar ast — qavi-tarin check containment-e `realpath` ast; syntax-check 400-e zoodtar mide.
 - **Status-code discipline:** syntax/kind-e ghalat → `400`; unknown project / outside-root / not-found → `404` (leak nakon); exists → `409`; create → `201`; rename/delete → `200`. Error body = `{ error: string }` (ye envelope, mesl-e `sessions.ts`/`transport.ts`).
 
 ### Shared types (`shared/src/files.ts`, re-export az `index.ts`)
@@ -172,7 +172,7 @@ export type FileContent =
 
 - Hich dependency-e jadid-e web lazem nist (tree/preview + prompt/confirm ba React + Tailwind-e mojood). Upload = `<input type="file">` (picker) + drag-drop roye drawer; `fetch` ba body-e raw.
 - `FilePanel` be ja-ye `Stub title="Files"` dar `App.tsx` (hamoon cell; **keyed by project id**). Toolbar: New File, New Folder, Upload, Refresh. Har row ye ⋯ menu: Rename, Delete (confirm modal; folder-delete warning). Directory click = descend; file click = preview.
-- `useFiles(project): FileViewer` — seam-e data, be shekl-e `useChat`/`useTerminal`. State union-e discriminated (view) + ye record-e actions (mutations):
+- `useFiles(project): { viewer: FileViewer; actions: FileViewerActions }` — seam-e data, be shekl-e `useChat`/`useTerminal`. State union-e discriminated (view) + ye record-e actions (mutations):
 
 ```ts
 export type FileViewer =
@@ -209,7 +209,7 @@ export interface FileViewerActions {
   1. **`buildApp({ projects, provider, spawner })` — signature unchanged.** File route-ha dar hamin instance, hamin `/api` scope. Route-test ba `app.inject()`: `createSandbox` → `createProjectDiscovery(sandbox.root)` → `buildApp` (fake provider + fake spawner) → `inject`-e file endpoint-ha ba `:id`-e ye project-e listed.
   2. **`ScopedFs` reader+writer** — unit-tested bar rooye temp root: nested dir, file, symlink-inside (follow), symlink-outside (escape → `symlink` / write `symlink`), broken symlink, binary, truncation, create/rename/remove happy + `exists`/`not_found`/`is_root`/`invalid_name`, `..`/absolute/NUL. **No third seam**, no signature change.
 - **Coverage that matters:** (a) `GET /files` root → `200` + dirs-before-files + sorted; (b) `GET /files?path=sub` → `200`; (c) `GET /files/content?path=f.txt` → `200` text; (d) binary → `200 { kind:'binary' }`; (e) big text → `truncated:true`; (f) `..`/absolute/NUL → `400`; (g) symlink escape → read `404` / listed `symlink`, va write → `symlink`; (h) `resolveProject` null → `404`; (i) `POST files` create file/folder → `201`; (j) create-e exist-dar → `409`; (k) `DELETE`/rename missing → `404`; (l) `DELETE`/rename-e root → `400`; (m) `PUT content` upload → `201` + bytes-on-disk, oversize → `413`; (n) no escape: write `..`/symlink hargez nemineasad out-of-root.
-- **Symlink-escape test POSIX-only** (`it.skipIf(win32)`; junction-e Windows dast-e digar ast — hamoon tanha skip-e suite). Binary/truncation/create/rename/remove dar har platform test mishe (temp dir + Buffer).
+- **Symlink-creating test-ha POSIX-only** (`it.skipIf(win32)`; junction-e Windows ye symlink-e file nemitone besaze, pas un case-ha roye Windows nemiravand — in-ha tanha skip-ha-ye suite-and, hame symlink guard). Binary/truncation/create/rename/remove dar har platform test mishe (temp dir + Buffer).
 - **Web verified by typecheck/build + exhaustiveness**, haman shekl-e terminal; ye pure-edge test baray-e renderer (exhaustive switch) acceptable ast, na lazem.
 - **Non-goal:** no browser e2e, no live-fs mock, no fake reader injected dar `buildApp`.
 
@@ -229,3 +229,25 @@ export interface FileViewerActions {
 - `App.tsx`: `<Stub title="Files" note="The read-only file viewer lands in a later slice." />` dar cell-e paiin-e rast — hamoon ja ke `TerminalPanel` ghable shod. `FilePanel` bayad keyed by project bashe ta path/preview/expanded-e project-e ghabl be ba'd narenjad.
 - Symlink-resolution dar Windows elevation/junction mikhahad — test-e escape `skipIf(win32)`; reader dar production be `realpath`-e node tavakkol darad (junction ham resolve mishe), behavior consistent ast.
 - Upload cap = `MAX_UPLOAD_BYTES` (200 MiB, decision 03 default) dar module-e route (`bodyLimit`). Env/config-e poro-khod ba'd.
+
+## Code review
+
+The slice was reviewed on the integration branch along two axes (Standards, Spec). Both reports are recorded here because the *declines* are design decisions a later session must not undo blind.
+
+**Fixed (one pass, branch `review-fixes`):**
+
+1. One `?path=` syntax check for reads *and* writes: `writeRelPath` is gone and the single `relPath` (renamed from `readRelPath`) fronts all six routes, so a write's bad path — `./x`, `a/../b`, `..`, absolute, NUL — is the same `400` a read gives it. This is the one observable status change: a traversal write was `404` (folded by the write door) and is now `400` (the syntax check fires first) — matching the read door and spec line 149.
+2. The six-copy handler preamble collapsed into one `openProject(request, reply, options)` in `transport.ts`; every handler does `const opened = await openProject(...); if (opened === null) return reply;`. Envelopes and status codes are otherwise byte-identical. On `POST /files` and `POST /files/rename` the path check now precedes the body `kind`/`to` check — both were `400`s, so no observable change.
+3. The missing NUL coverage: `transport.test.ts` pins a read route and a write route with a NUL in `?path=` → `400` (Fastify delivers `%00` to the route; it is not rejected earlier), and `scoped-fs.test.ts` pins the write door rejecting a NUL basename.
+4. Three spec sentences corrected: the syntax check fronts every route (line 149), `useFiles` returns `{ viewer, actions }` (line 175), and the symlink-creating tests are the suite's only skips (line 212).
+
+**Declined on purpose — do not "fix" these without new information:**
+
+- **Renaming `name()` to something like `toFileName`.** The spec pins `name(input: string): FileName | null` verbatim (line 66); renaming it would break the pinned door for a cosmetic gain.
+- **Sharing `realpathOrNull`/`isInsideRoot` with `allowlist.ts`.** The reader deliberately inlines the containment rule because it must distinguish `outside_root` from `not_found` while the allowlist folds both to `null`, and it deliberately holds no import from `allowlist.ts`; sharing a four-line `realpathOrNull` is not worth that coupling.
+- **Sharing the `notFound` envelope with `sessions.ts`.** The terminal slice's review already declined this for the same reason: a per-module envelope, no cross-module coupling.
+- **A failed preview read collapsing the viewer into its `error` arm and dropping the listing** (`web/src/files/useFiles.ts`). The pinned `PreviewState` union has no error arm and the spec pins all four arms, so the viewer's `error` arm is the only place a preview failure can be surfaced; Refresh/Retry recovers and the current path is preserved. A fifth arm would change a spec-pinned wire shape without the spec's say-so.
+- **Dropping the client-side `sortEntries` re-sort.** The server already sorts, but user story 13 only pins "directories before files, sorted by name" and leaves a symlink's position unspecified, so the client's defensive re-sort (which groups symlinks with files) is not a contradiction — and the panel must not depend on the server's sort order.
+- **`AGENTS.md`'s MVP bullet still says "read-only file viewer"** while this slice adds confirmed create/rename/delete/upload. Spec-04 §"Problem Statement" deliberately takes those file ops in (decision 03), so the two documents disagree — **left to the user to adjudicate**; a subagent must not rewrite the repo's standing instructions.
+
+The Spec axis found no scope creep, and the status codes match the spec route-by-route.

@@ -109,7 +109,7 @@ describe('the file read routes', () => {
     expect(response.json()).toEqual({ content: { kind: 'binary', size: 2 } });
   });
 
-  it('rejects a traversal and an absolute path with 400', async () => {
+  it('rejects a traversal, an absolute path, and a NUL with 400', async () => {
     const app = makeApp();
     const pid = await id('proj');
 
@@ -118,6 +118,12 @@ describe('the file read routes', () => {
 
     const absolute = await app.inject({ method: 'GET', url: `/api/projects/${pid}/files?path=${encodeURIComponent('/etc')}` });
     expect(absolute.statusCode).toBe(400);
+
+    const nul = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${pid}/files?path=${encodeURIComponent('\0')}`,
+    });
+    expect(nul.statusCode).toBe(400);
   });
 
   it('returns 404 for an unknown project', async () => {
@@ -310,15 +316,26 @@ describe('the file write routes', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('refuses a traversal and creates nothing outside the root', async () => {
+    it('refuses a traversal with the same 400 as a read and creates nothing outside the root', async () => {
       const response = await makeApp().inject({
         method: 'POST',
         url: await filesUrl(`?path=${encodeURIComponent('../escape.txt')}`),
         payload: { kind: 'file' },
       });
 
-      expect(response.statusCode).toBe(404);
+      expect(response.statusCode).toBe(400);
       await expect(lstat(path.join(root, 'escape.txt'))).rejects.toThrow();
+    });
+
+    it('rejects a NUL in ?path= with 400 and creates nothing', async () => {
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl(`?path=${encodeURIComponent('\0')}`),
+        payload: { kind: 'file' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await readdir(path.join(root, 'proj'))).toEqual([]);
     });
 
     it.skipIf(win32)('refuses to create through an escaping symlink and never escapes', async () => {
