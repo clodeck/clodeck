@@ -50,10 +50,10 @@ describe('the terminal manager', () => {
     const manager = createTerminalManager(spawner);
     manager.open('a', { ...A, onData: () => {} });
 
-    expect(manager.resize('a', 120, 40)).toBe(true);
+    expect(manager.resize('a', { cols: 120, rows: 40 })).toBe(true);
     expect(spawner.handle(1).resizes).toEqual([{ cols: 120, rows: 40 }]);
 
-    expect(manager.resize('b', 1, 1)).toBe(false);
+    expect(manager.resize('b', { cols: 1, rows: 1 })).toBe(false);
   });
 
   it('pauses and resumes the project’s shell, for flow control', () => {

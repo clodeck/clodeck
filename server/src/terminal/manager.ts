@@ -1,4 +1,4 @@
-import type { PtyHandle, PtySpawnOptions, PtySpawner } from './pty.js';
+import type { PtyHandle, PtySpawnOptions, PtySpawner, TerminalSize } from './pty.js';
 
 /**
  * The terminal manager: one shell per project, and the whole lifecycle the
@@ -26,7 +26,7 @@ export interface TerminalManager {
   /** Send raw input to the project's shell. False when the project has none. */
   write(projectId: string, data: string): boolean;
   /** Resize the project's shell. False when the project has none. */
-  resize(projectId: string, cols: number, rows: number): boolean;
+  resize(projectId: string, size: TerminalSize): boolean;
   /** Stop reading the project's shell (flow control). False when it has none. */
   pause(projectId: string): boolean;
   /** Resume reading the project's shell (flow control). False when it has none. */
@@ -71,6 +71,19 @@ export function createTerminalManager(spawner: PtySpawner): TerminalManager {
     for (const listener of exitListeners) listener(projectId);
   }
 
+  /**
+   * Run `fn` against the project's live handle, or report there is none. It is
+   * the one shape `write`/`resize`/`pause`/`resume` all share: a missing shell is
+   * `false`, never a throw, so the transport can answer for it without reading
+   * the map itself.
+   */
+  function withHandle(projectId: string, fn: (handle: PtyHandle) => void): boolean {
+    const handle = terminals.get(projectId);
+    if (handle === undefined) return false;
+    fn(handle);
+    return true;
+  }
+
   return {
     open(projectId, options) {
       killAndForget(projectId);
@@ -82,31 +95,19 @@ export function createTerminalManager(spawner: PtySpawner): TerminalManager {
     },
 
     write(projectId, data) {
-      const handle = terminals.get(projectId);
-      if (handle === undefined) return false;
-      handle.write(data);
-      return true;
+      return withHandle(projectId, (handle) => handle.write(data));
     },
 
-    resize(projectId, cols, rows) {
-      const handle = terminals.get(projectId);
-      if (handle === undefined) return false;
-      handle.resize(cols, rows);
-      return true;
+    resize(projectId, size) {
+      return withHandle(projectId, (handle) => handle.resize(size.cols, size.rows));
     },
 
     pause(projectId) {
-      const handle = terminals.get(projectId);
-      if (handle === undefined) return false;
-      handle.pause();
-      return true;
+      return withHandle(projectId, (handle) => handle.pause());
     },
 
     resume(projectId) {
-      const handle = terminals.get(projectId);
-      if (handle === undefined) return false;
-      handle.resume();
-      return true;
+      return withHandle(projectId, (handle) => handle.resume());
     },
 
     close(projectId) {

@@ -26,6 +26,10 @@ export function createNodePtySpawner(): PtySpawner {
         rows: options.rows,
         cwd: options.cwd,
         env: terminalEnv(process.env),
+        // node-pty's own high-watermark: it pauses the child when its internal
+        // buffer backs up, and resumes it as the reader catches up. This is not
+        // the client-side flow control the spec leaves out of MVP; see `./pty.ts`
+        // on the `pause`/`resume` seam.
         handleFlowControl: true,
       });
 

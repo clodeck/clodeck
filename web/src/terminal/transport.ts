@@ -57,15 +57,25 @@ export function resizeUrl(projectId: string): string {
 }
 
 /**
+ * The shell's size in cells — the pair the client posts to the resize endpoint.
+ * Named here, on this side of the wire, so `useTerminal` passes one value rather
+ * than two loose numbers (xterm's own `onResize` payload already has this shape).
+ */
+export interface TerminalSize {
+  cols: number;
+  rows: number;
+}
+
+/**
  * Tell the server the shell's size. Resolves to the response's `ok`: a `404`
  * means the project has no shell open yet (the socket has not finished
  * connecting), which is a dropped resize, not an error to surface.
  */
-export async function postTerminalSize(projectId: string, cols: number, rows: number): Promise<boolean> {
+export async function postTerminalSize(projectId: string, size: TerminalSize): Promise<boolean> {
   const response = await fetch(resizeUrl(projectId), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ cols, rows }),
+    body: JSON.stringify(size),
   });
   return response.ok;
 }
