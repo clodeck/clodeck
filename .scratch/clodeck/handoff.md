@@ -1,7 +1,7 @@
 # Handoff — clodeck (the production build)
 
 **Updated:** 2026-10-10
-**Effort spec:** [spec-02-chat-transport.md](spec-02-chat-transport.md) — the slice it describes is **complete**.
+**Effort spec:** [spec-03-terminal.md](spec-03-terminal.md) — speced and ticketed, **not yet implemented** (run `/implement-spec`).
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
@@ -23,20 +23,22 @@ Slice 01 (tickets 01–05, monorepo + `GET /api/projects`) was already complete;
 project switcher → a project's Agent SDK session streaming over `/ws` → tool cards, the approval
 modal, session history and resume.
 
+The **terminal slice** is the current one: [spec-03-terminal.md](spec-03-terminal.md) is speced and
+tickets [12](issues/12-server-terminal-seam.md)–[14](issues/14-web-terminal-panel.md) are ticketed
+(a linear chain: 12 pty seam → 13 transport → 14 web panel). Nothing is implemented yet.
+
 ## What the next session is for
 
-The wayfinder spec's remaining slices, none of which has a ticket set yet:
+**Implement the terminal slice.** [spec-03-terminal.md](spec-03-terminal.md) is speced and
+[12–14](issues/) are ticketed. The whole session is one call: `/implement-spec` (frontier 12 → 13 →
+14). After it lands, the remaining wayfinder slices — still unticketed:
 
-- **Per-project terminal** (wayfinder 02) — xterm.js in the browser, a PTY per project.
 - **Read-only file viewer / file drawer** (wayfinder 03).
-- **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**` *and* `/ws` are
-  unauthenticated, which is exactly why `main.ts` binds loopback by default. The encapsulated
-  `/api` scope and the `HOST` override are already in place; `/ws` is a sibling route that the same
-  principal-aware hook must front.
+- **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
+  `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
+  encapsulated `/api` scope and the `HOST` override are already in place; `/ws` and `/ws/terminal`
+  are sibling routes the same principal-aware hook must front.
 - **Docker image / compose / Caddy** (wayfinder 08) — `GET /healthz` is already there for it.
-
-Split the next slice into tickets the way `spec.md` and `spec-02-chat-transport.md` were split, then
-implement with `/implement-spec`.
 
 ## Facts that live nowhere else
 
@@ -96,5 +98,5 @@ implement with `/implement-spec`.
 ## Resume
 
 ```
-next slice: the per-project terminal (wayfinder 02) — split it into tickets first, then /implement-spec
+implement the terminal slice — /implement-spec on tickets 12 → 13 → 14 (spec-03-terminal.md)
 ```
