@@ -1,20 +1,28 @@
 # Handoff — clodeck (the production build)
 
-**Updated:** 2026-10-10
-**Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice.** Tickets 15–17 resolved (uncommitted), 18–20 ready. Terminal (spec-03) is merged/pushed at `8feeb93`.
+**Updated:** 2026-10-11
+**Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice, complete.**
+Tickets 15–20 all resolved. They live on the integration branch **`spec-04-file-viewer`**, tip
+**`8a78fca`** — **local, NOT pushed** (it is 12 commits ahead of `main`). Terminal (spec-03) is
+merged/pushed at `8feeb93`; `main` == `origin/main` == `8feeb93`.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
 
 Three slices are **built, documented, merged, and pushed** — `main` == `origin/main` == `8feeb93`.
 The terminal slice landed as `7456803` (branch deleted) and the dev loop was fixed in `8feeb93`
-(`concurrently --raw`; see the environment notes).
+(`concurrently --raw`; see the environment notes). The fourth — **the file viewer, spec-04** — is
+**built, tested, merged into its integration branch, code-reviewed, and its review fixes merged**, but
+the branch is **still local**: `git push -u origin spec-04-file-viewer` (or a merge into `main`) is the
+first thing the next session owes it.
 
-The slice was verified end to end **server-side against a real shell**: `/api/projects` lists the
-test projects, `/ws/terminal` echoes, the shell's `cwd` is the project's directory, and resize
-answers 200. What is still **unconfirmed** is the browser half: the xterm panel itself (keystrokes,
-colours, panel-resize → pty) has never been exercised by a human (ticket 14's gaps). That is the one
-thing to close first.
+The terminal slice was verified end to end **server-side against a real shell**: `/api/projects` lists
+the test projects, `/ws/terminal` echoes, the shell's `cwd` is the project's directory, and resize
+answers 200. The file slice is verified the same way — through `app.inject()` against real temp
+directories, 176 server tests, 65 web tests, typecheck and a full build. What is still **unconfirmed**
+is both browser halves: the xterm panel (keystrokes, colours, panel-resize → pty) and the new file
+drawer have **never been exercised by a human** (tickets 14 and 20's gaps). That is the one thing to
+close first — `npm run dev` with `PROJECTS_ROOT` set.
 
 A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `demo/`) — use it with
 `PROJECTS_ROOT` to drive the terminal or the file viewer by hand.
@@ -34,21 +42,24 @@ A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `de
 | 15 | [Shared file types — `FileEntry` / `FileContent`](issues/15-shared-file-types.md) | resolved |
 | 16 | [ScopedFs read half — `ScopedPath`, resolve/listDir/readFile](issues/16-server-scoped-fs-read.md) | resolved |
 | 17 | [Files read routes — GET listing + content](issues/17-files-read-routes.md) | resolved |
-| 18 | [ScopedFs write half — branded FileName, create/rename/remove](issues/18-server-scoped-fs-write.md) | ready |
-| 19 | [Files write routes — create/rename/delete/upload](issues/19-files-write-routes.md) | ready |
-| 20 | [Web file panel — useFiles + tree/preview](issues/20-web-file-panel.md) | ready |
+| 18 | [ScopedFs write half — branded FileName, create/rename/remove](issues/18-server-scoped-fs-write.md) | resolved |
+| 19 | [Files write routes — create/rename/delete/upload](issues/19-files-write-routes.md) | resolved |
+| 20 | [Web file panel — useFiles + tree/preview](issues/20-web-file-panel.md) | resolved |
 
-So the path is real end to end for both halves of the primary interaction: `PROJECTS_ROOT` → allowlist →
+So the path is real end to end for all three of the MVP's surfaces: `PROJECTS_ROOT` → allowlist →
 project switcher → a project's Agent SDK session streaming over `/ws` (tool cards, approvals, history,
-resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
+resume), its own raw-byte shell over `/ws/terminal` in an xterm.js panel, and its files browsed and
+mutated through `/api/projects/:id/files` in the new drawer.
 
 ## What the next session is for
 
-1. **Finish the file-viewer slice** (spec-04), already spec'd and part-built: tickets 15–17 resolved
-   (uncommitted), 18–20 ready. The write half (18–19) and the web panel (20) remain. The `Files`
-   cell in `web/src/App.tsx` is still the `Stub`; `resolveProject` and the `/api` scope are the
-   seams (already wired for the read routes).
-2. The remaining, non-MVP wayfinder slices — still **unticketed**:
+1. **Push the file-viewer slice.** It is finished and merged into `spec-04-file-viewer` (tip `8a78fca`)
+   but the branch is local and 12 commits ahead of `main`. Push it, or merge it into `main`, or open a
+   PR — that call is the user's. The `Files` cell in `web/src/App.tsx` is no longer a `Stub`.
+2. **Drive the browser by hand** — the one thing no test covers. `npm run dev` with `PROJECTS_ROOT`
+   set: the xterm panel and the file drawer (tree, preview, new file/folder, rename, delete, upload)
+   have never been seen by a human.
+3. The remaining, non-MVP wayfinder slices — still **unticketed**:
 - **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
   `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
   encapsulated `/api` scope and the `HOST` override are already in place, and the resize endpoint
@@ -129,6 +140,50 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
   flow control, a shutdown hook for `TerminalManager.dispose()`, sharing `notFound` with
   `sessions.ts`, and removing `@xterm/addon-fit` or the web `transport.test.ts`.
 
+**Slice 04 (the file viewer) — the new ones**
+
+- **Two files carry the whole slice.** `server/src/files/scoped-fs.ts` (both brands and every
+  filesystem call) and `server/src/files/transport.ts` (all six routes). There is **no new injected
+  seam**: `fs` is not a native binding, so — unlike the SDK and node-pty — the reader is tested
+  against real temp directories and `buildApp({ projects, provider, spawner })` never changed. Its
+  only diff against `8feeb93` is the `registerFileRoutes` import + call inside the `/api` scope.
+- **The fence is compile-time, the boundary is runtime.** `ScopedPath` is minted only by `resolve()`
+  and `FileName` only by `name()`, so `readFile('../../etc/passwd')` does not compile — but the brand
+  evaporates at `tsc`'s exit, so every route re-validates through `realpath` containment anyway. The
+  reader inlines `isInsideRoot` instead of importing `allowlist.ts` on purpose: it must *distinguish*
+  `outside_root` from `not_found`, and the allowlist folds both into `null`.
+- **No `WriteTarget` can name the project root.** `resolveWriteTarget('')` returns `is_root`, so
+  `remove`/`rename` structurally cannot reach the root — the guard is the type, not a check in the
+  ops. Writes never follow a symlink in the final segment (`lstat` + `flag:'wx'`) and never overwrite
+  (`exists` → 409). TOCTOU between the `lstat` and the syscall is accepted at this scale (single user,
+  loopback, no auth) — the same posture as the terminal's "cwd convenience, not a sandbox".
+- **One `?path=` door now fronts all six routes.** The review found writes were skipping the syntax
+  check entirely (`writeRelPath` had none), so `POST /files?path=./x` and `?path=a/../b` were **201**
+  while the same path on a read was 400. The fix (`8a78fca`) deleted `writeRelPath`: `relPath` is the
+  single checker, and `openProject` the single route preamble. **One observable status changed**:
+  `POST /files?path=../escape.txt` was 404 (the write door folded an escaping parent into
+  `outside_root`) and is now 400 (the syntax check fires first, exactly like a read). An escape
+  through a *symlink* is still 404. The test asserts the 400 **and** that nothing was written outside
+  the root.
+- **Upload is a raw `PUT`, and it needs its own parser.** `PUT /projects/:id/files/content` takes
+  `application/octet-stream` as a `Buffer`, capped by the route's `bodyLimit` — `MAX_UPLOAD_BYTES`
+  (200 MiB, decision 03's default), over which Fastify answers **413 with its own envelope**, not
+  `{ error }`. `registerFileRoutes` registers the octet-stream content-type parser itself; Fastify
+  ships none, so without it an upload is a 415 before the handler.
+- **Success bodies are `{ ok: true }`** (the terminal-size route's shape); refusals keep the
+  `{ error: string }` envelope. Codes: syntax/kind → 400, unknown project / outside-root / not-found →
+  404 (folded, never leaking which), exists → 409, create/upload → 201, rename/delete → 200.
+- **The web drawer is `web/src/files/`** — `reducer.ts` (the pinned unions as pure transitions),
+  `transport.ts` (the `fetch` layer), `useFiles.ts` (the seam: `useFiles(project) → { viewer, actions }`)
+  and `FilePanel.tsx`. Content renders only as React text nodes and an escaping symlink is a
+  non-navigable `<span>`; both are enforced by grep-able rules, not convention.
+- **One deliberate wart**: a failed *preview* read collapses the drawer into its `error` arm and
+  drops the listing (`useFiles.ts`), because the spec pins `PreviewState` with four arms and none of
+  them is an error. Declined in review rather than patched — see spec-04 §Code review.
+- **`AGENTS.md` still says "read-only file viewer"** while this slice ships confirmed
+  create/rename/delete/upload. Spec-04 takes them in deliberately (decision 03), so the two documents
+  disagree and the next session should ask the user which one moves. Left untouched on purpose.
+
 ## Environment notes (still true)
 
 - Tracker = local markdown, one file per ticket, numbered from `01`, under `.scratch/clodeck/`. There
@@ -156,28 +211,35 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
   `set PROJECTS_ROOT=D:\work\clodeck-projects && npm run dev` (cmd) — that folder holds `hello/` and
   `demo/`, which is what the by-hand terminal checks were run against.
 - The symlink-to-a-file test is POSIX-only (creating a file symlink on Windows needs elevation or
-  Developer Mode); it is skipped via `it.skipIf(win32)`. It is the suite's only skip.
+  Developer Mode); it is skipped via `it.skipIf(win32)`. **Four** tests are now skipped this way, all
+  of them symlink guards (a junction cannot express a file symlink) — spec-04 line 212 used to claim
+  this was a single skip and was corrected in the review.
+- **Worktrees for this slice lived at `D:/work/clodeck-wt/<name>`, outside the repo**, because
+  `.claude/worktrees/` is not in `.gitignore` and a worktree there would show up as untracked. Each
+  one needs its own `npm install` (seconds off the cache). Branches: `issue-18`, `issue-19`,
+  `issue-20`, `review-fixes` — all merged into `spec-04-file-viewer` and safe to delete.
 
 ## Resume
 
 ```
-The file-viewer slice (spec-04) is spec'd and part-built, all UNCOMMITTED on `main`.
+The file-viewer slice (spec-04) is COMPLETE and merged on the LOCAL branch `spec-04-file-viewer`.
 
-Done:
-  - 15 shared FileEntry/FileContent            (shared/src/files.ts + index re-export)
-  - 16 ScopedFs read half                       (server/src/files/scoped-fs.ts)
-  - 17 GET /files + /files/content routes       (server/src/files/transport.ts, wired into app.ts)
-  Verified: typecheck clean; server 127 passed / 1 skipped, web 34 passed.
+Tip: 8a78fca (12 commits ahead of main == origin/main == 8feeb93). NOT pushed.
 
-To do, in order:
-  1. Ticket 18: ScopedFs write half — branded `FileName` + `name()`, `WriteTarget`/`WriteTargetResult`/
-     `WriteResult`, `resolveWriteTarget`, `createFile`/`createDirectory`/`rename`/`remove`.
-     Implement in scoped-fs.ts + unit tests (real temp dirs).
-  2. Ticket 19: write routes in transport.ts — POST create, POST rename, DELETE, PUT content
-     (raw octet-stream, 200 MiB bodyLimit).
-  3. Ticket 20: web useFiles + FilePanel, replacing the `Files` stub in web/src/App.tsx.
+Done (all six tickets, each with What landed + Evidence in its own file):
+  - 15 shared FileEntry/FileContent          (shared/src/files.ts + index re-export)
+  - 16 ScopedFs read half                     (server/src/files/scoped-fs.ts)
+  - 17 GET /files + /files/content            (server/src/files/transport.ts, wired into app.ts)
+  - 18 ScopedFs write half                    (same module: FileName, WriteTarget, create/rename/remove)
+  - 19 POST create, POST rename, DELETE, PUT content (same transport.ts)
+  - 20 web useFiles + FilePanel               (web/src/files/, replacing the Files stub in App.tsx)
+  Verified after the review merge: typecheck + build clean; server 171 passed / 5 skipped, web 65 passed.
 
-Reads are already testable: npm run dev with PROJECTS_ROOT=D:\work\clodeck-projects, then
-GET /api/projects/:id/files. The write ops follow decision 03 (new file/folder, rename, delete,
-upload); move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
+Next:
+  1. Push or merge `spec-04-file-viewer` — the user's call; nothing is on origin yet.
+  2. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the drawer and the
+     xterm panel — the browser half of both slices has never been seen.
+  3. Ask the user about the AGENTS.md "read-only file viewer" line (slice-04 facts, above).
+  4. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
+     list. Move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
 ```
