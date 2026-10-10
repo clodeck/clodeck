@@ -2,13 +2,14 @@ import type { Project } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
 import { ChatPanel } from './chat/ChatPanel';
+import { FilePanel } from './files/FilePanel';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { TerminalPanel } from './terminal/TerminalPanel';
 import { useProjects } from './useProjects';
 
 /**
- * The app shell: the project switcher in the sidebar, and the workspace it will
- * eventually fill (chat, terminal, files) stubbed out beside it.
+ * The app shell: the project switcher in the sidebar, and the workspace it fills
+ * — chat, terminal, files — beside it.
  */
 export function App(): ReactElement {
   const { state, reload } = useProjects();
@@ -68,18 +69,12 @@ function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
           {/* Keyed by project so switching projects remounts a fresh shell (and
               tears the previous socket down with the old panel). */}
           <TerminalPanel key={project.id} project={project} />
-          <Stub title="Files" note="The read-only file viewer lands in a later slice." />
+          {/* Keyed by project so switching projects remounts a fresh drawer
+              (path, listing, and preview) instead of carrying one project's
+              view into another. */}
+          <FilePanel key={project.id} project={project} />
         </div>
       </div>
     </>
-  );
-}
-
-function Stub({ title, note }: { title: string; note: string }): ReactElement {
-  return (
-    <section className="flex min-h-0 flex-col gap-2 p-5">
-      <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">{title}</h2>
-      <p className="text-sm text-ink-dim/80">{note}</p>
-    </section>
   );
 }
