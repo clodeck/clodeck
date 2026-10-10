@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PROTOCOL_VERSION,
   type ClientMessage,
+  type FileContent,
+  type FileEntry,
   type Project,
   type SDKMessage,
   type ServerEvent,
@@ -104,6 +106,18 @@ describe('@clodeck/shared', () => {
     const project: Project = { id: 'L3Byb2plY3RzL2Nsb2RlY2s', name: 'clodeck', path: '/projects/clodeck' };
 
     expect(Object.keys(project).sort()).toEqual(['id', 'name', 'path']);
+  });
+
+  it('is the single source of the file-drawer shapes', () => {
+    const entries: FileEntry[] = [
+      { type: 'directory', name: 'src' },
+      { type: 'file', name: 'index.ts', size: 12, mtime: '2026-10-10T00:00:00.000Z' },
+      { type: 'symlink', name: 'escape' },
+    ];
+    const content: FileContent = { kind: 'text', content: 'hi', truncated: false, size: 2 };
+
+    expect(entries.map((entry) => entry.type)).toEqual(['directory', 'file', 'symlink']);
+    expect(Object.keys(content).sort()).toEqual(['content', 'kind', 'size', 'truncated']);
   });
 
   it('is the single source of the session-history shapes', () => {
