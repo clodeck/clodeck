@@ -3,7 +3,7 @@
 **Updated:** 2026-10-11
 **Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice, complete.**
 Tickets 15–20 all resolved, merged into `main` as **`b0b006c`** and pushed. Terminal (spec-03) landed
-at `8feeb93`. The integration branch `spec-04-file-viewer` still exists but is now redundant.
+at `8feeb93`. The integration branch `spec-04-file-viewer` has been deleted; `main` is the only branch.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
@@ -220,8 +220,8 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ```
 The file-viewer slice (spec-04) is COMPLETE, merged into `main` (b0b006c), and pushed.
 
-main == origin/main == 6ee7fb8 (the slice's merge commit is b0b006c, just below the handoff commit).
-The old integration branch spec-04-file-viewer still exists (redundant).
+main == origin/main == the handoff commit (the slice's merge commit is b0b006c, two commits below it).
+`main` is the repo's only branch; every per-ticket and per-review branch has been merged and deleted.
 
 Done (all six tickets, each with What landed + Evidence in its own file):
   - 15 shared FileEntry/FileContent          (shared/src/files.ts + index re-export)
@@ -235,8 +235,7 @@ Done (all six tickets, each with What landed + Evidence in its own file):
 Next:
   1. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the drawer and the
      xterm panel — the browser half of both slices has never been seen.
-  2. Optionally delete the now-redundant `spec-04-file-viewer` branch.
-  3. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
+  2. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
      list. Move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
-  4. The remaining wayfinder slices are auth (07) and the Docker/compose/Caddy image (08).
+  3. The remaining wayfinder slices are auth (07) and the Docker/compose/Caddy image (08).
 ```
