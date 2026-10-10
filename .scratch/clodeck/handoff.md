@@ -1,7 +1,7 @@
 # Handoff — clodeck (the production build)
 
 **Updated:** 2026-10-10
-**Effort spec:** [spec-03-terminal.md](spec-03-terminal.md) — **implemented, merged into `main`, and pushed** (`8feeb93`), tickets 12–14 resolved.
+**Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice.** Tickets 15–17 resolved (uncommitted), 18–20 ready. Terminal (spec-03) is merged/pushed at `8feeb93`.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
@@ -31,6 +31,12 @@ A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `de
 | 12 | [Server terminal seam — pty facade, node-pty, manager](issues/12-server-terminal-seam.md) | resolved |
 | 13 | [Terminal transport — raw `/ws/terminal` + resize REST](issues/13-terminal-transport.md) | resolved |
 | 14 | [Web terminal — xterm.js panel](issues/14-web-terminal-panel.md) | resolved |
+| 15 | [Shared file types — `FileEntry` / `FileContent`](issues/15-shared-file-types.md) | resolved |
+| 16 | [ScopedFs read half — `ScopedPath`, resolve/listDir/readFile](issues/16-server-scoped-fs-read.md) | resolved |
+| 17 | [Files read routes — GET listing + content](issues/17-files-read-routes.md) | resolved |
+| 18 | [ScopedFs write half — branded FileName, create/rename/remove](issues/18-server-scoped-fs-write.md) | ready |
+| 19 | [Files write routes — create/rename/delete/upload](issues/19-files-write-routes.md) | ready |
+| 20 | [Web file panel — useFiles + tree/preview](issues/20-web-file-panel.md) | ready |
 
 So the path is real end to end for both halves of the primary interaction: `PROJECTS_ROOT` → allowlist →
 project switcher → a project's Agent SDK session streaming over `/ws` (tool cards, approvals, history,
@@ -38,17 +44,11 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
 
 ## What the next session is for
 
-1. **One human check the machine could not do** (do this before new work, it takes a minute): with
-   the server pointed at `D:\work\clodeck-projects`, open a project in the browser and type into the
-   terminal once. If it is broken, that is a bug in the slice that just shipped, not in the next one.
-2. **Then spec and build the next slice: the read-only file viewer** (wayfinder 03; the last
-   *MVP* item from `AGENTS.md` — chat ✓, history/resume ✓, terminal ✓, file viewer ✗). Work it the
-   way this one was worked: spec it into `.scratch/clodeck/spec-0N-file-viewer.md`, ticket it under
-   `issues/` from `15`, then `/implement-spec`. The `Files` cell in `web/src/App.tsx` is still the
-   same `Stub` the Terminal cell used to be; the allowlist seam (`resolveProject`) and `/api` scope
-   are the pieces it will hang off, and a read-only viewer must stay read-only (no path out of the
-   project, no write route).
-3. The remaining, non-MVP wayfinder slices — still **unticketed**:
+1. **Finish the file-viewer slice** (spec-04), already spec'd and part-built: tickets 15–17 resolved
+   (uncommitted), 18–20 ready. The write half (18–19) and the web panel (20) remain. The `Files`
+   cell in `web/src/App.tsx` is still the `Stub`; `resolveProject` and the `/api` scope are the
+   seams (already wired for the read routes).
+2. The remaining, non-MVP wayfinder slices — still **unticketed**:
 - **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
   `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
   encapsulated `/api` scope and the `HOST` override are already in place, and the resize endpoint
@@ -161,17 +161,23 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
 ## Resume
 
 ```
-The terminal slice is merged and pushed (main == origin/main == 8feeb93). Two things the next
-session should do, in order:
+The file-viewer slice (spec-04) is spec'd and part-built, all UNCOMMITTED on `main`.
 
-1. Confirm the terminal in a browser (the one check nobody has made):
-     set PROJECTS_ROOT=D:\work\clodeck-projects
-     npm run dev
-   open http://localhost:5173, pick `hello`, type a command into the Terminal panel. If it is
-   broken, fix that before anything else — it is a bug in the slice that just shipped.
+Done:
+  - 15 shared FileEntry/FileContent            (shared/src/files.ts + index re-export)
+  - 16 ScopedFs read half                       (server/src/files/scoped-fs.ts)
+  - 17 GET /files + /files/content routes       (server/src/files/transport.ts, wired into app.ts)
+  Verified: typecheck clean; server 127 passed / 1 skipped, web 34 passed.
 
-2. Spec and build the read-only file viewer (wayfinder 03): the last MVP item. Spec it into
-   .scratch/clodeck/spec-04-file-viewer.md, ticket it from `15`, then run /implement-spec.
-   It hangs off the same seams: resolveProject for the allowlist and the encapsulated /api scope.
-   Read-only means read-only — no path out of the project, no write route.
+To do, in order:
+  1. Ticket 18: ScopedFs write half — branded `FileName` + `name()`, `WriteTarget`/`WriteTargetResult`/
+     `WriteResult`, `resolveWriteTarget`, `createFile`/`createDirectory`/`rename`/`remove`.
+     Implement in scoped-fs.ts + unit tests (real temp dirs).
+  2. Ticket 19: write routes in transport.ts — POST create, POST rename, DELETE, PUT content
+     (raw octet-stream, 200 MiB bodyLimit).
+  3. Ticket 20: web useFiles + FilePanel, replacing the `Files` stub in web/src/App.tsx.
+
+Reads are already testable: npm run dev with PROJECTS_ROOT=D:\work\clodeck-projects, then
+GET /api/projects/:id/files. The write ops follow decision 03 (new file/folder, rename, delete,
+upload); move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
 ```
