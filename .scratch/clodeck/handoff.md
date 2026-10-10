@@ -1,14 +1,23 @@
 # Handoff — clodeck (the production build)
 
 **Updated:** 2026-10-10
-**Effort spec:** [spec-03-terminal.md](spec-03-terminal.md) — **implemented** on `clodeck/12-14-terminal` (tip `be87aa19`), tickets 12–14 resolved.
+**Effort spec:** [spec-03-terminal.md](spec-03-terminal.md) — **implemented, merged into `main`, and pushed** (`8feeb93`), tickets 12–14 resolved.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
 
-Three slices are **built, documented, and verified** — all on `main`. The terminal slice was merged
-as `7456803` and its branch deleted, so `main` carries the whole of it. One thing that session could
-not do remains: nobody has seen the terminal panel in a browser (ticket 14's gaps).
+Three slices are **built, documented, merged, and pushed** — `main` == `origin/main` == `8feeb93`.
+The terminal slice landed as `7456803` (branch deleted) and the dev loop was fixed in `8feeb93`
+(`concurrently --raw`; see the environment notes).
+
+The slice was verified end to end **server-side against a real shell**: `/api/projects` lists the
+test projects, `/ws/terminal` echoes, the shell's `cwd` is the project's directory, and resize
+answers 200. What is still **unconfirmed** is the browser half: the xterm panel itself (keystrokes,
+colours, panel-resize → pty) has never been exercised by a human (ticket 14's gaps). That is the one
+thing to close first.
+
+A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `demo/`) — use it with
+`PROJECTS_ROOT` to drive the terminal or the file viewer by hand.
 
 | # | Ticket | Status |
 |---|--------|--------|
@@ -29,15 +38,17 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
 
 ## What the next session is for
 
-1. **One human check the machine could not do:** run `npm run dev` (with `PROJECTS_ROOT` set — see
-   below), open a project, and type into the terminal once. The web panel has never been seen in a
-   browser (ticket 14's gaps), and the shell is a real one on this path.
-2. **`main` is unpushed** — it is ahead of `origin/main` by the whole slice. There is no `gh` CLI on
-   this machine, so no PR either; pushing is a deliberate, separate act.
-3. The remaining wayfinder slices — still **unticketed**:
-
-- **Read-only file viewer / file drawer** (wayfinder 03). The `Files` cell in `web/src/App.tsx` is
-  still the same `Stub` the Terminal cell used to be.
+1. **One human check the machine could not do** (do this before new work, it takes a minute): with
+   the server pointed at `D:\work\clodeck-projects`, open a project in the browser and type into the
+   terminal once. If it is broken, that is a bug in the slice that just shipped, not in the next one.
+2. **Then spec and build the next slice: the read-only file viewer** (wayfinder 03; the last
+   *MVP* item from `AGENTS.md` — chat ✓, history/resume ✓, terminal ✓, file viewer ✗). Work it the
+   way this one was worked: spec it into `.scratch/clodeck/spec-0N-file-viewer.md`, ticket it under
+   `issues/` from `15`, then `/implement-spec`. The `Files` cell in `web/src/App.tsx` is still the
+   same `Stub` the Terminal cell used to be; the allowlist seam (`resolveProject`) and `/api` scope
+   are the pieces it will hang off, and a read-only viewer must stay read-only (no path out of the
+   project, no write route).
+3. The remaining, non-MVP wayfinder slices — still **unticketed**:
 - **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
   `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
   encapsulated `/api` scope and the `HOST` override are already in place, and the resize endpoint
@@ -141,13 +152,26 @@ resume) **and** its own raw-byte shell over `/ws/terminal` in an xterm.js panel.
   the prefixes and you re-break `npm run dev`.
 - **`npm run dev` needs `PROJECTS_ROOT`** (or `clodeck.config.json` in `server/`) or the project list
   is empty by design — an empty list is not an error, so it looks like a broken UI when it is an
-  unconfigured server. `npm run dev:fake` plus a `PROJECTS_ROOT` is the offline loop.
+  unconfigured server. `npm run dev:fake` plus a `PROJECTS_ROOT` is the offline loop. Locally:
+  `set PROJECTS_ROOT=D:\work\clodeck-projects && npm run dev` (cmd) — that folder holds `hello/` and
+  `demo/`, which is what the by-hand terminal checks were run against.
 - The symlink-to-a-file test is POSIX-only (creating a file symlink on Windows needs elevation or
   Developer Mode); it is skipped via `it.skipIf(win32)`. It is the suite's only skip.
 
 ## Resume
 
 ```
-the terminal slice is merged into main — look at the terminal panel in a browser once
-(npm run dev with PROJECTS_ROOT), then spec the next slice (read-only file viewer, or auth)
+The terminal slice is merged and pushed (main == origin/main == 8feeb93). Two things the next
+session should do, in order:
+
+1. Confirm the terminal in a browser (the one check nobody has made):
+     set PROJECTS_ROOT=D:\work\clodeck-projects
+     npm run dev
+   open http://localhost:5173, pick `hello`, type a command into the Terminal panel. If it is
+   broken, fix that before anything else — it is a bug in the slice that just shipped.
+
+2. Spec and build the read-only file viewer (wayfinder 03): the last MVP item. Spec it into
+   .scratch/clodeck/spec-04-file-viewer.md, ticket it from `15`, then run /implement-spec.
+   It hangs off the same seams: resolveProject for the allowlist and the encapsulated /api scope.
+   Read-only means read-only — no path out of the project, no write route.
 ```
