@@ -2,9 +2,8 @@
 
 **Updated:** 2026-10-11
 **Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice, complete.**
-Tickets 15–20 all resolved. They live on the integration branch **`spec-04-file-viewer`**, tip
-**`8a78fca`** — **local, NOT pushed** (it is 12 commits ahead of `main`). Terminal (spec-03) is
-merged/pushed at `8feeb93`; `main` == `origin/main` == `8feeb93`.
+Tickets 15–20 all resolved, merged into `main` as **`b0b006c`** and pushed. Terminal (spec-03) landed
+at `8feeb93`. The integration branch `spec-04-file-viewer` still exists but is now redundant.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
@@ -12,9 +11,8 @@ merged/pushed at `8feeb93`; `main` == `origin/main` == `8feeb93`.
 Three slices are **built, documented, merged, and pushed** — `main` == `origin/main` == `8feeb93`.
 The terminal slice landed as `7456803` (branch deleted) and the dev loop was fixed in `8feeb93`
 (`concurrently --raw`; see the environment notes). The fourth — **the file viewer, spec-04** — is
-**built, tested, merged into its integration branch, code-reviewed, and its review fixes merged**, but
-the branch is **still local**: `git push -u origin spec-04-file-viewer` (or a merge into `main`) is the
-first thing the next session owes it.
+**built, tested, code-reviewed, its review fixes merged, and the whole slice merged into `main`
+(`b0b006c`) and pushed.**
 
 The terminal slice was verified end to end **server-side against a real shell**: `/api/projects` lists
 the test projects, `/ws/terminal` echoes, the shell's `cwd` is the project's directory, and resize
@@ -53,13 +51,10 @@ mutated through `/api/projects/:id/files` in the new drawer.
 
 ## What the next session is for
 
-1. **Push the file-viewer slice.** It is finished and merged into `spec-04-file-viewer` (tip `8a78fca`)
-   but the branch is local and 12 commits ahead of `main`. Push it, or merge it into `main`, or open a
-   PR — that call is the user's. The `Files` cell in `web/src/App.tsx` is no longer a `Stub`.
-2. **Drive the browser by hand** — the one thing no test covers. `npm run dev` with `PROJECTS_ROOT`
+1. **Drive the browser by hand** — the one thing no test covers. `npm run dev` with `PROJECTS_ROOT`
    set: the xterm panel and the file drawer (tree, preview, new file/folder, rename, delete, upload)
    have never been seen by a human.
-3. The remaining, non-MVP wayfinder slices — still **unticketed**:
+2. The remaining, non-MVP wayfinder slices — still **unticketed**:
 - **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
   `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
   encapsulated `/api` scope and the `HOST` override are already in place, and the resize endpoint
@@ -180,9 +175,10 @@ mutated through `/api/projects/:id/files` in the new drawer.
 - **One deliberate wart**: a failed *preview* read collapses the drawer into its `error` arm and
   drops the listing (`useFiles.ts`), because the spec pins `PreviewState` with four arms and none of
   them is an error. Declined in review rather than patched — see spec-04 §Code review.
-- **`AGENTS.md` still says "read-only file viewer"** while this slice ships confirmed
-  create/rename/delete/upload. Spec-04 takes them in deliberately (decision 03), so the two documents
-  disagree and the next session should ask the user which one moves. Left untouched on purpose.
+- **`AGENTS.md` was brought in line on 2026-10-11.** It said "read-only file viewer"; the standing
+  decisions now read "file drawer (scoped read **+** write: new file, new folder, rename, delete,
+  upload)", state the root-scoping posture (realpath containment; no symlink-follow, no overwrite, no
+  root delete), and keep *content* editing out of MVP. Spec-04 §Code review records the adjudication.
 
 ## Environment notes (still true)
 
@@ -222,9 +218,9 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ## Resume
 
 ```
-The file-viewer slice (spec-04) is COMPLETE and merged on the LOCAL branch `spec-04-file-viewer`.
+The file-viewer slice (spec-04) is COMPLETE, merged into `main` (b0b006c), and pushed.
 
-Tip: 8a78fca (12 commits ahead of main == origin/main == 8feeb93). NOT pushed.
+main == origin/main == b0b006c. The old integration branch spec-04-file-viewer still exists (redundant).
 
 Done (all six tickets, each with What landed + Evidence in its own file):
   - 15 shared FileEntry/FileContent          (shared/src/files.ts + index re-export)
@@ -236,10 +232,10 @@ Done (all six tickets, each with What landed + Evidence in its own file):
   Verified after the review merge: typecheck + build clean; server 171 passed / 5 skipped, web 65 passed.
 
 Next:
-  1. Push or merge `spec-04-file-viewer` — the user's call; nothing is on origin yet.
-  2. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the drawer and the
+  1. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the drawer and the
      xterm panel — the browser half of both slices has never been seen.
-  3. Ask the user about the AGENTS.md "read-only file viewer" line (slice-04 facts, above).
-  4. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
+  2. Optionally delete the now-redundant `spec-04-file-viewer` branch.
+  3. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
      list. Move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
+  4. The remaining wayfinder slices are auth (07) and the Docker/compose/Caddy image (08).
 ```
