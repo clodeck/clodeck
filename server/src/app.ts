@@ -2,6 +2,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { ProjectDiscovery } from './discovery.js';
+import { registerFileRoutes } from './files/transport.js';
 import type { SdkProvider } from './sdk/provider.js';
 import { registerSessionRoutes } from './sessions.js';
 import { createTerminalManager } from './terminal/manager.js';
@@ -54,6 +55,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       api.get('/projects', async () => ({ projects: await options.projects.listProjects() }));
       registerSessionRoutes(api, { projects: options.projects, provider: options.provider });
       registerTerminalSizeRoute(api, { projects: options.projects, terminals });
+      registerFileRoutes(api, { projects: options.projects });
     },
     { prefix: '/api' },
   );
