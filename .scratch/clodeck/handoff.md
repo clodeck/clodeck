@@ -220,7 +220,8 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ```
 The file-viewer slice (spec-04) is COMPLETE, merged into `main` (b0b006c), and pushed.
 
-main == origin/main == b0b006c. The old integration branch spec-04-file-viewer still exists (redundant).
+main == origin/main == 6ee7fb8 (the slice's merge commit is b0b006c, just below the handoff commit).
+The old integration branch spec-04-file-viewer still exists (redundant).
 
 Done (all six tickets, each with What landed + Evidence in its own file):
   - 15 shared FileEntry/FileContent          (shared/src/files.ts + index re-export)
