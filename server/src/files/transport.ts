@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
 
 import type { ProjectDiscovery } from '../discovery.js';
-import { createScopedFs, name, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
+import { createScopedFs, name, type ScopedFs, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
 
 /**
  * The file-drawer REST surface (spec-04 §"REST routes"): directory listing and
@@ -10,12 +10,13 @@ import { createScopedFs, name, type WriteResult, type WriteTargetResult } from '
  * and a raw upload — registered into the app's own `/api` scope so they sit
  * behind the same (future) auth hook as sessions and terminal-size.
  *
- * Every `:id` re-enters `resolveProject` (the only place an id becomes a
- * directory). Reads are syntax-checked with `readRelPath` *before* they reach
- * the reader; writes instead lean on the write door, `resolveWriteTarget` +
- * `name`, as their syntax check (spec-04 §"readRelPath"). Either way the real
- * boundary is the reader's realpath containment, which re-validates the joined
- * path regardless.
+ * One door opens every route. `:id` re-enters `resolveProject` (the only place
+ * an id becomes a directory) and `?path=` passes the single syntax check,
+ * `relPath`, whether the route reads or writes — so the same bad path is the
+ * same 400 on either side. A write's own door (`resolveWriteTarget` + `name`)
+ * still re-checks the basename, but it is no longer the only check a write
+ * sees. Either way the real boundary is the reader's realpath containment,
+ * which re-validates the joined path regardless.
  */
 
 /** The upload cap (spec-04 §Writes): a raw-body PUT may be at most 200 MiB; larger is a 413. */
@@ -33,13 +34,10 @@ export function registerFileRoutes(
   });
 
   api.get<{ Params: { id: string } }>('/projects/:id/files', async (request, reply) => {
-    const project = await options.projects.resolveProject(request.params.id);
-    if (project === null) return notFound(reply);
+    const opened = await openProject(request, reply, options);
+    if (opened === null) return reply;
+    const { files, rel } = opened;
 
-    const rel = readRelPath(request);
-    if (rel === null) return badPath(reply);
-
-    const files = createScopedFs(project.path);
     const resolved = await files.resolve(rel);
     if (resolved.status !== 'ok') return missing(reply);
     if (resolved.kind !== 'directory') return reply.code(400).send({ error: 'path is not a directory' });
@@ -48,13 +46,10 @@ export function registerFileRoutes(
   });
 
   api.get<{ Params: { id: string } }>('/projects/:id/files/content', async (request, reply) => {
-    const project = await options.projects.resolveProject(request.params.id);
-    if (project === null) return notFound(reply);
+    const opened = await openProject(request, reply, options);
+    if (opened === null) return reply;
+    const { files, rel } = opened;
 
-    const rel = readRelPath(request);
-    if (rel === null) return badPath(reply);
-
-    const files = createScopedFs(project.path);
     const resolved = await files.resolve(rel);
     if (resolved.status !== 'ok') return missing(reply);
     if (resolved.kind !== 'file') return reply.code(400).send({ error: 'path is not a file' });
@@ -63,16 +58,13 @@ export function registerFileRoutes(
   });
 
   api.post<{ Params: { id: string }; Body: unknown }>('/projects/:id/files', async (request, reply) => {
-    const project = await options.projects.resolveProject(request.params.id);
-    if (project === null) return notFound(reply);
+    const opened = await openProject(request, reply, options);
+    if (opened === null) return reply;
+    const { files, rel } = opened;
 
     const kind = readKind(request.body);
     if (kind === null) return reply.code(400).send({ error: "kind must be 'file' or 'directory'" });
 
-    const rel = writeRelPath(request);
-    if (rel === null) return badPath(reply);
-
-    const files = createScopedFs(project.path);
     const target = await files.resolveWriteTarget(rel);
     if (target.status !== 'ok') return targetFailed(reply, target.status);
 
@@ -86,17 +78,14 @@ export function registerFileRoutes(
   api.post<{ Params: { id: string }; Body: unknown }>(
     '/projects/:id/files/rename',
     async (request, reply) => {
-      const project = await options.projects.resolveProject(request.params.id);
-      if (project === null) return notFound(reply);
+      const opened = await openProject(request, reply, options);
+      if (opened === null) return reply;
+      const { files, rel } = opened;
 
       const to = readTo(request.body);
       const newName = to === null ? null : name(to);
       if (newName === null) return reply.code(400).send({ error: 'to must be a single file name' });
 
-      const rel = writeRelPath(request);
-      if (rel === null) return badPath(reply);
-
-      const files = createScopedFs(project.path);
       const target = await files.resolveWriteTarget(rel);
       if (target.status !== 'ok') return targetFailed(reply, target.status);
 
@@ -105,13 +94,10 @@ export function registerFileRoutes(
   );
 
   api.delete<{ Params: { id: string } }>('/projects/:id/files', async (request, reply) => {
-    const project = await options.projects.resolveProject(request.params.id);
-    if (project === null) return notFound(reply);
+    const opened = await openProject(request, reply, options);
+    if (opened === null) return reply;
+    const { files, rel } = opened;
 
-    const rel = writeRelPath(request);
-    if (rel === null) return badPath(reply);
-
-    const files = createScopedFs(project.path);
     const target = await files.resolveWriteTarget(rel);
     if (target.status !== 'ok') return targetFailed(reply, target.status);
 
@@ -122,8 +108,9 @@ export function registerFileRoutes(
     '/projects/:id/files/content',
     { bodyLimit: MAX_UPLOAD_BYTES },
     async (request, reply) => {
-      const project = await options.projects.resolveProject(request.params.id);
-      if (project === null) return notFound(reply);
+      const opened = await openProject(request, reply, options);
+      if (opened === null) return reply;
+      const { files, rel } = opened;
 
       // An upload is create, never overwrite (spec-04 §Writes): the body must be
       // raw bytes, and anything else — a JSON object, an absent body — is a 400
@@ -132,10 +119,6 @@ export function registerFileRoutes(
         return reply.code(400).send({ error: 'a raw application/octet-stream body is required' });
       }
 
-      const rel = writeRelPath(request);
-      if (rel === null) return badPath(reply);
-
-      const files = createScopedFs(project.path);
       const target = await files.resolveWriteTarget(rel);
       if (target.status !== 'ok') return targetFailed(reply, target.status);
 
@@ -145,14 +128,42 @@ export function registerFileRoutes(
 }
 
 /**
- * The client-supplied relative path, or `null` when it is not a plain relative
- * path. Omitted and empty both mean the project root (`''`). Separators are `/`;
- * a `\`, a `..`/`.`/empty segment, an absolute path, a drive letter, or a NUL is
- * a rejection — a 400 *before* the reader is consulted. This check is not the
- * security boundary (that is realpath containment in `ScopedFs.resolve`); it is
- * a cheap early refusal.
+ * Open a file route: resolve `:id` to a project (the only place an id becomes a
+ * directory) and run `?path=` through the shared syntax check — or send the
+ * matching 404/400 itself and return `null`. Every route opens with this, so a
+ * read and a write reject the same bad `path` with the same `400`.
  */
-function readRelPath(request: FastifyRequest): string | null {
+async function openProject(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply,
+  options: { projects: ProjectDiscovery },
+): Promise<{ files: ScopedFs; rel: string } | null> {
+  const project = await options.projects.resolveProject(request.params.id);
+  if (project === null) {
+    notFound(reply);
+    return null;
+  }
+
+  const rel = relPath(request);
+  if (rel === null) {
+    badPath(reply);
+    return null;
+  }
+
+  return { files: createScopedFs(project.path), rel };
+}
+
+/**
+ * The client-supplied relative path, or `null` when it is not a plain relative
+ * path. This one check fronts *every* file route, read and write alike: omitted
+ * and empty both mean the project root (`''`); separators are `/`; a `\`, a
+ * `..`/`.`/empty segment, an absolute path, a drive letter, or a NUL is a
+ * rejection — a 400 *before* the reader is consulted. A write still re-checks
+ * its basename through `resolveWriteTarget` + `name`, but that is no longer its
+ * only check. This is not the security boundary (that is realpath containment
+ * in `ScopedFs.resolve`); it is a cheap early refusal.
+ */
+function relPath(request: FastifyRequest): string | null {
   const query: unknown = request.query;
   if (query === null || typeof query !== 'object') return '';
   const value = (query as Record<string, unknown>)['path'];
@@ -167,21 +178,6 @@ function readRelPath(request: FastifyRequest): string | null {
     return null;
   }
   return value;
-}
-
-/**
- * The `?path=` a write addresses, or `null` when it is not a string. Omitted and
- * empty both mean the project root (`''`), which `resolveWriteTarget` then
- * refuses as `is_root`. Writes are deliberately *not* run through `readRelPath`:
- * the write door (`resolveWriteTarget` + `name`) is their syntax check, so an
- * escaping parent folds to `outside_root` → 404 just like any other miss.
- */
-function writeRelPath(request: FastifyRequest): string | null {
-  const query: unknown = request.query;
-  if (query === null || typeof query !== 'object') return '';
-  const value = (query as Record<string, unknown>)['path'];
-  if (value === undefined) return '';
-  return typeof value === 'string' ? value : null;
 }
 
 /** A create request's `kind`: `file` or `directory`, or `null` for anything else. */

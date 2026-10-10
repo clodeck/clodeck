@@ -223,6 +223,11 @@ describe('ScopedFs (write half)', () => {
 
       expect(await fs().resolveWriteTarget('leaf/..')).toEqual({ status: 'invalid_name' });
     });
+
+    it('reports a NUL basename as invalid_name', async () => {
+      expect(name('a\0b')).toBeNull();
+      expect(await fs().resolveWriteTarget('a\0b')).toEqual({ status: 'invalid_name' });
+    });
   });
 
   describe('createFile', () => {
