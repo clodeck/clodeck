@@ -10,6 +10,7 @@ import type { ApprovalRequestPayload, ServerEvent, SDKMessage } from '@clodeck/s
 import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createFakeProvider, type FakeProvider, type FakeProviderOptions } from '../testing/fake-provider.js';
+import { createFakePtySpawner } from '../testing/fake-pty.js';
 import { createSandbox, removeSandbox, type Sandbox } from '../test-support.js';
 
 /**
@@ -39,6 +40,8 @@ describe('the /ws event bus', () => {
     const app = buildApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider,
+      // `/ws` never touches the pty, but the app factory now needs the seam.
+      spawner: createFakePtySpawner(),
     });
     apps.push(app);
     return { app, provider };

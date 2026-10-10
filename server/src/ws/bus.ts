@@ -1,4 +1,3 @@
-import websocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 
@@ -27,9 +26,10 @@ export function registerWsBus(
   app: FastifyInstance,
   options: { projects: ProjectDiscovery; turns: TurnManager },
 ): void {
-  // The plugin's `websocket: true` handling is an `onRoute` hook, so it has to
-  // load before the route is added — hence the route lives in its own plugin.
-  app.register(websocket);
+  // `@fastify/websocket` is registered once in the app root (see `app.ts`); its
+  // `websocket: true` handling is an `onRoute` hook, so it has already loaded by
+  // the time this route is added. The route lives in its own plugin, like the
+  // sibling `/ws/terminal`, so both register their routes in the same shape.
   app.register(async (bus) => {
     bus.get('/ws', { websocket: true }, (socket, request) => {
       void openConnection(socket, request, options);
