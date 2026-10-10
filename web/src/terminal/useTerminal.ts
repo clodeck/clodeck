@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useCallback, useEffect, useState } from 'react';
 
-import { debounce, postTerminalSize, terminalSocketUrl } from './transport';
+import { debounce, postTerminalSize, terminalSocketUrl, type TerminalSize } from './transport';
 
 /**
  * The terminal data seam, shaped like `useChat` / `useProjects`: a discriminated
@@ -65,12 +65,12 @@ export function useTerminal(project: Project): TerminalController {
     // Fit before anything is sent: the pty and the grid must agree from the start.
     fit.fit();
 
-    const sendSize = (cols: number, rows: number): void => {
+    const sendSize = (size: TerminalSize): void => {
       // Only while a shell exists: before the socket opens the server has no
       // terminal to resize (the POST would 404), and after it closes there is
       // nothing left to resize.
       if (socket.readyState !== WebSocket.OPEN) return;
-      void postTerminalSize(project.id, cols, rows).catch(() => {
+      void postTerminalSize(project.id, size).catch(() => {
         // A resize that does not land is not worth surfacing; the next one
         // carries the same size.
       });
@@ -78,8 +78,8 @@ export function useTerminal(project: Project): TerminalController {
 
     // A resize storm (dragging the splitter) must not become a POST storm.
     const scheduledResize = debounce(sendSize, RESIZE_DEBOUNCE_MS);
-    const resizeSub = terminal.onResize(({ cols, rows }) => {
-      scheduledResize.call(cols, rows);
+    const resizeSub = terminal.onResize((size) => {
+      scheduledResize.call(size);
     });
 
     // Keep the grid the size of the panel. A `fit()` that changes the grid is
@@ -94,7 +94,7 @@ export function useTerminal(project: Project): TerminalController {
       // The server spawns at a fixed 80×24 and the addon never sends a size, so
       // without this the pty would stay 80×24 until the user happened to resize.
       // Push the real size once, now that the shell exists.
-      sendSize(terminal.cols, terminal.rows);
+      sendSize({ cols: terminal.cols, rows: terminal.rows });
     };
 
     // Close and error are the same end for a terminal: the shell is gone. The

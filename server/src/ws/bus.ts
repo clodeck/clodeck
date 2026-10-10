@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 import type { ProjectDiscovery } from '../discovery.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
+import { WS_OPEN, textOf } from './frames.js';
 import type { TurnManager } from './turn-manager.js';
 
 /**
@@ -18,9 +19,6 @@ import type { TurnManager } from './turn-manager.js';
  * resolved directory, so it is re-validated through the discovery seam before
  * anything else happens (wayfinder 05 §5); a rejected id is closed, never opened.
  */
-
-/** `ws` calls this OPEN; kept local so the bus imports no runtime dependency on `ws`. */
-const WS_OPEN = 1;
 
 export function registerWsBus(
   app: FastifyInstance,
@@ -135,13 +133,6 @@ async function dispatchFrame(
 
 function emitNoActiveTurn(context: { projectId: string; emit: EmitDraft }): void {
   context.emit(errorDraft(context.projectId, 'no_active_turn', 'no turn is running'));
-}
-
-function textOf(raw: unknown): string {
-  if (typeof raw === 'string') return raw;
-  if (Buffer.isBuffer(raw)) return raw.toString('utf8');
-  if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8');
-  return '';
 }
 
 /** Seq counts frames on *this* connection, so it starts at 1 and resets on reconnect. */

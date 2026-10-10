@@ -42,7 +42,7 @@ describe('postTerminalSize', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(postTerminalSize('proj-a', 132, 43)).resolves.toBe(true);
+    await expect(postTerminalSize('proj-a', { cols: 132, rows: 43 })).resolves.toBe(true);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] ?? [];
@@ -54,7 +54,7 @@ describe('postTerminalSize', () => {
   it('reports false when the server refuses the size (no terminal open yet)', async () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, _init?: RequestInit) => Promise.resolve({ ok: false } as Response)));
 
-    await expect(postTerminalSize('proj-a', 80, 24)).resolves.toBe(false);
+    await expect(postTerminalSize('proj-a', { cols: 80, rows: 24 })).resolves.toBe(false);
   });
 });
 

@@ -2,7 +2,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 
 import type { ProjectDiscovery } from '../discovery.js';
+import { WS_OPEN, textOf } from '../ws/frames.js';
 import type { TerminalManager } from './manager.js';
+import type { TerminalSize } from './pty.js';
 
 /**
  * The `/ws/terminal` transport and its resize endpoint (spec-03 §"The
@@ -18,9 +20,6 @@ import type { TerminalManager } from './manager.js';
  * resolved project's path is the shell's `cwd` — a convenience (relative paths
  * just work), not a sandbox; the shell may still `cd` anywhere.
  */
-
-/** `ws` calls this OPEN; kept local so this module imports no runtime `ws`. */
-const WS_OPEN = 1;
 
 /** The close code for a rejected, unauthenticated id — WebSocket policy violation. */
 const POLICY_VIOLATION = 1008;
@@ -143,7 +142,7 @@ export function registerTerminalSizeRoute(
         return reply.code(400).send({ error: 'cols and rows must be positive integers' });
       }
 
-      if (!options.terminals.resize(project.id, size.cols, size.rows)) {
+      if (!options.terminals.resize(project.id, size)) {
         return notFound(reply, 'no terminal is open for this project');
       }
 
@@ -157,7 +156,7 @@ function notFound(reply: FastifyReply, message: string): FastifyReply {
   return reply.code(404).send({ error: message });
 }
 
-function readSize(body: unknown): { cols: number; rows: number } | null {
+function readSize(body: unknown): TerminalSize | null {
   if (typeof body !== 'object' || body === null) return null;
   const { cols, rows } = body as Record<string, unknown>;
   if (!isPositiveInt(cols) || !isPositiveInt(rows)) return null;
@@ -166,14 +165,6 @@ function readSize(body: unknown): { cols: number; rows: number } | null {
 
 function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
-/** The bytes of a frame, whatever `ws` handed them over as. */
-function textOf(raw: unknown): string {
-  if (typeof raw === 'string') return raw;
-  if (Buffer.isBuffer(raw)) return raw.toString('utf8');
-  if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8');
-  return '';
 }
 
 /** Send only on an OPEN socket: a socket that closed mid-send must not throw. */
