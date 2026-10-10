@@ -4,6 +4,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createFakeProvider } from './fake-provider.js';
+import { createFakePtySpawner } from './fake-pty.js';
 
 /**
  * `npm run dev:fake` — the whole server on the scripted fake.
@@ -84,6 +85,9 @@ const app = buildApp({
     sessions: SESSIONS,
     sessionMessages: SESSION_MESSAGES,
   }),
+  // The scripted fake here too, so `dev:fake` boots with no shell and no native
+  // binding — the same "no API key, no network" story as the fake provider.
+  spawner: createFakePtySpawner(),
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from
