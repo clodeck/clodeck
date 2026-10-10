@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react';
 
 import { ChatPanel } from './chat/ChatPanel';
 import { ProjectSwitcher } from './ProjectSwitcher';
+import { TerminalPanel } from './terminal/TerminalPanel';
 import { useProjects } from './useProjects';
 
 /**
@@ -64,7 +65,9 @@ function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
         {/* Keyed by project so switching projects remounts a fresh chat session. */}
         <ChatPanel key={project.id} project={project} />
         <div className="grid min-h-0 grid-rows-2 divide-y divide-line">
-          <Stub title="Terminal" note="The per-project shell terminal lands in a later slice." />
+          {/* Keyed by project so switching projects remounts a fresh shell (and
+              tears the previous socket down with the old panel). */}
+          <TerminalPanel key={project.id} project={project} />
           <Stub title="Files" note="The read-only file viewer lands in a later slice." />
         </div>
       </div>

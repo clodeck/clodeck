@@ -9,6 +9,7 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import { createSandbox, linkType, removeSandbox, type Sandbox } from './test-support.js';
+import { createFakePtySpawner } from './testing/fake-pty.js';
 import { createFakeProvider } from './testing/fake-provider.js';
 
 /**
@@ -35,8 +36,10 @@ describe('the server API', () => {
   function makeApp(projectsRoot: string | null): FastifyInstance {
     const app = buildApp({
       projects: createProjectDiscovery(projectsRoot, { warn: () => undefined }),
-      // The scripted fake, so no suite here ever needs an API key or the network.
+      // The scripted fakes, so no suite here ever needs an API key, the network,
+      // or a real shell.
       provider: createFakeProvider(),
+      spawner: createFakePtySpawner(),
     });
     apps.push(app);
     return app;

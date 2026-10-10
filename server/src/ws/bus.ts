@@ -1,4 +1,3 @@
-import websocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 
@@ -7,6 +6,7 @@ import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 import type { ProjectDiscovery } from '../discovery.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
+import { WS_OPEN, textOf } from './frames.js';
 import type { TurnManager } from './turn-manager.js';
 
 /**
@@ -20,16 +20,14 @@ import type { TurnManager } from './turn-manager.js';
  * anything else happens (wayfinder 05 §5); a rejected id is closed, never opened.
  */
 
-/** `ws` calls this OPEN; kept local so the bus imports no runtime dependency on `ws`. */
-const WS_OPEN = 1;
-
 export function registerWsBus(
   app: FastifyInstance,
   options: { projects: ProjectDiscovery; turns: TurnManager },
 ): void {
-  // The plugin's `websocket: true` handling is an `onRoute` hook, so it has to
-  // load before the route is added — hence the route lives in its own plugin.
-  app.register(websocket);
+  // `@fastify/websocket` is registered once in the app root (see `app.ts`); its
+  // `websocket: true` handling is an `onRoute` hook, so it has already loaded by
+  // the time this route is added. The route lives in its own plugin, like the
+  // sibling `/ws/terminal`, so both register their routes in the same shape.
   app.register(async (bus) => {
     bus.get('/ws', { websocket: true }, (socket, request) => {
       void openConnection(socket, request, options);
@@ -135,13 +133,6 @@ async function dispatchFrame(
 
 function emitNoActiveTurn(context: { projectId: string; emit: EmitDraft }): void {
   context.emit(errorDraft(context.projectId, 'no_active_turn', 'no turn is running'));
-}
-
-function textOf(raw: unknown): string {
-  if (typeof raw === 'string') return raw;
-  if (Buffer.isBuffer(raw)) return raw.toString('utf8');
-  if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8');
-  return '';
 }
 
 /** Seq counts frames on *this* connection, so it starts at 1 and resets on reconnect. */
