@@ -67,7 +67,8 @@ export type WriteResult =
   | { status: 'ok' }
   | { status: 'exists' } // create onto an existing name
   | { status: 'not_found' } // rename/remove a missing name
-  | { status: 'symlink' }; // create through a symlink in the final segment
+  | { status: 'symlink' } // create through a symlink in the final segment
+  | { status: 'not_a_file' }; // overwrite onto something that is not a regular file
 
 export interface ScopedFs {
   /**
@@ -95,6 +96,8 @@ export interface ScopedFs {
   createFile(target: WriteTarget, content: Buffer): Promise<WriteResult>;
   /** Create a new directory (never over an existing entry, never through a symlink). */
   createDirectory(target: WriteTarget): Promise<WriteResult>;
+  /** Overwrite an existing regular file's bytes — a deliberate edit/save, unlike `createFile`. */
+  overwriteFile(target: WriteTarget, content: Buffer): Promise<WriteResult>;
   /** Rename the target entry within its own directory (the entry itself, never a symlink's target). */
   rename(target: WriteTarget, newName: FileName): Promise<WriteResult>;
   /** Remove the target entry (a symlink is removed as the link, never followed). */
@@ -206,6 +209,21 @@ export function createScopedFs(projectPath: string): ScopedFs {
     }
   }
 
+  async function overwriteFile(target: WriteTarget, content: Buffer): Promise<WriteResult> {
+    const full = path.join(target.parent, target.name);
+    const existing = await lstatOrNull(full);
+    if (existing === null) return { status: 'not_found' };
+    if (existing.isSymbolicLink()) return { status: 'symlink' };
+    if (!existing.isFile()) return { status: 'not_a_file' };
+
+    // A deliberate edit/save overwrites an existing file (unlike `createFile`'s
+    // `wx`). The `lstat` above already refused a symlink and anything that is not
+    // a regular file, so a plain truncating write here follows nothing and
+    // clobbers nothing but the file itself.
+    await writeFile(full, content);
+    return { status: 'ok' };
+  }
+
   async function rename(target: WriteTarget, newName: FileName): Promise<WriteResult> {
     const from = path.join(target.parent, target.name);
     const existing = await lstatOrNull(from);
@@ -229,7 +247,7 @@ export function createScopedFs(projectPath: string): ScopedFs {
     return { status: 'ok' };
   }
 
-  return { resolve, listDir, readFile, resolveWriteTarget, createFile, createDirectory, rename, remove };
+  return { resolve, listDir, readFile, resolveWriteTarget, createFile, createDirectory, overwriteFile, rename, remove };
 }
 
 /**

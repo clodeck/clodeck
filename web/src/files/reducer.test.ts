@@ -3,26 +3,40 @@ import { describe, expect, it } from 'vitest';
 
 import {
   baseName,
-  breadcrumb,
-  idleListing,
+  beginEdit,
+  cancelEdit,
+  dirError,
+  dirLoading,
+  dirReady,
+  idleTree,
   isValidName,
   joinPath,
-  listingError,
-  listingLoading,
-  listingReady,
   noPreview,
   parentPath,
+  previewError,
   previewLoading,
   previewOf,
+  previewPath,
+  savedEdit,
+  saveFailedEdit,
+  savingEdit,
   sortEntries,
+  treeError,
+  treeLoading,
+  treeReady,
+  updateEdit,
   viewerOf,
-  viewerPath,
+  withActive,
+  withDir,
+  withExpanded,
+  type TreeState,
 } from './reducer';
 
 /**
  * The reducer is the seam that can be tested without a DOM. Every expected value
- * below is read off the spec's pinned shapes (spec-04 §"Web client") and the
- * server's listing rules (§"The reader") — not by re-running the implementation.
+ * below is read off the pinned shapes — the tree (a keyed map of directories plus
+ * the expanded set and the active folder) and the preview/editor union — not by
+ * re-running the implementation.
  */
 
 const FILE: FileEntry = { type: 'file', name: 'README.md', size: 12, mtime: '2026-01-01T00:00:00.000Z' };
@@ -69,15 +83,6 @@ describe('path handling', () => {
     expect(baseName('src/app.ts')).toBe('app.ts');
   });
 
-  it('builds breadcrumb segments with cumulative paths', () => {
-    expect(breadcrumb('')).toEqual([]);
-    expect(breadcrumb('src')).toEqual([{ name: 'src', path: 'src' }]);
-    expect(breadcrumb('src/ui')).toEqual([
-      { name: 'src', path: 'src' },
-      { name: 'ui', path: 'src/ui' },
-    ]);
-  });
-
   it('accepts a plain name and refuses anything that is not a single clean segment', () => {
     expect(isValidName('notes.txt')).toBe(true);
     expect(isValidName('.gitignore')).toBe(true);
@@ -87,82 +92,162 @@ describe('path handling', () => {
   });
 });
 
-describe('listing transitions', () => {
-  it('starts idle', () => {
-    expect(idleListing()).toEqual({ status: 'idle' });
-  });
-
-  it('goes to loading with the path being listed', () => {
-    expect(listingLoading('src')).toEqual({ status: 'loading', path: 'src' });
-  });
-
-  it('goes to ready with the entries sorted', () => {
-    expect(listingReady('', [FILE, DIR])).toEqual({
+describe('tree transitions', () => {
+  it('starts idle, then loading, then ready with a sorted root and no expansion', () => {
+    expect(idleTree()).toEqual({ status: 'idle' });
+    expect(treeLoading()).toEqual({ status: 'loading' });
+    expect(treeReady([FILE, DIR])).toEqual({
       status: 'ready',
-      path: '',
-      entries: [DIR, FILE],
+      dirs: { '': { status: 'ready', entries: [DIR, FILE] } },
+      expanded: {},
+      active: '',
     });
   });
 
   it('goes to error with the message', () => {
-    expect(listingError('src', '404 Not Found')).toEqual({
-      status: 'error',
-      path: 'src',
-      message: '404 Not Found',
-    });
+    expect(treeError('404 Not Found')).toEqual({ status: 'error', message: '404 Not Found' });
+  });
+
+  it('builds a loading, ready and error listing for one directory', () => {
+    expect(dirLoading()).toEqual({ status: 'loading' });
+    expect(dirReady([FILE, DIR])).toEqual({ status: 'ready', entries: [DIR, FILE] });
+    expect(dirError('boom')).toEqual({ status: 'error', message: 'boom' });
+  });
+});
+
+describe('tree operations', () => {
+  const ready = (): TreeState => treeReady([DIR, FILE]);
+
+  it('upserts one directory listing without touching the others', () => {
+    const tree = withDir(ready(), 'src', dirReady([FILE]));
+    expect(tree.status).toBe('ready');
+    if (tree.status !== 'ready') return;
+    expect(tree.dirs['']).toEqual({ status: 'ready', entries: [DIR, FILE] });
+    expect(tree.dirs['src']).toEqual({ status: 'ready', entries: [FILE] });
+  });
+
+  it('expands and collapses a directory immutably', () => {
+    const expanded = withExpanded(ready(), 'src', true);
+    expect(expanded.status === 'ready' && expanded.expanded['src']).toBe(true);
+    const collapsed = withExpanded(expanded, 'src', false);
+    expect(collapsed.status === 'ready' && collapsed.expanded['src']).toBeUndefined();
+  });
+
+  it('selects the active folder for create/upload', () => {
+    const tree = withActive(ready(), 'src');
+    expect(tree.status === 'ready' && tree.active).toBe('src');
   });
 });
 
 describe('viewerOf', () => {
-  it('folds the listing and the preview into the pinned FileViewer arms', () => {
-    expect(viewerOf(idleListing(), noPreview)).toEqual({ status: 'idle' });
-    expect(viewerOf(listingLoading('src'), noPreview)).toEqual({ status: 'loading', path: 'src' });
-    expect(viewerOf(listingReady('src', [FILE]), noPreview)).toEqual({
-      status: 'ready',
-      path: 'src',
-      entries: [FILE],
-      preview: { kind: 'none' },
-    });
-    expect(viewerOf(listingError('src', 'boom'), noPreview)).toEqual({
-      status: 'error',
-      path: 'src',
-      message: 'boom',
-    });
+  it('folds the tree and the preview into the pinned FileViewer arms', () => {
+    expect(viewerOf(idleTree(), noPreview)).toEqual({ status: 'idle' });
+    expect(viewerOf(treeLoading(), noPreview)).toEqual({ status: 'loading' });
+    expect(viewerOf(treeError('boom'), noPreview)).toEqual({ status: 'error', message: 'boom' });
   });
 
   it('carries the preview into the ready arm', () => {
-    const preview = previewLoading('app.ts');
-    expect(viewerOf(listingReady('src', [FILE]), preview)).toEqual({
+    const preview = previewLoading('app.ts', 'src/app.ts');
+    expect(viewerOf(treeReady([FILE]), preview)).toEqual({
       status: 'ready',
-      path: 'src',
-      entries: [FILE],
+      dirs: { '': { status: 'ready', entries: [FILE] } },
+      expanded: {},
+      active: '',
       preview,
     });
   });
 });
 
-describe('viewerPath', () => {
-  it('reports the current directory for every arm that names one, else the root', () => {
-    expect(viewerPath({ status: 'idle' })).toBe('');
-    expect(viewerPath({ status: 'loading', path: 'src' })).toBe('src');
-    expect(viewerPath({ status: 'ready', path: '', entries: [], preview: noPreview })).toBe('');
-    expect(viewerPath({ status: 'error', path: 'src/ui', message: 'x' })).toBe('src/ui');
+describe('preview transitions', () => {
+  it('maps a text file to the text arm with its path and truncation flag', () => {
+    const content: FileContent = { kind: 'text', content: 'hello', truncated: true, size: 999 };
+    expect(previewOf('app.ts', 'src/app.ts', content)).toEqual({
+      kind: 'text',
+      name: 'app.ts',
+      path: 'src/app.ts',
+      content: 'hello',
+      truncated: true,
+    });
+  });
+
+  it('maps a binary file to the binary arm with its path and size', () => {
+    const content: FileContent = { kind: 'binary', size: 4096 };
+    expect(previewOf('logo.png', 'assets/logo.png', content)).toEqual({
+      kind: 'binary',
+      name: 'logo.png',
+      path: 'assets/logo.png',
+      size: 4096,
+    });
+  });
+
+  it('has a none arm, a loading arm carrying name + path, and an error arm', () => {
+    expect(noPreview).toEqual({ kind: 'none' });
+    expect(previewLoading('app.ts', 'src/app.ts')).toEqual({ kind: 'loading', name: 'app.ts', path: 'src/app.ts' });
+    expect(previewError('app.ts', 'src/app.ts', 'boom')).toEqual({ kind: 'error', name: 'app.ts', path: 'src/app.ts', message: 'boom' });
+  });
+
+  it('reports the path a preview is showing, or null for the empty pane', () => {
+    expect(previewPath(noPreview)).toBeNull();
+    expect(previewPath(previewLoading('a.txt', 'a.txt'))).toBe('a.txt');
+    expect(previewPath({ kind: 'text', name: 'a.txt', path: 'a.txt', content: 'x', truncated: false })).toBe('a.txt');
   });
 });
 
-describe('preview transitions', () => {
-  it('maps a text file to the text arm, keeping the truncation flag', () => {
-    const content: FileContent = { kind: 'text', content: 'hello', truncated: true, size: 999 };
-    expect(previewOf('app.ts', content)).toEqual({ kind: 'text', name: 'app.ts', content: 'hello', truncated: true });
+describe('editing transitions', () => {
+  const text = (): { kind: 'text'; name: string; path: string; content: string; truncated: boolean } => ({
+    kind: 'text',
+    name: 'a.txt',
+    path: 'a.txt',
+    content: 'hello',
+    truncated: false,
   });
 
-  it('maps a binary file to the binary arm with only its size', () => {
-    const content: FileContent = { kind: 'binary', size: 4096 };
-    expect(previewOf('logo.png', content)).toEqual({ kind: 'binary', name: 'logo.png', size: 4096 });
+  const editing = (): {
+    kind: 'editing';
+    name: string;
+    path: string;
+    original: string;
+    value: string;
+    dirty: boolean;
+    saving: boolean;
+    error: string | null;
+  } => ({
+    kind: 'editing',
+    name: 'a.txt',
+    path: 'a.txt',
+    original: 'hello',
+    value: 'hello',
+    dirty: false,
+    saving: false,
+    error: null,
   });
 
-  it('has a none arm and a loading arm carrying the file name', () => {
-    expect(noPreview).toEqual({ kind: 'none' });
-    expect(previewLoading('app.ts')).toEqual({ kind: 'loading', name: 'app.ts' });
+  it('seeds the editor with the current content and a clean state', () => {
+    expect(beginEdit(text())).toEqual(editing());
+  });
+
+  it('stays read-only for a truncated file (editing would clobber the rest)', () => {
+    expect(beginEdit({ ...text(), truncated: true })).toEqual({ ...text(), truncated: true });
+  });
+
+  it('tracks keystrokes as dirty against the original, and clears a stale error', () => {
+    expect(updateEdit(editing(), 'hello')).toEqual(editing());
+    expect(updateEdit({ ...editing(), error: 'old' }, 'changed')).toEqual({ ...editing(), value: 'changed', dirty: true, error: null });
+  });
+
+  it('flags the save in flight and lands it back on the text arm', () => {
+    const dirty = { ...editing(), value: 'changed', dirty: true };
+    expect(savingEdit(dirty)).toEqual({ ...dirty, saving: true, error: null });
+    expect(savedEdit(dirty, 'changed')).toEqual({ kind: 'text', name: 'a.txt', path: 'a.txt', content: 'changed', truncated: false });
+  });
+
+  it('keeps the buffer on a failed save and surfaces the message', () => {
+    const dirty = { ...editing(), value: 'changed', dirty: true };
+    expect(saveFailedEdit(dirty, 'boom')).toEqual({ ...dirty, saving: false, error: 'boom' });
+  });
+
+  it('cancel restores the original content on the text arm', () => {
+    const dirty = { ...editing(), value: 'changed', dirty: true };
+    expect(cancelEdit(dirty)).toEqual({ kind: 'text', name: 'a.txt', path: 'a.txt', content: 'hello', truncated: false });
   });
 });

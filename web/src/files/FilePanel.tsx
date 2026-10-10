@@ -1,33 +1,47 @@
 import type { FileEntry, Project } from '@clodeck/shared';
 import { useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
 
-import { assertNever, breadcrumb, isValidName, joinPath, viewerPath, type PreviewState } from './reducer';
-import { useFiles, type FileViewer, type FileViewerActions } from './useFiles';
+import { assertNever, isValidName, joinPath, type DirListing } from './reducer';
+import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
 /**
  * The file drawer — the view half of `useFiles`. It is keyed by project id in
  * `App` (like `ChatPanel` / `TerminalPanel`), so switching projects remounts a
- * fresh drawer rather than carrying one project's path and preview into another.
+ * fresh drawer rather than carrying one project's tree and preview into another.
+ *
+ * The drawer is now a **tree**: folders expand in place (a click toggles them,
+ * it never navigates), each expanded folder's listing is fetched lazily on first
+ * open, and the last folder clicked is the "active" folder that New File/Folder
+ * and Upload land in. The preview pane starts **read-only** and flips to a
+ * writable `<textarea>` with Save/Cancel — the content-editing toggle.
  *
  * Two rules are load-bearing, not style:
  *
- * - File bytes are rendered **only** as React text nodes (`<pre>{content}</pre>`);
- *   there is no `innerHTML` and no `dangerouslySetInnerHTML` anywhere, because a
- *   file's bytes are untrusted.
+ * - File bytes are rendered **only** as React text nodes (`<pre>{content}</pre>`
+ *   and a controlled `<textarea value>`); there is no `innerHTML` and no
+ *   `dangerouslySetInnerHTML` anywhere, because a file's bytes are untrusted.
  * - Every renderer over a closed union is an exhaustive `switch` ending in
  *   {@link assertNever}, so a new entry type or content kind is a compile error.
  */
 
 export function FilePanel({ project }: { project: Project }): ReactElement {
   const { viewer, actions } = useFiles(project);
-  const dir = viewerPath(viewer);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const [promptError, setPromptError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
+  const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
+
   const uploadFiles = (files: readonly File[]): void => {
-    for (const file of files) void actions.upload(joinPath(dir, file.name), file);
+    for (const file of files) {
+      void actions.upload(file).catch((error: unknown) => {
+        setNotice(messageOf(error));
+      });
+    }
   };
 
   const onChosen = (event: ChangeEvent<HTMLInputElement>): void => {
@@ -42,22 +56,48 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     uploadFiles(Array.from(event.dataTransfer.files));
   };
 
-  const submitPrompt = (name: string): void => {
+  const submitPrompt = async (name: string): Promise<void> => {
     if (prompt === null) return;
-    if (prompt.mode === 'rename') void actions.rename(prompt.path, name);
-    else void actions.create(prompt.mode === 'create-file' ? 'file' : 'directory', name);
-    setPrompt(null);
+    try {
+      if (prompt.mode === 'rename') await actions.rename(prompt.path, name);
+      else await actions.create(prompt.mode === 'create-file' ? 'file' : 'directory', name);
+      setPrompt(null);
+      setPromptError(null);
+    } catch (error) {
+      setPromptError(messageOf(error));
+    }
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (confirm === null) return;
+    try {
+      await actions.remove(confirm.path);
+      setConfirm(null);
+      setConfirmError(null);
+    } catch (error) {
+      setConfirmError(messageOf(error));
+    }
   };
 
   return (
     <section className="relative flex min-h-0 flex-col" aria-label="Files">
       <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Files</h2>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Files</h2>
+          {activeLabel !== null && (
+            <span
+              className="truncate font-mono text-[10px] text-ink-dim/70"
+              title={`New file, new folder and upload land in: ${activeLabel}`}
+            >
+              in {activeLabel}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
-          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); }}>New File</ToolbarButton>
-          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); }}>New Folder</ToolbarButton>
+          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
+          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
           <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
-          <ToolbarButton onClick={actions.refresh}>Refresh</ToolbarButton>
+          <ToolbarButton onClick={() => { setNotice(null); actions.refresh(); }}>Refresh</ToolbarButton>
         </div>
       </header>
 
@@ -70,7 +110,19 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
         aria-label="Choose files to upload"
       />
 
-      <Breadcrumb project={project} path={dir} onOpen={actions.open} onUp={actions.up} />
+      {notice !== null && (
+        <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
+          <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-err">{notice}</p>
+          <button
+            type="button"
+            onClick={() => { setNotice(null); }}
+            className="shrink-0 rounded px-1 text-[11px] text-ink-dim hover:text-ink"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div
         className="min-h-0 flex-1 overflow-y-auto px-2 py-1"
@@ -79,22 +131,24 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
       >
         <ViewerBody
           viewer={viewer}
-          dir={dir}
           menu={menu}
           actions={actions}
           onMenu={setMenu}
-          onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); }}
-          onDelete={(entry) => { setMenu(null); setConfirm(entry); }}
+          onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); setPromptError(null); }}
+          onDelete={(entry) => { setMenu(null); setConfirm(entry); setConfirmError(null); }}
         />
       </div>
 
-      {viewer.status === 'ready' && viewer.preview.kind !== 'none' && <PreviewPane preview={viewer.preview} />}
+      {viewer.status === 'ready' && viewer.preview.kind !== 'none' && (
+        <PreviewPane preview={viewer.preview} actions={actions} />
+      )}
 
       {prompt !== null && (
         <NameDialog
           title={prompt.mode === 'rename' ? 'Rename' : prompt.mode === 'create-file' ? 'New file' : 'New folder'}
           confirmLabel={prompt.mode === 'rename' ? 'Rename' : 'Create'}
           initial={prompt.mode === 'rename' ? prompt.initial : ''}
+          error={promptError}
           onSubmit={submitPrompt}
           onCancel={() => { setPrompt(null); }}
         />
@@ -103,7 +157,8 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
       {confirm !== null && (
         <ConfirmDialog
           entry={confirm}
-          onConfirm={() => { void actions.remove(confirm.path); setConfirm(null); }}
+          error={confirmError}
+          onConfirm={confirmDelete}
           onCancel={() => { setConfirm(null); }}
         />
       )}
@@ -117,7 +172,6 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
 
 function ViewerBody({
   viewer,
-  dir,
   menu,
   actions,
   onMenu,
@@ -125,10 +179,9 @@ function ViewerBody({
   onDelete,
 }: {
   viewer: FileViewer;
-  dir: string;
   menu: string | null;
   actions: FileViewerActions;
-  onMenu: (name: string | null) => void;
+  onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
@@ -138,26 +191,17 @@ function ViewerBody({
     case 'loading':
       return <Hint>Loading…</Hint>;
     case 'error':
-      return (
-        <div className="flex flex-col items-start gap-2 px-2 py-2">
-          <p className="font-mono text-[11px] break-words text-err">{viewer.message}</p>
-          <button
-            type="button"
-            onClick={actions.refresh}
-            className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
-          >
-            Retry
-          </button>
-        </div>
-      );
+      return <DirError message={viewer.message} onRetry={actions.refresh} />;
     case 'ready':
       return (
-        <Listing
-          entries={viewer.entries}
-          dir={dir}
+        <TreeLevel
+          path=""
+          depth={0}
+          dirs={viewer.dirs}
+          expanded={viewer.expanded}
+          active={viewer.active}
           menu={menu}
-          onOpen={actions.open}
-          onPreview={actions.preview}
+          actions={actions}
           onMenu={onMenu}
           onRename={onRename}
           onDelete={onDelete}
@@ -168,44 +212,88 @@ function ViewerBody({
   }
 }
 
-function Listing({
-  entries,
-  dir,
+/* -------------------------------------------------------------------------- */
+/* The recursive tree                                                         */
+/* -------------------------------------------------------------------------- */
+
+function TreeLevel({
+  path,
+  depth,
+  dirs,
+  expanded,
+  active,
   menu,
-  onOpen,
-  onPreview,
+  actions,
   onMenu,
   onRename,
   onDelete,
 }: {
-  entries: FileEntry[];
-  dir: string;
+  path: string;
+  depth: number;
+  dirs: Record<string, DirListing>;
+  expanded: Record<string, true>;
+  active: string;
   menu: string | null;
-  onOpen: (path: string) => void;
-  onPreview: (path: string) => void;
-  onMenu: (name: string | null) => void;
+  actions: FileViewerActions;
+  onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
-  if (entries.length === 0) return <Hint>This folder is empty.</Hint>;
+  const listing = dirs[path];
+  // A not-yet-fetched directory (its parent expanded first) reads as loading.
+  if (listing === undefined) return <Hint>Loading…</Hint>;
 
-  return (
-    <ul className="flex flex-col">
-      {entries.map((entry) => (
-        <EntryRow
-          key={entry.name}
-          entry={entry}
-          dir={dir}
-          menuOpen={menu === entry.name}
-          onOpen={onOpen}
-          onPreview={onPreview}
-          onMenu={onMenu}
-          onRename={onRename}
-          onDelete={onDelete}
-        />
-      ))}
-    </ul>
-  );
+  switch (listing.status) {
+    case 'loading':
+      return <Hint>Loading…</Hint>;
+    case 'error':
+      return <DirError message={listing.message} onRetry={actions.refresh} />;
+    case 'ready':
+      if (listing.entries.length === 0) {
+        return depth === 0 ? <Hint>This folder is empty.</Hint> : <span />;
+      }
+      return (
+        <ul className="flex flex-col">
+          {listing.entries.map((entry) => {
+            const childPath = joinPath(path, entry.name);
+            const isDir = entry.type === 'directory';
+            const isExpanded = isDir && expanded[childPath] === true;
+            return (
+              <li key={childPath}>
+                <EntryRow
+                  entry={entry}
+                  path={childPath}
+                  depth={depth}
+                  isExpanded={isExpanded}
+                  isActive={isDir && active === childPath}
+                  menuOpen={menu === childPath}
+                  actions={actions}
+                  onMenu={onMenu}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                />
+                {isExpanded && (
+                  <TreeLevel
+                    path={childPath}
+                    depth={depth + 1}
+                    dirs={dirs}
+                    expanded={expanded}
+                    active={active}
+                    menu={menu}
+                    actions={actions}
+                    onMenu={onMenu}
+                    onRename={onRename}
+                    onDelete={onDelete}
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      );
+    default:
+      return assertNever(listing);
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -214,34 +302,45 @@ function Listing({
 
 function EntryRow({
   entry,
-  dir,
+  path,
+  depth,
+  isExpanded,
+  isActive,
   menuOpen,
-  onOpen,
-  onPreview,
+  actions,
   onMenu,
   onRename,
   onDelete,
 }: {
   entry: FileEntry;
-  dir: string;
+  path: string;
+  depth: number;
+  isExpanded: boolean;
+  isActive: boolean;
   menuOpen: boolean;
-  onOpen: (path: string) => void;
-  onPreview: (path: string) => void;
-  onMenu: (name: string | null) => void;
+  actions: FileViewerActions;
+  onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
-  const path = joinPath(dir, entry.name);
+  const isDir = entry.type === 'directory';
 
   return (
-    <li className="relative flex items-center gap-1 rounded hover:bg-white/5">
-      <EntryMain entry={entry} path={path} onOpen={onOpen} onPreview={onPreview} />
+    <div
+      className={`flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
+      style={{ paddingLeft: 8 + depth * 14 }}
+    >
+      <EntryMain
+        entry={entry}
+        isExpanded={isExpanded}
+        onClick={isDir ? () => actions.toggle(path) : () => actions.preview(path)}
+      />
       <button
         type="button"
         aria-label={`Actions for ${entry.name}`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={() => { onMenu(menuOpen ? null : entry.name); }}
+        onClick={() => { onMenu(menuOpen ? null : path); }}
         className="shrink-0 rounded px-1.5 py-1 text-ink-dim hover:bg-white/10 hover:text-ink"
       >
         ⋯
@@ -278,33 +377,30 @@ function EntryRow({
           </div>
         </>
       )}
-    </li>
+    </div>
   );
 }
 
 function EntryMain({
   entry,
-  path,
-  onOpen,
-  onPreview,
+  isExpanded,
+  onClick,
 }: {
   entry: FileEntry;
-  path: string;
-  onOpen: (path: string) => void;
-  onPreview: (path: string) => void;
+  isExpanded: boolean;
+  onClick: () => void;
 }): ReactElement {
   switch (entry.type) {
     case 'directory':
       return (
-        <RowButton onClick={() => { onOpen(path); }} title={`Open ${entry.name}`}>
-          <span className="text-ink-dim">▸ </span>
+        <RowButton onClick={onClick} title={isExpanded ? 'Collapse folder' : 'Expand folder'}>
+          <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>
           {entry.name}/
         </RowButton>
       );
     case 'file':
       return (
-        <RowButton onClick={() => { onPreview(path); }} title={`Preview ${entry.name}`}>
-          <span className="text-ink-dim">· </span>
+        <RowButton onClick={onClick} title={`Preview ${entry.name}`}>
           {entry.name}
         </RowButton>
       );
@@ -348,58 +444,10 @@ function RowButton({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Breadcrumb + preview                                                       */
+/* Preview + editor                                                           */
 /* -------------------------------------------------------------------------- */
 
-function Breadcrumb({
-  project,
-  path,
-  onOpen,
-  onUp,
-}: {
-  project: Project;
-  path: string;
-  onOpen: (path: string) => void;
-  onUp: () => void;
-}): ReactElement {
-  const crumbs = breadcrumb(path);
-
-  return (
-    <nav aria-label="Path" className="flex items-center gap-1 border-b border-line px-3 py-1 text-[11px] text-ink-dim">
-      <button
-        type="button"
-        onClick={onUp}
-        disabled={path === ''}
-        aria-label="Up one level"
-        className="rounded border border-line px-1.5 py-0.5 hover:bg-white/5 disabled:opacity-40"
-      >
-        ↑ Up
-      </button>
-      <button
-        type="button"
-        onClick={() => { onOpen(''); }}
-        className="truncate rounded px-1 py-0.5 hover:text-ink"
-        title={`Project root (${project.name})`}
-      >
-        {project.name}
-      </button>
-      {crumbs.map((crumb) => (
-        <span key={crumb.path} className="flex min-w-0 items-center gap-1">
-          <span className="text-ink-dim/60">/</span>
-          <button
-            type="button"
-            onClick={() => { onOpen(crumb.path); }}
-            className="truncate rounded px-1 py-0.5 hover:text-ink"
-          >
-            {crumb.name}
-          </button>
-        </span>
-      ))}
-    </nav>
-  );
-}
-
-function PreviewPane({ preview }: { preview: PreviewState }): ReactElement | null {
+function PreviewPane({ preview, actions }: { preview: PreviewState; actions: FileViewerActions }): ReactElement | null {
   switch (preview.kind) {
     case 'none':
       return null;
@@ -407,32 +455,120 @@ function PreviewPane({ preview }: { preview: PreviewState }): ReactElement | nul
       return <PreviewFrame name={preview.name}>Loading…</PreviewFrame>;
     case 'text':
       return (
-        <PreviewFrame name={preview.name} note={preview.truncated ? 'truncated' : null}>
+        <PreviewFrame
+          name={preview.name}
+          note={preview.truncated ? 'truncated' : 'read-only'}
+          // A truncated file holds only the 256 KiB prefix; editing it would
+          // clobber the rest, so the writable toggle is withheld.
+          actions={preview.truncated ? null : <EditToggle onClick={actions.edit} />}
+        >
           {/* A file's bytes are untrusted: they are a React text node, never HTML. */}
           <pre className="overflow-auto p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>
         </PreviewFrame>
       );
     case 'binary':
       return <PreviewFrame name={preview.name}>binary · {preview.size} bytes</PreviewFrame>;
+    case 'editing':
+      return (
+        <PreviewFrame
+          name={preview.name}
+          note="writable"
+          tall
+          actions={
+            <>
+              <button
+                type="button"
+                onClick={actions.cancel}
+                disabled={preview.saving}
+                className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { void actions.save(); }}
+                disabled={preview.saving || !preview.dirty}
+                className="rounded bg-accent px-2 py-0.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-40"
+              >
+                {preview.saving ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          }
+        >
+          {preview.error !== null && (
+            <p className="border-b border-line px-2 py-1 font-mono text-[11px] text-err">{preview.error}</p>
+          )}
+          <textarea
+            value={preview.value}
+            onChange={(event) => { actions.editValue(event.target.value); }}
+            disabled={preview.saving}
+            spellCheck={false}
+            className="h-full w-full resize-none bg-transparent p-2 font-mono text-[12px] leading-relaxed text-ink outline-none disabled:opacity-60"
+          />
+        </PreviewFrame>
+      );
+    case 'error':
+      return (
+        <PreviewFrame
+          name={preview.name}
+          actions={
+            <button
+              type="button"
+              onClick={actions.dismiss}
+              className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+            >
+              Close
+            </button>
+          }
+        >
+          <p className="px-2 py-1 font-mono text-[11px] break-words text-err">{preview.message}</p>
+        </PreviewFrame>
+      );
     default:
       return assertNever(preview);
   }
 }
 
+/** The read-only ⇄ writable switch: an "Edit" pill, shown only when editable. */
+function EditToggle({ onClick }: { onClick: () => void }): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Edit this file"
+      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+    >
+      Edit
+    </button>
+  );
+}
+
 function PreviewFrame({
   name,
   note,
+  tall,
+  actions,
   children,
 }: {
   name: string;
   note?: string | null;
+  tall?: boolean;
+  actions?: ReactNode;
   children: ReactNode;
 }): ReactElement {
   return (
-    <section aria-label="Preview" className="flex max-h-[45%] min-h-0 flex-col border-t border-line">
+    <section
+      aria-label="Preview"
+      className={`flex ${tall ? 'max-h-[75%]' : 'max-h-[45%]'} min-h-0 flex-col border-t border-line`}
+    >
       <header className="flex items-center gap-2 border-b border-line px-3 py-1">
         <span className="truncate font-mono text-[11px] text-ink">{name}</span>
-        {note != null && <span className="text-[10px] tracking-wider text-ink-dim uppercase">{note}</span>}
+        {note != null && (
+          <span className={`text-[10px] tracking-wider uppercase ${note === 'writable' ? 'text-accent' : 'text-ink-dim'}`}>
+            {note}
+          </span>
+        )}
+        {actions != null && <span className="ml-auto flex shrink-0 items-center gap-2">{actions}</span>}
       </header>
       <div className="min-h-0 flex-1 overflow-auto text-[11px] text-ink-dim">{children}</div>
     </section>
@@ -459,6 +595,21 @@ function Hint({ children }: { children: ReactNode }): ReactElement {
   return <p className="px-2 py-2 text-[11px] text-ink-dim">{children}</p>;
 }
 
+function DirError({ message, onRetry }: { message: string; onRetry: () => void }): ReactElement {
+  return (
+    <div className="flex flex-col items-start gap-2 px-2 py-2">
+      <p className="font-mono text-[11px] break-words text-err">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Modals                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -468,13 +619,15 @@ function NameDialog({
   title,
   confirmLabel,
   initial,
+  error,
   onSubmit,
   onCancel,
 }: {
   title: string;
   confirmLabel: string;
   initial: string;
-  onSubmit: (name: string) => void;
+  error: string | null;
+  onSubmit: (name: string) => Promise<void>;
   onCancel: () => void;
 }): ReactElement {
   const [value, setValue] = useState(initial);
@@ -486,7 +639,7 @@ function NameDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (valid) onSubmit(name);
+          if (valid) void onSubmit(name);
         }}
       >
         <h3 className="text-sm font-semibold text-ink">{title}</h3>
@@ -498,6 +651,7 @@ function NameDialog({
           placeholder="name"
           className="mt-3 w-full rounded border border-line bg-canvas px-2 py-1 font-mono text-[12px] text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
         />
+        {error !== null && <p className="mt-2 font-mono text-[11px] break-words text-err">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
@@ -522,11 +676,13 @@ function NameDialog({
 /** The delete confirmation; a folder delete warns, because it is recursive. */
 function ConfirmDialog({
   entry,
+  error,
   onConfirm,
   onCancel,
 }: {
   entry: Confirm;
-  onConfirm: () => void;
+  error: string | null;
+  onConfirm: () => Promise<void>;
   onCancel: () => void;
 }): ReactElement {
   return (
@@ -536,6 +692,7 @@ function ConfirmDialog({
         <p className="mt-2 text-[12px] text-err">This deletes the folder and everything inside it.</p>
       )}
       <p className="mt-1 text-[12px] text-ink-dim">This cannot be undone.</p>
+      {error !== null && <p className="mt-2 font-mono text-[11px] break-words text-err">{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
         <button
           type="button"
@@ -546,7 +703,7 @@ function ConfirmDialog({
         </button>
         <button
           type="button"
-          onClick={onConfirm}
+          onClick={() => { void onConfirm(); }}
           className="rounded bg-err px-3 py-1.5 text-sm font-semibold text-canvas hover:opacity-90"
         >
           Delete
@@ -581,4 +738,8 @@ interface Confirm {
   path: string;
   name: string;
   isDirectory: boolean;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

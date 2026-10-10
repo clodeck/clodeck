@@ -26,6 +26,10 @@ export function renameUrl(projectId: string, path: string): string {
   return `${BASE}/${encodeURIComponent(projectId)}/files/rename?path=${encodeURIComponent(path)}`;
 }
 
+export function saveUrl(projectId: string, path: string): string {
+  return `${BASE}/${encodeURIComponent(projectId)}/files/save?path=${encodeURIComponent(path)}`;
+}
+
 /** `GET /files` — one directory's entries. */
 export async function fetchEntries(projectId: string, path: string, signal?: AbortSignal): Promise<FileEntry[]> {
   const response = await fetch(filesUrl(projectId, path), { signal, headers: { accept: 'application/json' } });
@@ -78,6 +82,16 @@ export async function uploadEntry(projectId: string, path: string, file: File): 
     method: 'PUT',
     headers: { 'content-type': 'application/octet-stream' },
     body: file,
+  });
+  if (!response.ok) throw new Error(await failureMessage(response));
+}
+
+/** `POST /files/save` — overwrite an existing file's content (the editable toggle's save). */
+export async function saveContent(projectId: string, path: string, content: string): Promise<void> {
+  const response = await fetch(saveUrl(projectId, path), {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: content,
   });
   if (!response.ok) throw new Error(await failureMessage(response));
 }

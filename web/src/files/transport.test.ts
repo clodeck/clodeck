@@ -10,6 +10,8 @@ import {
   removeEntry,
   renameEntry,
   renameUrl,
+  saveContent,
+  saveUrl,
   uploadEntry,
 } from './transport';
 
@@ -46,6 +48,10 @@ describe('URLs', () => {
   it('builds the content and rename endpoints under the same files scope', () => {
     expect(contentUrl('p', 'a.txt')).toBe('/api/projects/p/files/content?path=a.txt');
     expect(renameUrl('p', 'a.txt')).toBe('/api/projects/p/files/rename?path=a.txt');
+  });
+
+  it('builds the save endpoint under the same files scope', () => {
+    expect(saveUrl('p', 'a.txt')).toBe('/api/projects/p/files/save?path=a.txt');
   });
 });
 
@@ -141,6 +147,25 @@ describe('write operations', () => {
     expect(init?.method).toBe('PUT');
     expect((init?.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
     expect(init?.body).toBe(file);
+  });
+
+  it('POSTs a save as a raw octet-stream body', async () => {
+    const fetchMock = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse(200, {})));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await saveContent('p', 'notes.txt', 'edited');
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('/api/projects/p/files/save?path=notes.txt');
+    expect(init?.method).toBe('POST');
+    expect((init?.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
+    expect(init?.body).toBe('edited');
+  });
+
+  it('surfaces a failed save (404) as a rejection', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(jsonResponse(404, { error: 'not found' }, 'Not Found'))));
+
+    await expect(saveContent('p', 'gone.txt', 'x')).rejects.toThrow('404 Not Found: not found');
   });
 
   it('surfaces a 409 conflict as a rejection', async () => {

@@ -502,4 +502,89 @@ describe('the file write routes', () => {
       await expect(lstat(path.join(root, 'proj', 'big.bin'))).rejects.toThrow();
     });
   });
+
+  describe('POST files/save (overwrite)', () => {
+    it('overwrites an existing file with 200 and the bytes land on disk', async () => {
+      await writeFile(path.join(root, 'proj', 'note.txt'), 'first');
+      const bytes = Buffer.from('second');
+
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl('/save?path=note.txt'),
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: bytes,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await readFile(path.join(root, 'proj', 'note.txt'))).toEqual(bytes);
+    });
+
+    it('returns 404 for a missing file and writes nothing', async () => {
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl('/save?path=gone.txt'),
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.from('x'),
+      });
+
+      expect(response.statusCode).toBe(404);
+      await expect(lstat(path.join(root, 'proj', 'gone.txt'))).rejects.toThrow();
+    });
+
+    it('returns 400 for a directory target', async () => {
+      await mkdir(path.join(root, 'proj', 'sub'));
+
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl('/save?path=sub'),
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.from('x'),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect((await lstat(path.join(root, 'proj', 'sub'))).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(win32)('returns 400 for a symlink target and never escapes', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'link'), linkType);
+
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl('/save?path=link'),
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.from('x'),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+    });
+
+    it('rejects a missing or non-octet-stream body with 400', async () => {
+      await writeFile(path.join(root, 'proj', 'note.txt'), 'keep');
+      const app = makeApp();
+      const url = await filesUrl('/save?path=note.txt');
+
+      const noBody = await app.inject({ method: 'POST', url });
+      const jsonBody = await app.inject({ method: 'POST', url, payload: { a: 1 } });
+
+      expect(noBody.statusCode).toBe(400);
+      expect(jsonBody.statusCode).toBe(400);
+      expect(await readFile(path.join(root, 'proj', 'note.txt'), 'utf8')).toBe('keep');
+    });
+
+    it('rejects a save larger than the cap with 413 and leaves the file unchanged', async () => {
+      await writeFile(path.join(root, 'proj', 'big.txt'), 'keep');
+
+      const response = await makeApp().inject({
+        method: 'POST',
+        url: await filesUrl('/save?path=big.txt'),
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.allocUnsafe(MAX_UPLOAD_BYTES + 1),
+      });
+
+      expect(response.statusCode).toBe(413);
+      expect(await readFile(path.join(root, 'proj', 'big.txt'), 'utf8')).toBe('keep');
+    });
+  });
 });

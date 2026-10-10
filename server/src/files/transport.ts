@@ -7,8 +7,9 @@ import { createScopedFs, name, type ScopedFs, type WriteResult, type WriteTarget
 /**
  * The file-drawer REST surface (spec-04 §"REST routes"): directory listing and
  * file content as read-only GETs, plus the write half — create, rename, delete,
- * and a raw upload — registered into the app's own `/api` scope so they sit
- * behind the same (future) auth hook as sessions and terminal-size.
+ * a raw upload, and a save (the one deliberate overwrite of an existing file) —
+ * registered into the app's own `/api` scope so they sit behind the same
+ * (future) auth hook as sessions and terminal-size.
  *
  * One door opens every route. `:id` re-enters `resolveProject` (the only place
  * an id becomes a directory) and `?path=` passes the single syntax check,
@@ -125,6 +126,27 @@ export function registerFileRoutes(
       return writeOutcome(reply, await files.createFile(target.target, request.body), 201);
     },
   );
+
+  api.post<{ Params: { id: string } }>(
+    '/projects/:id/files/save',
+    { bodyLimit: MAX_UPLOAD_BYTES },
+    async (request, reply) => {
+      const opened = await openProject(request, reply, options);
+      if (opened === null) return reply;
+      const { files, rel } = opened;
+
+      // Save is an overwrite of an existing file (the editable toggle's write),
+      // unlike the PUT above, which is a create. Same raw-byte contract.
+      if (!Buffer.isBuffer(request.body)) {
+        return reply.code(400).send({ error: 'a raw application/octet-stream body is required' });
+      }
+
+      const target = await files.resolveWriteTarget(rel);
+      if (target.status !== 'ok') return targetFailed(reply, target.status);
+
+      return writeOutcome(reply, await files.overwriteFile(target.target, request.body), 200);
+    },
+  );
 }
 
 /**
@@ -219,9 +241,10 @@ function targetFailed(
 
 /**
  * Map a `WriteResult` to a status code. `ok` sends the caller's success code
- * (201 for a create/upload, 200 for a rename/delete); the refusals are `exists`
- * → 409, a final-segment symlink → 400 (never followed), and a missing entry →
- * the same 404 as everything else.
+ * (201 for a create/upload, 200 for a rename/delete/save); the refusals are
+ * `exists` → 409, a final-segment symlink → 400 (never followed), a target that
+ * is not a regular file → 400, and a missing entry → the same 404 as everything
+ * else.
  */
 function writeOutcome(reply: FastifyReply, result: WriteResult, okCode: 200 | 201): FastifyReply {
   switch (result.status) {
@@ -231,6 +254,8 @@ function writeOutcome(reply: FastifyReply, result: WriteResult, okCode: 200 | 20
       return reply.code(409).send({ error: 'already exists' });
     case 'symlink':
       return reply.code(400).send({ error: 'refusing to write through a symlink' });
+    case 'not_a_file':
+      return reply.code(400).send({ error: 'target is not a regular file' });
     case 'not_found':
       return missing(reply);
   }

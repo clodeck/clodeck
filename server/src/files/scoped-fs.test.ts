@@ -281,6 +281,40 @@ describe('ScopedFs (write half)', () => {
     });
   });
 
+  describe('overwriteFile', () => {
+    it('overwrites an existing file with the new bytes', async () => {
+      await writeFile(path.join(proj, 'a.txt'), 'first');
+      const target = await writeTarget('a.txt');
+
+      expect(await fs().overwriteFile(target, Buffer.from('second'))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('second');
+    });
+
+    it('reports a missing file as not_found and creates nothing', async () => {
+      const target = await writeTarget('nope.txt');
+
+      expect(await fs().overwriteFile(target, Buffer.from('x'))).toEqual({ status: 'not_found' });
+      await expect(lstat(path.join(proj, 'nope.txt'))).rejects.toThrow();
+    });
+
+    it('refuses a directory target as not_a_file', async () => {
+      await mkdir(path.join(proj, 'sub'));
+      const target = await writeTarget('sub');
+
+      expect(await fs().overwriteFile(target, Buffer.from('x'))).toEqual({ status: 'not_a_file' });
+      expect((await lstat(path.join(proj, 'sub'))).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(win32)('refuses a symlink in the final segment and never escapes', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+      const target = await writeTarget('link');
+
+      expect(await fs().overwriteFile(target, Buffer.from('x'))).toEqual({ status: 'symlink' });
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+    });
+  });
+
   describe('rename', () => {
     it('renames an entry in place', async () => {
       await writeFile(path.join(proj, 'old.txt'), 'x');

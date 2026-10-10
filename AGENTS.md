@@ -18,7 +18,7 @@ This repo hosts a **wayfinder** effort. Destination: a *spec* plus a *visual pro
 - Build from scratch; `claudecodeui` is the visual/feature reference only.
 - Primary interaction: chat over the Agent SDK, plus a per-project shell terminal and file drawer.
 - Each project = one directory = one Agent SDK session + terminal + a file drawer (scoped read **and** write); a project switcher on top.
-- File access is scoped to the project root: every path is re-validated by `realpath` containment. Writes never follow a symlink in the target's final segment, never overwrite an existing entry, and can never touch the project root.
+- File access is scoped to the project root: every path is re-validated by `realpath` containment. Writes never follow a symlink in the target's final segment, never overwrite on create/upload (the save route is the one deliberate overwrite, and it refuses a non-file target), and can never touch the project root.
 - Stack: Node/TypeScript backend (Agent SDK TypeScript) + React/Vite/Tailwind + xterm.js. (.NET considered and rejected: the Agent SDK ships TypeScript/Python only — no .NET binding — so a .NET backend would shell out to a sidecar anyway.)
 - Auth: single-account login (like claudecodeui) over HTTPS — no Tailscale, no raw HTTP basic-auth.
-- MVP scope: streaming chat + session history/resume + project switcher + file drawer (scoped read + write: new file, new folder, rename, delete, upload) + shell terminal. Out of MVP: git explorer, plugins, browser-use, live file editing (content editing — the editable toggle, save, markdown preview), model selection (UI model picker).
+- MVP scope: streaming chat + session history/resume + project switcher + file drawer (scoped read + write: inline tree expansion + new file, new folder, rename, delete, upload, and content editing via an editable toggle + save) + shell terminal. Out of MVP: git explorer, plugins, browser-use, markdown preview, model selection (UI model picker).

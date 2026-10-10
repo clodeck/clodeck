@@ -43,6 +43,8 @@ A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `de
 | 18 | [ScopedFs write half — branded FileName, create/rename/remove](issues/18-server-scoped-fs-write.md) | resolved |
 | 19 | [Files write routes — create/rename/delete/upload](issues/19-files-write-routes.md) | resolved |
 | 20 | [Web file panel — useFiles + tree/preview](issues/20-web-file-panel.md) | resolved |
+| 21 | [Tree view with inline folder expansion](issues/21-tree-view-inline-expansion.md) | resolved |
+| 22 | [Editable toggle + save](issues/22-editable-toggle-save.md) | resolved |
 
 So the path is real end to end for all three of the MVP's surfaces: `PROJECTS_ROOT` → allowlist →
 project switcher → a project's Agent SDK session streaming over `/ws` (tool cards, approvals, history,
@@ -52,8 +54,9 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ## What the next session is for
 
 1. **Drive the browser by hand** — the one thing no test covers. `npm run dev` with `PROJECTS_ROOT`
-   set: the xterm panel and the file drawer (tree, preview, new file/folder, rename, delete, upload)
-   have never been seen by a human.
+   set: the xterm panel, and the file drawer's tree (expand/collapse, active-folder create/upload) and
+   the editable toggle (read-only ⇄ writable, save, cancel, truncated/binary withheld) have never been
+   seen by a human.
 2. The remaining, non-MVP wayfinder slices — still **unticketed**:
 - **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
   `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
@@ -180,6 +183,26 @@ mutated through `/api/projects/:id/files` in the new drawer.
   upload)", state the root-scoping posture (realpath containment; no symlink-follow, no overwrite, no
   root delete), and keep *content* editing out of MVP. Spec-04 §Code review records the adjudication.
 
+**Slice 05 (tree + editable/save) — tickets 21–22**
+
+- **The drawer is a tree, not a breadcrumb.** `web/src/files/reducer.ts` re-models the view as
+  `DirListing` (per-directory `loading | ready | error`), `TreeState` (`idle | loading | ready | error`; its
+  `ready` arm holds `dirs: Record<path, DirListing>`, `expanded: Record<path, true>`, `active`), and
+  `FileViewer = viewerOf(tree, preview)`. A folder click toggles `expanded` **in place** and lazy-loads that
+  folder's listing on first open; `refresh` re-lists the root + every expanded folder. The last folder clicked
+  is `active` — the create/upload target (prototype's `activeDir`). `open`/`up`/`breadcrumb`/`viewerPath` are gone.
+- **The preview is now editable.** `PreviewState` gained two arms: `editing` (`path`/`name`/`original`/`value`/
+  `dirty`/`saving`/`error`) and `error` (`name`/`path`/`message`). The old spec-04 wart — "a failed preview read
+  collapses the drawer into its error arm" — is gone: a failed read is the preview `error` arm, and a failed save
+  stays in `editing` with the buffer intact. A **truncated** text file is read-only (`beginEdit` no-ops and the
+  toggle is withheld) because the server only sent the 256 KiB prefix.
+- **Save is a deliberate overwrite, distinct from upload.** `POST /api/projects/:id/files/save` (raw octet-stream,
+  `MAX_UPLOAD_BYTES`) → `ScopedFs.overwriteFile`, which `lstat`s the final segment: missing → `not_found`, symlink →
+  `symlink`, anything not a regular file → `not_a_file`, else a truncating `writeFile`. `WriteResult` gained the
+  `not_a_file` arm (guard hardened to `!isFile()`, so a FIFO/socket is refused too). `PUT /files/content` (upload)
+  stays create-only (`wx`). `shared/src/files.ts` and `protocol.ts` are untouched.
+- `AGENTS.md` moved content editing into MVP and scoped "never overwrite" to create/upload.
+
 ## Environment notes (still true)
 
 - Tracker = local markdown, one file per ticket, numbered from `01`, under `.scratch/clodeck/`. There
@@ -218,24 +241,26 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ## Resume
 
 ```
-The file-viewer slice (spec-04) is COMPLETE, merged into `main` (b0b006c), and pushed.
+The file-viewer slice (spec-04, tickets 15–20) and the tree + editable slice (tickets 21–22) are COMPLETE and pushed. The drawer now matches the prototype: folders expand in place, and the preview has a read-only ⇄ writable toggle that saves back to disk.
 
 main == origin/main == the handoff commit (the slice's merge commit is b0b006c, two commits below it).
 `main` is the repo's only branch; every per-ticket and per-review branch has been merged and deleted.
 
-Done (all six tickets, each with What landed + Evidence in its own file):
+Done (tickets 15–22, each with What landed + Evidence in its own file):
   - 15 shared FileEntry/FileContent          (shared/src/files.ts + index re-export)
   - 16 ScopedFs read half                     (server/src/files/scoped-fs.ts)
   - 17 GET /files + /files/content            (server/src/files/transport.ts, wired into app.ts)
   - 18 ScopedFs write half                    (same module: FileName, WriteTarget, create/rename/remove)
   - 19 POST create, POST rename, DELETE, PUT content (same transport.ts)
   - 20 web useFiles + FilePanel               (web/src/files/, replacing the Files stub in App.tsx)
-  Verified after the review merge: typecheck + build clean; server 171 passed / 5 skipped, web 65 passed.
+  - 21 tree view with inline folder expansion  (web/src/files/reducer.ts + useFiles.ts + FilePanel.tsx)
+  - 22 editable toggle + save                  (server overwriteFile + POST /files/save; web editing arm + textarea)
+  Verified: typecheck + build clean; server 179 passed / 7 skipped, web 75 passed.
 
 Next:
-  1. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the drawer and the
-     xterm panel — the browser half of both slices has never been seen.
-  2. Ticket 13's review declines still stand; spec-04 §Code review holds this slice's fixed/declined
-     list. Move/download/markdown-preview/editable-toggle stay out of scope (spec-04 §Out of Scope).
+  1. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the tree (expand/collapse,
+     active-folder create/upload), the read-only ⇄ writable toggle and save, and the xterm panel — the
+     browser half of these has never been seen.
+  2. Move/download/markdown-preview stay out of scope (spec-04 §Out of Scope; content editing is now in).
   3. The remaining wayfinder slices are auth (07) and the Docker/compose/Caddy image (08).
 ```
