@@ -1,11 +1,10 @@
 # Handoff — clodeck (the production build)
 
 **Updated:** 2026-10-11
-**Effort spec:** [spec-05-auth.md](spec-05-auth.md) — **built, tested, code-reviewed; tickets 23–26 resolved.**
-That was the last MVP slice that was planned. The remaining wayfinder slice is **08 (Docker/compose/Caddy)**,
-still **unticketed**.
-`main` is at **`febf53e`** — the auth slice is `e7b1f46`, and `febf53e` is the dev-loop port fix that followed it
-(both below the handoff commit). Nothing is pushed: **`origin` is two commits behind `main`.**
+**Effort spec:** [spec-06-docker.md](spec-06-docker.md) — **written and split into tickets 27–30, all
+`ready-for-agent`; none implemented.** The last *built* slice is still auth (spec-05, tickets 23–26). The last
+wayfinder slice, **08 (Docker/compose/Caddy)**, is now spec'd and ticketed — it is everything that is left.
+`main` is at the spec-06 commit; after this handoff commit it is **one commit ahead of `origin`** — push it first.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Read this first: the dev loop needs `PORT=3300` on this machine
@@ -30,7 +29,8 @@ answers 502".
 
 ## Where this stands
 
-Four slices are **built, tested and reviewed**. `main` is the repo's only branch.
+Four slices are **built, tested and reviewed**; the fifth (Docker) is spec'd and ticketed. `main` is the repo's
+only branch.
 
 | # | Ticket | Status |
 |---|--------|--------|
@@ -43,6 +43,7 @@ Four slices are **built, tested and reviewed**. `main` is the repo's only branch
 | 24 | [Auth transport — login/logout/me, gate, rate-limit, origin](issues/24-auth-transport.md) | resolved |
 | 25 | [Install the gate — buildApp, config/main, re-green](issues/25-install-auth-gate.md) | resolved |
 | 26 | [Web login screen + auth client](issues/26-web-login-screen.md) | resolved |
+| 27–30 | [Docker slice — spec-06](spec-06-docker.md): serve the SPA, image, compose+Caddy, deploy docs | ready-for-agent |
 
 The path is now real end to end **and closed**: `PROJECTS_ROOT` → allowlist → project switcher → a project's
 Agent SDK session streaming over `/ws` (tool cards, approvals, history, resume), its own raw-byte shell over
@@ -51,15 +52,16 @@ drawer — all of it behind one password. `UI_PASSWORD` unset → fail-closed (4
 
 ## What the next session is for
 
-1. **Drive the browser by hand** — still the one thing no test covers, and now three surfaces deep: the xterm
-   panel (tickets 14/20's gap), the file drawer (tree expand/collapse, active-folder create/upload, the
-   read-only ⇄ writable toggle and save — tickets 21–22), and **the new login screen → shell → logout** (ticket
-   26). `UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects npm run dev`, then <http://localhost:5173>.
-2. **Docker image / compose / Caddy** (wayfinder 08) — the last wayfinder slice, **unticketed**. `GET /healthz`
-   is there for it, `/healthz` is auth-exempt on purpose, and the README's auth section is the deployment
-   contract (HTTPS termination, `UI_PASSWORD_FILE` as the Docker-secret shape). Note node-pty is a native
-   binding: the image needs a glibc base (the `node:22-bookworm-slim` plan) and a working shell in the container.
-3. Out of MVP, per `AGENTS.md`: git explorer, plugins, browser-use, markdown preview, a UI model picker.
+1. **Push `main`** — after this handoff commit, `main` is one commit ahead of `origin` (the spec-06 + tickets
+   commit). Nothing else has left the machine this session.
+2. **Implement the Docker slice (tickets 27–30), blockers-first.** It is a strict chain: 27 (serve the SPA) →
+   28 (Dockerfile) → 29 (compose + Caddy) → 30 (docs + verification). Start with 27 — it is the one
+   in-repo-testable slice (`static.test.ts` + a config test) and the milestone that turns the app into a single
+   deployable artifact with no Vite. 28–30 are verified by build+run, not unit tests.
+3. **Drive the browser by hand** — still the one thing no test covers: the login screen → shell → logout (ticket
+   26), the xterm panel, the file drawer (tree/editable), and — after 27 — the production static serving.
+   `UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects PORT=3300 npm run dev`, then <http://localhost:5173>.
+4. Out of MVP, per `AGENTS.md`: git explorer, plugins, browser-use, markdown preview, a UI model picker.
 
 ## Facts that live nowhere else
 
@@ -188,30 +190,25 @@ drawer — all of it behind one password. `UI_PASSWORD` unset → fail-closed (4
 READ FIRST: the dev loop must run on a port outside Windows' excluded ranges - use `PORT=3300`, or the server
 never starts and the client just 502s with an empty server log (see "Read this first" above).
 
-Auth (spec-05, tickets 23-26) is COMPLETE: reviewed, committed to `main` (`e7b1f46`), tested. The whole MVP
-surface is built and gated - chat over the Agent SDK, per-project shell, file drawer, and a single-password
-login in front of all of it. `main` is the repo's only branch, and `main` is at `febf53e` (the dev-loop port
-fix). NOTHING IS PUSHED: `origin` is two commits behind.
+The Docker slice (spec-06) is SPEC'D AND TICKETED but NOT IMPLEMENTED. Tickets 27-30 are `ready-for-agent` and
+form a strict chain: 27 (serve the SPA) -> 28 (Dockerfile) -> 29 (compose + Caddy) -> 30 (deploy docs +
+verification). The last *built* slice is auth (spec-05, tickets 23-26), which is complete and reviewed. The
+whole MVP surface is built and gated - chat over the Agent SDK, per-project shell, file drawer, and a
+single-password login in front of all of it.
 
-Done:
-  - 23 shared Principal + server/src/auth/password.ts (scrypt, timing-safe) + sessions.ts (sliding 7-day store)
-  - 24 server/src/auth/transport.ts (login/logout/me, cookie, the reusable gate + origin guard, per-IP limiter)
-  - 25 the install: buildApp({auth}) with the nested gated scope, @fastify/cookie, config.uiPassword,
-       auth/options.ts, main.ts + dev-fake.ts, test-support login/createTestAuth, all suites migrated
-  - 26 web/src/auth/ (transport, useAuth, LoginScreen) + App-as-gate with a logout control
-  - dev-loop fix after the slice: web/vite.config.ts follows PORT (+ vite.config.test.ts), empty PORT counts
-    as unset, README documents the EACCES/502 failure mode
-  Verified: typecheck + build clean; server 221 passed / 7 skipped, web 87 passed. By hand with the REAL
-  `npm run dev` on PORT=3300 (SDK imported, not the fake): anonymous /api/projects 401, wrong password 401,
-  correct password 200 + clodeck_session, gated route 200, /healthz 200 - through the Vite proxy. Also by hand
-  on dev:fake: cross-origin WS 403, logout kills the session, UI_PASSWORD unset -> fail-closed with a warning.
+Done this session:
+  - spec-06-docker.md written. The one new decision it adds over wayfinder 08 is WHO serves the SPA - the
+    server does (ticket 27: @fastify/static + WEB_ROOT env, auth-exempt, SPA fallback). 08 never answered it.
+  - Split into tickets 27 (serve the SPA), 28 (Dockerfile, multi-stage glibc non-root), 29 (compose + Caddy
+    sidecar), 30 (README deploy docs + end-to-end verification).
+  - No shared/protocol.ts change anywhere; @fastify/static is the one new server dep, in ticket 27.
 
 Next:
-  1. Push `main` (two commits: e7b1f46, febf53e) - nothing has left this machine.
-  2. Drive the browser by hand - the login screen, then the xterm panel and the file drawer. The browser half
-     of tickets 14, 20-22 and 26 has NEVER been seen by a human; ticket 26 is the newest and least verified.
+  1. Push `main` - after this commit it is one commit ahead of `origin` (spec-06 + tickets 27-30).
+  2. Implement tickets 27-30 blockers-first (a strict chain). Start with 27: it is the in-repo-testable slice
+     (static.test.ts + a config test) and the milestone that makes `npm run build && npm start` a single
+     deployable artifact with no Vite. 28-30 are verified by build+run, not unit tests.
+  3. Drive the browser by hand (still never seen by a human): login screen -> shell -> logout, the xterm panel,
+     the file drawer tree/editable - and, after 27, the production static serving.
      UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects PORT=3300 npm run dev, then http://localhost:5173.
-  3. Docker/compose/Caddy (wayfinder 08) - unticketed, the last slice on the wayfinder map. It is the slice
-     that makes the deploy story real: HTTPS termination (the cookie is Secure), UI_PASSWORD_FILE as the
-     secret shape, /healthz as the healthcheck, node-pty needing a glibc base.
 ```
