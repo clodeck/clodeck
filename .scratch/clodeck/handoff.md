@@ -1,9 +1,10 @@
 # Handoff — clodeck (the production build)
 
 **Updated:** 2026-10-11
-**Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **the current slice, complete.**
-Tickets 15–20 all resolved, merged into `main` as **`b0b006c`** and pushed. Terminal (spec-03) landed
-at `8feeb93`. The integration branch `spec-04-file-viewer` has been deleted; `main` is the only branch.
+**Effort spec:** [spec-04-file-viewer.md](spec-04-file-viewer.md) — **built and merged.** The next slice,
+[spec-05-auth.md](spec-05-auth.md), is **written and split into tickets 23–26 — not started.**
+Tickets 15–22 all resolved, merged into `main` as **`b0b006c`** and pushed. Terminal (spec-03) landed
+at `8feeb93`. `main` is the only branch.
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Where this stands
@@ -45,6 +46,10 @@ A local test root now exists at **`D:\work\clodeck-projects`** (`hello/` and `de
 | 20 | [Web file panel — useFiles + tree/preview](issues/20-web-file-panel.md) | resolved |
 | 21 | [Tree view with inline folder expansion](issues/21-tree-view-inline-expansion.md) | resolved |
 | 22 | [Editable toggle + save](issues/22-editable-toggle-save.md) | resolved |
+| 23 | [Auth foundations — Principal, scrypt, session store](issues/23-auth-foundations.md) | ready-for-agent |
+| 24 | [Auth transport — login/logout/me, gate, rate-limit, origin](issues/24-auth-transport.md) | ready-for-agent |
+| 25 | [Install the gate — wire buildApp, config/main, re-green](issues/25-install-auth-gate.md) | ready-for-agent |
+| 26 | [Web login screen + auth client](issues/26-web-login-screen.md) | ready-for-agent |
 
 So the path is real end to end for all three of the MVP's surfaces: `PROJECTS_ROOT` → allowlist →
 project switcher → a project's Agent SDK session streaming over `/ws` (tool cards, approvals, history,
@@ -57,15 +62,17 @@ mutated through `/api/projects/:id/files` in the new drawer.
    set: the xterm panel, and the file drawer's tree (expand/collapse, active-folder create/upload) and
    the editable toggle (read-only ⇄ writable, save, cancel, truncated/binary withheld) have never been
    seen by a human.
-2. The remaining, non-MVP wayfinder slices — still **unticketed**:
-- **Auth** (wayfinder 07) — single-account login. Until it lands, `/api/**`, `/ws`, and
-  `/ws/terminal` are unauthenticated, which is exactly why `main.ts` binds loopback by default. The
-  encapsulated `/api` scope and the `HOST` override are already in place, and the resize endpoint
-  already sits inside that scope; `/ws` and `/ws/terminal` are sibling routes the same
-  principal-aware hook must front.
-- **Docker image / compose / Caddy** (wayfinder 08) — `GET /healthz` is already there for it. Note
-  node-pty is a native binding: the image needs a glibc base (the `node:22-bookworm-slim` plan) and
-  a working shell in the container.
+2. **Auth** (wayfinder 07) — now spec'd ([spec-05-auth.md](spec-05-auth.md)) and split into tickets
+   23–26; implement them blockers-first with `/implement` per ticket (clear context between each).
+   Until it lands, `/api/**`, `/ws`, and `/ws/terminal` are unauthenticated, which is exactly why
+   `main.ts` binds loopback by default. The encapsulated `/api` scope and the `HOST` override are
+   already in place, and the resize endpoint already sits inside that scope; `/ws` and `/ws/terminal`
+   are sibling routes the same principal-aware hook must front. Key spec decisions (already settled):
+   Node `crypto.scrypt` (no native dep), fail-closed when `UI_PASSWORD` is unset, one new `auth` seam
+   on `buildApp`, and the WS origin check (declared by wayfinder 02, never built) lands here.
+3. **Docker image / compose / Caddy** (wayfinder 08) — still **unticketed**. `GET /healthz` is already
+   there for it. Note node-pty is a native binding: the image needs a glibc base (the
+   `node:22-bookworm-slim` plan) and a working shell in the container.
 
 ## Facts that live nowhere else
 
@@ -241,7 +248,7 @@ mutated through `/api/projects/:id/files` in the new drawer.
 ## Resume
 
 ```
-The file-viewer slice (spec-04, tickets 15–20) and the tree + editable slice (tickets 21–22) are COMPLETE and pushed. The drawer now matches the prototype: folders expand in place, and the preview has a read-only ⇄ writable toggle that saves back to disk.
+The file-viewer slice (spec-04, tickets 15–20) and the tree + editable slice (tickets 21–22) are COMPLETE and pushed. The drawer now matches the prototype: folders expand in place, and the preview has a read-only ⇄ writable toggle that saves back to disk. The auth slice (spec-05) is now WRITTEN and split into tickets 23–26 — not yet started.
 
 main == origin/main == the handoff commit (the slice's merge commit is b0b006c, two commits below it).
 `main` is the repo's only branch; every per-ticket and per-review branch has been merged and deleted.
@@ -258,9 +265,12 @@ Done (tickets 15–22, each with What landed + Evidence in its own file):
   Verified: typecheck + build clean; server 179 passed / 7 skipped, web 75 passed.
 
 Next:
-  1. Drive it by hand: PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the tree (expand/collapse,
-     active-folder create/upload), the read-only ⇄ writable toggle and save, and the xterm panel — the
-     browser half of these has never been seen.
-  2. Move/download/markdown-preview stay out of scope (spec-04 §Out of Scope; content editing is now in).
-  3. The remaining wayfinder slices are auth (07) and the Docker/compose/Caddy image (08).
+  1. Implement auth (spec-05, tickets 23–26) blockers-first — 23 foundations → 24 transport → 25 install +
+     re-green → 26 web login. Ticket 25 migrates the existing suites to a `login(app)` helper; after 26,
+     the dev loop needs `UI_PASSWORD` (unset = fail-closed, by design).
+  2. Drive it by hand (still un-done): PROJECTS_ROOT=D:\work\clodeck-projects npm run dev, then the tree
+     (expand/collapse, active-folder create/upload), the read-only ⇄ writable toggle and save, and the
+     xterm panel — the browser half of these has never been seen. After 26, add UI_PASSWORD.
+  3. Move/download/markdown-preview stay out of scope (spec-04 §Out of Scope; content editing is now in).
+  4. The last wayfinder slice is the Docker/compose/Caddy image (08) — still unticketed.
 ```
