@@ -3,9 +3,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
+import { WebSocket } from 'ws';
 
+import { buildApp, type AppOptions } from './app.js';
 import { createSessionStore } from './auth/sessions.js';
 import { SESSION_COOKIE, type AuthOptions } from './auth/transport.js';
+import { createProjectDiscovery } from './discovery.js';
+import { createFakePtySpawner } from './testing/fake-pty.js';
+import { createFakeProvider } from './testing/fake-provider.js';
 
 /**
  * The fixture the server's suites share: a throwaway sandbox with a `projects`
@@ -34,6 +39,26 @@ export function createTestAuth(overrides: Partial<AuthOptions> = {}): AuthOption
     warn: () => undefined,
     ...overrides,
   };
+}
+
+/**
+ * The app a suite starts from: the scripted SDK and pty, the real gate over a
+ * real session store, and no client bundle. A suite names only the options it
+ * is *about* — everything else is one decision, made here, rather than the same
+ * five lines in seven files.
+ *
+ * `webRoot: null` is the shared one: no suite but `static.test.ts` is about
+ * serving the bundle (spec-06 §27).
+ */
+export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInstance {
+  return buildApp({
+    projects: createProjectDiscovery(null, { warn: () => undefined }),
+    provider: createFakeProvider(),
+    spawner: createFakePtySpawner(),
+    auth: createTestAuth(),
+    webRoot: null,
+    ...overrides,
+  });
 }
 
 /**
@@ -81,4 +106,46 @@ export async function createSandbox(prefix = 'clodeck-test-'): Promise<Sandbox> 
 
 export async function removeSandbox(sandbox: Sandbox): Promise<void> {
   await rm(sandbox.dir, { recursive: true, force: true });
+}
+
+/**
+ * Boot the app on a real port and hand back the number. `inject()` covers the
+ * REST surface; a WebSocket handshake cannot be injected, so the socket suites
+ * listen for real — on port 0, so two suites never collide.
+ */
+export async function listen(app: FastifyInstance): Promise<number> {
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const address = app.server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('the test server did not bind a port');
+  }
+  return address.port;
+}
+
+export interface Handshake {
+  /** The upgrade was accepted. */
+  ok: boolean;
+  /** What refused it, when it was refused — `Unexpected server response: 401`. */
+  error: string;
+  /** The first frame on the socket: the bus's opening snapshot. */
+  first: Promise<string>;
+}
+
+/**
+ * What a client sees: `open`, or the error that refused the upgrade. The socket
+ * is left open — `app.close()` in the suite's `afterEach` tears it down, and
+ * closing here would race the first frame the caller is waiting for.
+ */
+export function handshake(url: string, headers: Record<string, string> = {}): Promise<Handshake> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(url, { headers });
+    let first: Promise<string> = Promise.resolve('');
+    socket.on('open', () => {
+      first = new Promise<string>((read) => socket.once('message', (data) => read(data.toString())));
+      resolve({ ok: true, error: '', first });
+    });
+    socket.on('error', (error: Error) => {
+      resolve({ ok: false, error: error.message, first });
+    });
+  });
 }

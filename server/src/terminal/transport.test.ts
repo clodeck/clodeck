@@ -5,11 +5,16 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
-import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
-import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from '../test-support.js';
+import {
+  createSandbox,
+  createTestApp,
+  listen,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from '../test-support.js';
 import { createFakePtySpawner, type FakePtySpawner } from '../testing/fake-pty.js';
-import { createFakeProvider } from '../testing/fake-provider.js';
 
 /**
  * The `/ws/terminal` transport and its resize endpoint, driven end to end: a
@@ -44,13 +49,9 @@ describe('the /ws/terminal transport', () => {
    */
   async function makeApp(): Promise<{ app: FastifyInstance; spawner: FakePtySpawner; cookie: string }> {
     const spawner = createFakePtySpawner();
-    const app = buildApp({
+    const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
-      provider: createFakeProvider(),
       spawner,
-      auth: createTestAuth(),
-      // This suite is not about the bundle: no client is served.
-      webRoot: null,
     });
     apps.push(app);
     return { app, spawner, cookie: await login(app) };
@@ -62,15 +63,6 @@ describe('the /ws/terminal transport', () => {
     await mkdir(dir, { recursive: true });
     const cwd = await realpath(dir);
     return { id: Buffer.from(cwd, 'utf8').toString('base64url'), cwd };
-  }
-
-  async function listen(app: FastifyInstance): Promise<number> {
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('the test server did not bind a port');
-    }
-    return address.port;
   }
 
   it('spawns a shell in the resolved project directory when the socket connects', async () => {

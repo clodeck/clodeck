@@ -28,12 +28,25 @@ export function registerStaticClient(app: FastifyInstance, webRoot: string): voi
    * client a page it cannot use.
    */
   app.setNotFoundHandler((request, reply) => {
-    if (request.method === 'GET' && wantsHtml(request.headers.accept)) {
+    if (request.method === 'GET' && wantsHtml(request.headers.accept) && isClientRoute(request.url)) {
       return reply.sendFile('index.html');
     }
 
     return reply.code(404).send({ error: 'not found' });
   });
+}
+
+/**
+ * The namespaces the server owns. A path under them that matches no route is a
+ * real 404 — never the app shell — so the fallback cannot answer for the API
+ * surface the wildcard is supposed to leave alone (spec-06 §27: "no route is
+ * shadowed"). Without this, `GET /api/typo` with an html `Accept` would return
+ * the SPA, and the same for a socket path a handshake mistyped.
+ */
+const SERVER_OWNED = ['/api', '/ws'];
+
+function isClientRoute(url: string): boolean {
+  return !SERVER_OWNED.some((prefix) => url === prefix || url.startsWith(`${prefix}/`));
 }
 
 /**

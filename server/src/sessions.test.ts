@@ -5,10 +5,8 @@ import type { SessionMessage, SessionSummary } from '@clodeck/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from './app.js';
 import { createProjectDiscovery } from './discovery.js';
-import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from './test-support.js';
-import { createFakePtySpawner } from './testing/fake-pty.js';
+import { createSandbox, createTestApp, login, removeSandbox, type Sandbox } from './test-support.js';
 import { createFakeProvider, type FakeProviderOptions } from './testing/fake-provider.js';
 
 /**
@@ -34,14 +32,11 @@ describe('the session-history API', () => {
   });
 
   function makeApp(options: FakeProviderOptions = {}): FastifyInstance {
-    const app = buildApp({
+    const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
+      // The transcript this suite is about; the pty seam is the factory's, even
+      // though these routes never spawn.
       provider: createFakeProvider(options),
-      // The terminal seam is injected even though these routes never spawn.
-      spawner: createFakePtySpawner(),
-      auth: createTestAuth(),
-      // This suite is not about the bundle: no client is served.
-      webRoot: null,
     });
     apps.push(app);
     return app;

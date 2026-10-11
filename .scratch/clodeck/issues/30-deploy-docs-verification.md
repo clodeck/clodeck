@@ -67,3 +67,16 @@ socket surviving the proxy proves the raw-byte half does too.
 Caddy's internal CA), and the browser experience (login screen → shell → logout, the xterm panel, the file
 drawer), which no run in this repo has ever covered. Everything above was driven by requests, not by a
 human in a browser.
+
+## Code review
+
+Two-axis review of the slice (`git diff 32ed23b...HEAD`). One finding, in this ticket's file:
+
+- **Fixed — the README contradicted the compose file about the API key.** The variable table said "No key,
+  no real chat — the container boots and the login works regardless", while `docker-compose.yml` requires
+  `ANTHROPIC_API_KEY` and refuses to start without it. Both statements are true of different things, and
+  the row now says both: compose requires a value, and a *wrong* value fails at the first chat turn rather
+  than at boot — the login, the terminal and the file drawer work either way.
+- **Judgement calls accepted**: the standalone `docker run` example and the bring-your-own-proxy paragraph
+  are extra, and stay — 08 §1 makes "the image stands alone" a decision, and a deploy section that only
+  documented the compose path would hide half of it.

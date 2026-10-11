@@ -5,11 +5,15 @@ import type { FileContent, FileEntry } from '@clodeck/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
-import { createSandbox, createTestAuth, linkType, login, removeSandbox, type Sandbox } from '../test-support.js';
-import { createFakePtySpawner } from '../testing/fake-pty.js';
-import { createFakeProvider } from '../testing/fake-provider.js';
+import {
+  createSandbox,
+  createTestApp,
+  linkType,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from '../test-support.js';
 import { MAX_UPLOAD_BYTES } from './transport.js';
 
 const win32 = process.platform === 'win32';
@@ -47,13 +51,8 @@ describe('the file read routes', () => {
   });
 
   function makeApp(): FastifyInstance {
-    const app = buildApp({
+    const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
-      provider: createFakeProvider(),
-      spawner: createFakePtySpawner(),
-      auth: createTestAuth(),
-      // This suite is not about the bundle: no client is served.
-      webRoot: null,
     });
     apps.push(app);
     return app;
@@ -196,13 +195,8 @@ describe('the file write routes', () => {
   });
 
   function makeApp(): FastifyInstance {
-    const app = buildApp({
+    const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
-      provider: createFakeProvider(),
-      spawner: createFakePtySpawner(),
-      auth: createTestAuth(),
-      // This suite is not about the bundle: no client is served.
-      webRoot: null,
     });
     apps.push(app);
     return app;

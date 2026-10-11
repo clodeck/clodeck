@@ -67,3 +67,22 @@ docker exec clodeck-test node --input-type=module -e "…createNodePtySpawner().
   → exit 0
   → "pty-ok /bin/bash GNU bash, version 5.2.15(1)-release (x86_64-pc-linux-gnu)"
 ```
+
+## Code review
+
+Two-axis review of the slice (`git diff 32ed23b...HEAD`). This ticket's files came out clean on both
+axes — no findings to fix:
+
+- **Standards**: the Dockerfile, `.dockerignore` and `package.json` diff match the repo's house style
+  (comments that name the why and the trade-off); no baseline smell was raised against them.
+- **Spec**: the reviewer independently re-checked the load-bearing claims rather than the comments —
+  that `node_modules/node-pty/prebuilds/` really carries only `darwin-*`/`win32-*` (so the three-stage
+  build is justified, not defensive), that the runtime's `/app/web/dist` is where `web/dist` is actually
+  copied (ticket 29's `WEB_ROOT=/app/web` would have pointed at a directory that does not exist), and that
+  no env var is read without a setter and no healthcheck is unsatisfiable. `@fastify/static@10.1.6` (ticket
+  27) satisifies its `fastify ^5.1.0` peer.
+- **Judgement calls accepted**: `ENV NODE_ENV=production` is not asked for and stays — it is what makes a
+  production install behave like one inside the image. The one scope-creep item dropped instead was a
+  `!.env.example` negation copied over from `.gitignore`: this repo has no example file, and the image has
+  no use for one, so the rule was dead config.
+

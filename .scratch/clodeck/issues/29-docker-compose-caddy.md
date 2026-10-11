@@ -79,3 +79,24 @@ https://localhost/api/projects          → 200, the bind-mounted projects (demo
 http://localhost/healthz               → 308 → https://localhost/healthz
 wss://localhost/ws/terminal            → OPEN over the proxy; the shell echoed the test line
 ```
+
+## Code review
+
+Two-axis review of the slice (`git diff 32ed23b...HEAD`). This ticket's files came out clean; the
+deviations below were checked against the code rather than taken from the comments:
+
+- **Confirmed, not a defect — three deviations from the ticket's letter are right**: the `deps` stage
+  (node-pty has no Linux prebuild), `WEB_ROOT=/app/web/dist` (the ticket says `/app/web`, which is not
+  where the Dockerfile copies `web/dist`), and the Caddy container health on the admin API (port 80 inside
+  the container only answers the HTTPS redirect, and busybox wget cannot verify a Let's Encrypt cert for
+  `{$CLODECK_DOMAIN}`; the *upstream* health is `/healthz` via `health_uri`, which is the spec's intent).
+- **No unsatisfiable healthcheck, no env var without a setter, no wrong volume ownership** — the app
+  container reported `healthy` and the proxy waited for it, which is the mechanism working rather than
+  the config claiming to.
+- **Judgement calls accepted**: `restart: unless-stopped`, `depends_on: condition: service_healthy`, and
+  the `caddy-data`/`caddy-config` volumes are all unasked-for and stay — a deploy that loses its
+  certificates on every restart, or that starts the proxy against an app still booting, is not a deploy.
+- **Noted — the `:?` requirement makes every subcommand need the variables.** `docker compose ps` fails
+  without them, which is the price of never booting an app with an empty `PROJECTS_ROOT`; `.env` is the
+  file that pays it, and the README documents writing it once.
+

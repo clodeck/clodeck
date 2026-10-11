@@ -23,5 +23,4 @@ coverage
 # §29); it must never be a layer.
 .env
 .env.*
-!.env.example
 secrets

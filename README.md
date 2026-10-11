@@ -192,7 +192,7 @@ docker compose up -d
 |---|---|
 | `CLODECK_DOMAIN` | The public hostname. It is Caddy's site address and the name on the certificate, so it must resolve to this host — **ports 80 and 443 reachable from the internet**, since the certificate is obtained and renewed automatically (Let's Encrypt). There is no cert file to manage. |
 | `PROJECTS_ROOT` | The **host** directory whose immediate child directories are the projects. Bind-mounted at `/projects` inside the app. |
-| `ANTHROPIC_API_KEY` | Read by the Agent SDK from the app's environment. No key, no real chat — the container boots and the login works regardless. |
+| `ANTHROPIC_API_KEY` | Read by the Agent SDK from the app's environment. The compose file **requires** it — `docker compose up` refuses to start without one — but the app itself boots either way: a wrong key fails at the first chat turn, and the login screen, the terminal and the file drawer work regardless. |
 | `UI_PASSWORD_FILE` | A file whose trimmed contents are the login password. Compose mounts it at `/run/secrets/ui_password`; the password is never an environment variable (it would show up in `docker inspect`) and never an image layer. Defaults to `./secrets/ui_password.txt`. |
 
 `docker compose` reads `.env` from this directory automatically, so the whole happy path is

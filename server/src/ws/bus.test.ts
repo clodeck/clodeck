@@ -7,11 +7,16 @@ import { WebSocket } from 'ws';
 
 import type { ApprovalRequestPayload, ServerEvent, SDKMessage } from '@clodeck/shared';
 
-import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
+import {
+  createSandbox,
+  createTestApp,
+  listen,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from '../test-support.js';
 import { createFakeProvider, type FakeProvider, type FakeProviderOptions } from '../testing/fake-provider.js';
-import { createFakePtySpawner } from '../testing/fake-pty.js';
-import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from '../test-support.js';
 
 /**
  * The `/ws` bus is the second agreed seam (spec-02 §Testing): a real socket on
@@ -44,14 +49,9 @@ describe('the /ws event bus', () => {
     options: FakeProviderOptions = {},
   ): Promise<{ app: FastifyInstance; provider: FakeProvider; cookie: string }> {
     const provider = createFakeProvider(options);
-    const app = buildApp({
+    const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider,
-      // `/ws` never touches the pty, but the app factory now needs the seam.
-      spawner: createFakePtySpawner(),
-      auth: createTestAuth(),
-      // This suite is not about the bundle: no client is served.
-      webRoot: null,
     });
     apps.push(app);
     return { app, provider, cookie: await login(app) };
@@ -542,14 +542,6 @@ describe('the /ws event bus', () => {
     return idFor(await realpath(directory));
   }
 
-  async function listen(app: FastifyInstance): Promise<number> {
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('the test server did not bind a port');
-    }
-    return address.port;
-  }
 });
 
 /** One scripted turn's messages, replayed by the fake provider on every `query()`. */

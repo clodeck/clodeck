@@ -4,13 +4,16 @@ import path from 'node:path';
 import type { Project } from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { WebSocket } from 'ws';
 
-import { buildApp } from './app.js';
-import { createProjectDiscovery } from './discovery.js';
-import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from './test-support.js';
-import { createFakePtySpawner } from './testing/fake-pty.js';
-import { createFakeProvider } from './testing/fake-provider.js';
+import {
+  createSandbox,
+  createTestApp,
+  handshake,
+  listen,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from './test-support.js';
 
 /**
  * Serving the built client (spec-06 §"Ticket 27"). The seam is the same one the
@@ -45,13 +48,9 @@ describe('serving the built client', () => {
   });
 
   function makeApp(root: string | null = webRoot): FastifyInstance {
-    const app = buildApp({
-      projects: createProjectDiscovery(sandbox.root, { warn: () => undefined }),
-      provider: createFakeProvider(),
-      spawner: createFakePtySpawner(),
-      auth: createTestAuth(),
-      webRoot: root,
-    });
+    // The only suite that sets `webRoot` to anything — this is the one about
+    // serving the bundle (spec-06 §27).
+    const app = createTestApp({ webRoot: root });
     apps.push(app);
     return app;
   }
@@ -110,6 +109,20 @@ describe('serving the built client', () => {
     expect((authenticated.json() as { projects: Project[] }).projects).toEqual([]);
   });
 
+  it('answers 404 for a path the server owns that matches no route, not the app shell', async () => {
+    const app = makeApp();
+
+    // The fallback is for the *client's* routes. `/api/**` and `/ws/**` are the
+    // server's, so an html-accepting request there is still a missing resource —
+    // and the 404 is what an unauthenticated caller saw before this slice too.
+    const api = await navigate(app, '/api/typo');
+    const socket = await navigate(app, '/ws/typo');
+
+    expect(api.statusCode).toBe(404);
+    expect(api.body).not.toContain('<title>');
+    expect(socket.statusCode).toBe(404);
+  });
+
   it('leaves a /ws upgrade without a session refused, not answered with the index', async () => {
     const app = makeApp();
     const port = await listen(app);
@@ -132,30 +145,4 @@ describe('serving the built client', () => {
     expect(root.statusCode).toBe(404);
     expect(deep.statusCode).toBe(404);
   });
-
-  async function listen(app: FastifyInstance): Promise<number> {
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const address = app.server.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('the test server did not bind a port');
-    }
-    return address.port;
-  }
-
-  /** What the client sees: `open`, or the error that refused the upgrade. */
-  function handshake(
-    url: string,
-    headers: Record<string, string> = {},
-  ): Promise<{ ok: boolean; error: string }> {
-    return new Promise((resolve) => {
-      const socket = new WebSocket(url, { headers });
-      socket.on('open', () => {
-        socket.close();
-        resolve({ ok: true, error: '' });
-      });
-      socket.on('error', (error: Error) => {
-        resolve({ ok: false, error: error.message });
-      });
-    });
-  }
 });
