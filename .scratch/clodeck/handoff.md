@@ -140,10 +140,22 @@ drawer — all of it behind one password. `UI_PASSWORD` unset → fail-closed (4
 - **`UI_PASSWORD` is now required for any real boot**, `dev` and `dev:fake` alike: without it the server boots
   fail-closed and prints the warning. Locally: `set UI_PASSWORD=dev && set PROJECTS_ROOT=D:\work\clodeck-projects
   && npm run dev` (cmd). The test root `D:\work\clodeck-projects` still holds `hello/` and `demo/`.
-- Vite binds `localhost` → `[::1]:5173` on Windows (probe `localhost`, never `127.0.0.1`); the backend binds
-  `127.0.0.1:3001`, which is what the proxy targets. `/ws` is proxied with `ws: true`, so `/ws/terminal` rides
-  the same prefix. **`npm run dev` passes `--raw` to `concurrently` on purpose** — restoring the `-n server,web`
-  prefixes re-breaks the real SDK's import under `tsx watch` (see README).
+- **Port 3001 is OS-blocked on this machine — run the dev loop on another port.** Windows/Hyper-V/WSL reserve
+  dynamic ranges at boot (`netsh interface ipv4 show excludedportrange protocol=tcp` → `2980–3079` here, which
+  contains 3001) and every bind inside them is `EACCES`. The symptom is a **502 from Vite with nothing in the
+  server's log** — because the server never started. So: `PORT=3300 npm run dev`; the Vite proxy now follows
+  `PORT` (`web/vite.config.ts`, pinned by `web/vite.config.test.ts`). Or reclaim the ranges for the boot with an
+  elevated `net stop winnat && net start winnat`. **Not a code bug, and not caused by the auth slice.**
+- Vite binds `localhost` → `[::1]:5173` on Windows (probe `localhost`, never `127.0.0.1`; with a second dev loop
+  running it silently takes 5174 — read its log for the port); the backend binds `127.0.0.1:3001` by default,
+  which is what the proxy targets. `/ws` is proxied with `ws: true`, so `/ws/terminal` rides the same prefix.
+  **`npm run dev` passes `--raw` to `concurrently` on purpose** — restoring the `-n server,web` prefixes
+  re-breaks the real SDK's import under `tsx watch` (see README).
+- **The root `npm run dev` works**, verified by hand on 2026-10-11: it boots the real `main.ts` (SDK imported,
+  not the fake) *and* Vite, and `/api/auth/login` through the proxy answers 200 + the session cookie. `main.ts`'s
+  top-level `await createAuthOptions(...)` is not a boot hazard.
+- An empty `PORT=` counts as unset in both entry points (`Number('')` is 0 — a random port — while the proxy
+  would point at 3001: the same silent-502 class).
 - Worktrees are cheap but `D:/work/clodeck-wt/<name>` (outside the repo, since `.claude/worktrees/` is not
   gitignored); every one needs its own `npm install`. npm 11 does not run install scripts by default; node-pty
   ships prebuilds so it loads anyway.

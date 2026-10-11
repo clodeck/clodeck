@@ -96,8 +96,8 @@ const app = buildApp({
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from
-// the network either.
-const port = Number(process.env['PORT'] ?? DEFAULT_PORT);
+// the network either. An empty `PORT` counts as unset here too — see `main.ts`.
+const port = Number(process.env['PORT']?.trim() || DEFAULT_PORT);
 const host = process.env['HOST'] ?? '127.0.0.1';
 
 await app.listen({ port, host });

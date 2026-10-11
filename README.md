@@ -60,7 +60,7 @@ the SDK, so it keeps them.
 | `PROJECTS_ROOT` | — | The directory whose immediate child directories are the projects. Unset or empty → an empty list, never an error. |
 | `UI_PASSWORD` | — | The single account's password. Unset or empty → the server boots **fail-closed**: every route and socket answers 401 and no login can succeed. |
 | `UI_PASSWORD_FILE` | — | Read only when `UI_PASSWORD` is unset: a file whose trimmed contents are the password (the Docker-secret shape). |
-| `PORT` | `3001` | The server's port. |
+| `PORT` | `3001` | The server's port. The Vite dev proxy targets the same value, so `PORT=3300 npm run dev` moves both halves together. |
 | `HOST` | `127.0.0.1` | The server's bind address. Loopback by default as defense in depth — the auth gate, not the bind address, is what keeps the surface closed. A container sets it to bind its own interface. |
 | `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
 
@@ -71,6 +71,33 @@ when the root scripts run it, because npm runs a workspace script there:
 ```json
 { "projectsRoot": "/srv/projects" }
 ```
+
+### When the dev server answers 502
+
+A 502 from the client is the **proxy** failing, not the app: Vite could not reach the backend, and
+the backend's own log says nothing at all — because it never started. On Windows the usual cause is
+that the OS is holding the port:
+
+```
+Error: listen EACCES: permission denied 127.0.0.1:3001
+```
+
+Hyper-V and WSL reserve themselves dynamic port ranges at boot — `2980–3079` on the machine where
+this was first hit, which contains 3001 — and everything inside them is unbindable. See them with:
+
+```sh
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+Two ways out. Move the port (`PORT=3300 npm run dev` — the proxy follows it), or hand the ranges
+back for this boot with an **elevated** shell:
+
+```sh
+net stop winnat && net start winnat
+```
+
+Nothing about the app is wrong in either case: no code change, no config change, and no amount of
+reading the server's log will show it.
 
 ## Try it
 

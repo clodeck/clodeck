@@ -2,8 +2,20 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-/** The backend's dev port — `DEFAULT_PORT` in `server/src/main.ts`. */
-const BACKEND_ORIGIN = 'http://127.0.0.1:3001';
+/**
+ * Where the dev proxy sends `/api` and `/ws`. It follows the backend's `PORT`
+ * — the same variable `server/src/main.ts` reads — so `PORT=3300 npm run dev`
+ * moves both halves together.
+ *
+ * Hard-coding 3001 was a trap: on Windows, Hyper-V/WSL reserve themselves
+ * dynamic port ranges at boot (2980–3079 on the machine this was found on), and
+ * the OS then refuses every bind inside them with `EACCES`. The server dies at
+ * startup, nothing reaches its log, and every request through the client is a
+ * 502 from this proxy — a symptom that points at the app and not at the port.
+ * `netsh interface ipv4 show excludedportrange protocol=tcp` lists the ranges.
+ */
+const backendPort = process.env['PORT']?.trim();
+const BACKEND_ORIGIN = `http://127.0.0.1:${backendPort === undefined || backendPort === '' ? '3001' : backendPort}`;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

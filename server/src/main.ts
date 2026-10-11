@@ -21,7 +21,11 @@ const app = buildApp({
 // Loopback by default. It is defense in depth now, not the boundary: the gate
 // covers every route and both websockets, so a container can set HOST to bind
 // its internal interface without becoming an open one.
-const port = Number(process.env['PORT'] ?? DEFAULT_PORT);
+//
+// `PORT=` (set but empty) is a shell accident, not a request for an ephemeral
+// port — `Number('')` is 0, which would bind a random one and leave the dev
+// proxy pointing at nothing. The web dev proxy reads the same variable.
+const port = Number(process.env['PORT']?.trim() || DEFAULT_PORT);
 const host = process.env['HOST'] ?? '127.0.0.1';
 
 await app.listen({ port, host });
