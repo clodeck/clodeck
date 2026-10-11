@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 
 import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 
+import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
 import type { ProjectDiscovery } from '../discovery.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
@@ -15,20 +16,24 @@ import type { TurnManager } from './turn-manager.js';
  * of their own. It is registered on the same Fastify instance `buildApp`
  * returns, so `main.ts` and the tests reach it with no separate server.
  *
- * The id arrives unauthenticated and this socket drives the SDK against the
- * resolved directory, so it is re-validated through the discovery seam before
- * anything else happens (wayfinder 05 §5); a rejected id is closed, never opened.
+ * Two checks front the upgrade, both before a socket exists (spec-05 §"Routes +
+ * the gate"): the handshake's `Origin` must be same-origin when it carries one,
+ * and the session cookie must name a live session. Only then is the
+ * client-supplied id re-validated through the discovery seam (wayfinder 05 §5);
+ * a rejected id is closed, never opened.
  */
 
 export function registerWsBus(
   app: FastifyInstance,
-  options: { projects: ProjectDiscovery; turns: TurnManager },
+  options: { projects: ProjectDiscovery; turns: TurnManager; auth: AuthOptions },
 ): void {
   // `@fastify/websocket` is registered once in the app root (see `app.ts`); its
   // `websocket: true` handling is an `onRoute` hook, so it has already loaded by
   // the time this route is added. The route lives in its own plugin, like the
   // sibling `/ws/terminal`, so both register their routes in the same shape.
   app.register(async (bus) => {
+    installWebSocketGuards(bus, options.auth);
+
     bus.get('/ws', { websocket: true }, (socket, request) => {
       void openConnection(socket, request, options);
     });

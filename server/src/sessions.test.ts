@@ -2,12 +2,12 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { SessionMessage, SessionSummary } from '@clodeck/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from './app.js';
 import { createProjectDiscovery } from './discovery.js';
-import { createSandbox, removeSandbox, type Sandbox } from './test-support.js';
+import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from './test-support.js';
 import { createFakePtySpawner } from './testing/fake-pty.js';
 import { createFakeProvider, type FakeProviderOptions } from './testing/fake-provider.js';
 
@@ -39,9 +39,20 @@ describe('the session-history API', () => {
       provider: createFakeProvider(options),
       // The terminal seam is injected even though these routes never spawn.
       spawner: createFakePtySpawner(),
+      auth: createTestAuth(),
     });
     apps.push(app);
     return app;
+  }
+
+  /**
+   * One authenticated request. Every route in this suite sits behind the gate,
+   * so the session cookie belongs to the request's *shape* rather than to a line
+   * each assertion repeats — and the login is the real route, because the gate
+   * has no bypass to reach for.
+   */
+  async function authed(app: FastifyInstance, options: InjectOptions): Promise<LightMyRequestResponse> {
+    return app.inject({ ...options, headers: { ...options.headers, cookie: await login(app) } });
   }
 
   /** The id of a project directory, minted the way the discovery seam mints it. */
@@ -57,7 +68,7 @@ describe('the session-history API', () => {
     const sessions: SessionSummary[] = [{ id: 's1', title: 'First session' }];
     const id = await projectId('alpha');
 
-    const response = await makeApp({ sessions }).inject({
+    const response = await authed(makeApp({ sessions }), {
       method: 'GET',
       url: `/api/projects/${id}/sessions`,
     });
@@ -78,7 +89,7 @@ describe('the session-history API', () => {
     ];
     const id = await projectId('alpha');
 
-    const response = await makeApp({ sessions }).inject({
+    const response = await authed(makeApp({ sessions }), {
       method: 'GET',
       url: `/api/projects/${id}/sessions`,
     });
@@ -105,7 +116,7 @@ describe('the session-history API', () => {
     await mkdir(path.join(sandbox.dir, 'outside'));
     const escaping = Buffer.from(path.join(sandbox.dir, 'outside'), 'utf8').toString('base64url');
 
-    const response = await makeApp().inject({
+    const response = await authed(makeApp(), {
       method: 'GET',
       url: `/api/projects/${escaping}/sessions`,
     });
@@ -136,7 +147,7 @@ describe('the session-history API', () => {
     ];
     const id = await projectId('alpha');
 
-    const response = await makeApp({ sessionMessages: messages }).inject({
+    const response = await authed(makeApp({ sessionMessages: messages }), {
       method: 'GET',
       url: `/api/projects/${id}/sessions/s1/messages`,
     });
@@ -157,7 +168,7 @@ describe('the session-history API', () => {
   it('answers 200 { messages: [] } for a session the provider does not know', async () => {
     const id = await projectId('alpha');
 
-    const response = await makeApp({ sessionMessages: [] }).inject({
+    const response = await authed(makeApp({ sessionMessages: [] }), {
       method: 'GET',
       url: `/api/projects/${id}/sessions/never-heard-of-it/messages`,
     });
@@ -171,7 +182,7 @@ describe('the session-history API', () => {
     await mkdir(path.join(sandbox.dir, 'outside'));
     const escaping = Buffer.from(path.join(sandbox.dir, 'outside'), 'utf8').toString('base64url');
 
-    const response = await makeApp().inject({
+    const response = await authed(makeApp(), {
       method: 'GET',
       url: `/api/projects/${escaping}/sessions/s1/messages`,
     });

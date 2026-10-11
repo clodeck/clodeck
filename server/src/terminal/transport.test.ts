@@ -7,7 +7,7 @@ import { WebSocket } from 'ws';
 
 import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
-import { createSandbox, removeSandbox, type Sandbox } from '../test-support.js';
+import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from '../test-support.js';
 import { createFakePtySpawner, type FakePtySpawner } from '../testing/fake-pty.js';
 import { createFakeProvider } from '../testing/fake-provider.js';
 
@@ -37,15 +37,21 @@ describe('the /ws/terminal transport', () => {
     await removeSandbox(sandbox);
   });
 
-  function makeApp(): { app: FastifyInstance; spawner: FakePtySpawner } {
+  /**
+   * An app, its fake spawner, and the `cookie` header its requests and socket
+   * handshakes need — logged in through the real route, because the gate fronts
+   * `/ws/terminal` and the size endpoint and has no bypass (spec-05 §Testing).
+   */
+  async function makeApp(): Promise<{ app: FastifyInstance; spawner: FakePtySpawner; cookie: string }> {
     const spawner = createFakePtySpawner();
     const app = buildApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider: createFakeProvider(),
       spawner,
+      auth: createTestAuth(),
     });
     apps.push(app);
-    return { app, spawner };
+    return { app, spawner, cookie: await login(app) };
   }
 
   /** A project directory inside the allowlist, with the id the wire carries. */
@@ -66,11 +72,11 @@ describe('the /ws/terminal transport', () => {
   }
 
   it('spawns a shell in the resolved project directory when the socket connects', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
 
     // The cwd is the canonical path, never the raw id: the route re-enters
     // through `resolveProject` before anything is spawned.
@@ -83,11 +89,11 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('streams the shell’s output to the socket', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     spawner.handle(1).emitData('hello from the shell');
@@ -97,11 +103,11 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('writes the client’s bytes into the shell', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     client.send('ls\r');
@@ -112,11 +118,11 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('kills the shell and forgets it when the socket closes', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     client.close();
@@ -125,16 +131,16 @@ describe('the /ws/terminal transport', () => {
 
     expect(spawner.handle(1).killCount).toBe(1);
     // The project is forgotten, not left with a dead shell: a resize now 404s.
-    const response = await app.inject(sizeRequest(alpha.id, { cols: 90, rows: 30 }));
+    const response = await app.inject(sizeRequest(alpha.id, { cols: 90, rows: 30 }, cookie));
     expect(response.statusCode).toBe(404);
   });
 
   it('closes the socket and cleans up when the shell exits on its own', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     spawner.handle(1).exit(0);
@@ -142,42 +148,42 @@ describe('the /ws/terminal transport', () => {
     await expect(client.waitForClose()).resolves.toMatchObject({ code: 1000 });
     // An exit is not a kill, but the entry is reaped all the same.
     expect(spawner.handle(1).killCount).toBe(0);
-    const response = await app.inject(sizeRequest(alpha.id, { cols: 90, rows: 30 }));
+    const response = await app.inject(sizeRequest(alpha.id, { cols: 90, rows: 30 }, cookie));
     expect(response.statusCode).toBe(404);
   });
 
   it('refuses a non-allowlisted project without spawning a shell', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const outside = path.join(sandbox.dir, 'outside');
     await mkdir(outside, { recursive: true });
     const outsideId = Buffer.from(await realpath(outside), 'utf8').toString('base64url');
 
-    const client = await connect(port, outsideId);
+    const client = await connect(port, cookie, outsideId);
 
     await expect(client.waitForClose()).resolves.toMatchObject({ code: 1008 });
     expect(spawner.spawns).toHaveLength(0);
   });
 
   it('refuses a connection that names no project at all', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
 
-    const client = await connect(port, undefined);
+    const client = await connect(port, cookie, undefined);
 
     await expect(client.waitForClose()).resolves.toMatchObject({ code: 1008 });
     expect(spawner.spawns).toHaveLength(0);
   });
 
   it('replaces the shell on reconnect, and a stale socket neither hijacks nor kills the new one', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const first = await connect(port, alpha.id);
+    const first = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
-    const second = await connect(port, alpha.id);
+    const second = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(2);
 
     // A second connection is a fresh shell: the first handle was killed.
@@ -201,11 +207,11 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('does not throw or double-close when a disconnected socket’s shell then exits', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     client.close();
@@ -219,17 +225,17 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('gives a fresh shell on reconnect, never the reused one', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const first = await connect(port, alpha.id);
+    const first = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
     first.close();
     await first.waitForClose();
     await until(() => spawner.handle(1).killCount === 1);
 
-    const second = await connect(port, alpha.id);
+    const second = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(2);
 
     expect(spawner.spawns).toHaveLength(2);
@@ -241,14 +247,14 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('resizes the project’s current shell through the size endpoint', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
-    const response = await app.inject(sizeRequest(alpha.id, { cols: 120, rows: 40 }));
+    const response = await app.inject(sizeRequest(alpha.id, { cols: 120, rows: 40 }, cookie));
 
     expect(response.statusCode).toBe(200);
     expect(spawner.handle(1).resizes).toEqual([{ cols: 120, rows: 40 }]);
@@ -256,35 +262,35 @@ describe('the /ws/terminal transport', () => {
   });
 
   it('answers 404 when the project has no terminal', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     await listen(app);
     const alpha = await project('alpha');
 
-    const response = await app.inject(sizeRequest(alpha.id, { cols: 120, rows: 40 }));
+    const response = await app.inject(sizeRequest(alpha.id, { cols: 120, rows: 40 }, cookie));
 
     expect(response.statusCode).toBe(404);
     expect(spawner.spawns).toHaveLength(0);
   });
 
   it('answers 404 for a project that is not allowlisted, in the same shape as the session routes', async () => {
-    const { app } = makeApp();
+    const { app, cookie } = await makeApp();
     await listen(app);
     const outside = path.join(sandbox.dir, 'outside');
     await mkdir(outside, { recursive: true });
     const outsideId = Buffer.from(await realpath(outside), 'utf8').toString('base64url');
 
-    const response = await app.inject(sizeRequest(outsideId, { cols: 1, rows: 1 }));
+    const response = await app.inject(sizeRequest(outsideId, { cols: 1, rows: 1 }, cookie));
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: 'no allowlisted project matches this id' });
   });
 
   it('answers 400 on a malformed body, without touching the shell', async () => {
-    const { app, spawner } = makeApp();
+    const { app, spawner, cookie } = await makeApp();
     const port = await listen(app);
     const alpha = await project('alpha');
 
-    const client = await connect(port, alpha.id);
+    const client = await connect(port, cookie, alpha.id);
     await spawner.waitForSpawn(1);
 
     const malformed: Record<string, unknown>[] = [
@@ -296,7 +302,7 @@ describe('the /ws/terminal transport', () => {
       { cols: -1, rows: -1 },
     ];
     for (const body of malformed) {
-      const response = await app.inject(sizeRequest(alpha.id, body));
+      const response = await app.inject(sizeRequest(alpha.id, body, cookie));
       expect(response.statusCode, JSON.stringify(body)).toBe(400);
     }
 
@@ -306,11 +312,12 @@ describe('the /ws/terminal transport', () => {
   });
 
   /** The size-endpoint request for a project id — the body the client posts. */
-  function sizeRequest(id: string, payload: Record<string, unknown>): InjectOptions {
+  function sizeRequest(id: string, payload: Record<string, unknown>, cookie: string): InjectOptions {
     return {
       method: 'POST',
       url: `/api/projects/${encodeURIComponent(id)}/terminal/size`,
       payload,
+      headers: { cookie },
     };
   }
 });
@@ -323,9 +330,11 @@ interface RawClient {
   close(): void;
 }
 
-function connect(port: number, projectId: string | undefined): Promise<RawClient> {
+function connect(port: number, cookie: string, projectId: string | undefined): Promise<RawClient> {
   const query = projectId === undefined ? '' : `?projectId=${encodeURIComponent(projectId)}`;
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal${query}`);
+  // The session rides the handshake's headers — the browser sends the same
+  // cookie on a same-origin upgrade with no client code at all.
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal${query}`, { headers: { cookie } });
 
   const queued: string[] = [];
   const readers: ((data: string) => void)[] = [];

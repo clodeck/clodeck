@@ -11,10 +11,12 @@
  *   (no dependency on the SDK itself; that stays server-only).
  * - `session.ts` — the session-history shapes the two REST endpoints serve.
  * - `files.ts` — the file-drawer shapes the file-viewer endpoints serve.
+ * - `auth.ts` — the `Principal` an authenticated session resolves to.
  *
  * The envelope and SDK types are declared here ahead of the transport that
  * carries them, so the chat slice never re-models them.
  */
+export * from './auth.js';
 export * from './files.js';
 export * from './project.js';
 export * from './protocol.js';

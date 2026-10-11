@@ -2,17 +2,27 @@ import { lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } from 'n
 import path from 'node:path';
 
 import type { FileContent, FileEntry } from '@clodeck/shared';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
-import { createSandbox, linkType, removeSandbox, type Sandbox } from '../test-support.js';
+import { createSandbox, createTestAuth, linkType, login, removeSandbox, type Sandbox } from '../test-support.js';
 import { createFakePtySpawner } from '../testing/fake-pty.js';
 import { createFakeProvider } from '../testing/fake-provider.js';
 import { MAX_UPLOAD_BYTES } from './transport.js';
 
 const win32 = process.platform === 'win32';
+
+/**
+ * One authenticated request. Every route in this suite sits behind the gate, so
+ * the session cookie belongs to the request's *shape* rather than to a line each
+ * assertion repeats — and the login is the real route, because the gate has no
+ * bypass to reach for.
+ */
+async function authed(app: FastifyInstance, options: InjectOptions): Promise<LightMyRequestResponse> {
+  return app.inject({ ...options, headers: { ...options.headers, cookie: await login(app) } });
+}
 
 /**
  * The read endpoints, pinned at the HTTP boundary: real route handler, real
@@ -41,6 +51,7 @@ describe('the file read routes', () => {
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider: createFakeProvider(),
       spawner: createFakePtySpawner(),
+      auth: createTestAuth(),
     });
     apps.push(app);
     return app;
@@ -55,7 +66,7 @@ describe('the file read routes', () => {
     await mkdir(path.join(root, 'proj', 'alpha'));
     await writeFile(path.join(root, 'proj', 'a.txt'), 'a');
 
-    const response = await makeApp().inject({ method: 'GET', url: `/api/projects/${await id('proj')}/files` });
+    const response = await authed(makeApp(), { method: 'GET', url: `/api/projects/${await id('proj')}/files` });
 
     expect(response.statusCode).toBe(200);
     const body = response.json() as { entries: FileEntry[] };
@@ -67,7 +78,7 @@ describe('the file read routes', () => {
     await mkdir(path.join(root, 'proj', 'sub'));
     await writeFile(path.join(root, 'proj', 'sub', 'inner.txt'), 'x');
 
-    const response = await makeApp().inject({
+    const response = await authed(makeApp(), {
       method: 'GET',
       url: `/api/projects/${await id('proj')}/files?path=sub`,
     });
@@ -81,7 +92,7 @@ describe('the file read routes', () => {
     await writeFile(path.join(root, 'proj', 'big.txt'), 'x'.repeat(300 * 1024));
     const app = makeApp();
 
-    const small = await app.inject({
+    const small = await authed(app, {
       method: 'GET',
       url: `/api/projects/${await id('proj')}/files/content?path=small.txt`,
     });
@@ -90,7 +101,7 @@ describe('the file read routes', () => {
       content: { kind: 'text', content: 'hello', truncated: false, size: 5 },
     });
 
-    const big = await app.inject({
+    const big = await authed(app, {
       method: 'GET',
       url: `/api/projects/${await id('proj')}/files/content?path=big.txt`,
     });
@@ -100,7 +111,7 @@ describe('the file read routes', () => {
   it('serves binary as 200 with kind binary, not an error', async () => {
     await writeFile(path.join(root, 'proj', 'blob'), Buffer.from([0x00, 0x01]));
 
-    const response = await makeApp().inject({
+    const response = await authed(makeApp(), {
       method: 'GET',
       url: `/api/projects/${await id('proj')}/files/content?path=blob`,
     });
@@ -113,13 +124,13 @@ describe('the file read routes', () => {
     const app = makeApp();
     const pid = await id('proj');
 
-    const traversal = await app.inject({ method: 'GET', url: `/api/projects/${pid}/files?path=..` });
+    const traversal = await authed(app, { method: 'GET', url: `/api/projects/${pid}/files?path=..` });
     expect(traversal.statusCode).toBe(400);
 
-    const absolute = await app.inject({ method: 'GET', url: `/api/projects/${pid}/files?path=${encodeURIComponent('/etc')}` });
+    const absolute = await authed(app, { method: 'GET', url: `/api/projects/${pid}/files?path=${encodeURIComponent('/etc')}` });
     expect(absolute.statusCode).toBe(400);
 
-    const nul = await app.inject({
+    const nul = await authed(app, {
       method: 'GET',
       url: `/api/projects/${pid}/files?path=${encodeURIComponent('\0')}`,
     });
@@ -127,7 +138,7 @@ describe('the file read routes', () => {
   });
 
   it('returns 404 for an unknown project', async () => {
-    const response = await makeApp().inject({ method: 'GET', url: '/api/projects/not-a-project/files' });
+    const response = await authed(makeApp(), { method: 'GET', url: '/api/projects/not-a-project/files' });
 
     expect(response.statusCode).toBe(404);
   });
@@ -138,10 +149,10 @@ describe('the file read routes', () => {
     const app = makeApp();
     const pid = await id('proj');
 
-    const listOnFile = await app.inject({ method: 'GET', url: `/api/projects/${pid}/files?path=file.txt` });
+    const listOnFile = await authed(app, { method: 'GET', url: `/api/projects/${pid}/files?path=file.txt` });
     expect(listOnFile.statusCode).toBe(400);
 
-    const contentOnDir = await app.inject({ method: 'GET', url: `/api/projects/${pid}/files/content?path=dir` });
+    const contentOnDir = await authed(app, { method: 'GET', url: `/api/projects/${pid}/files/content?path=dir` });
     expect(contentOnDir.statusCode).toBe(400);
   });
 
@@ -149,7 +160,7 @@ describe('the file read routes', () => {
     await mkdir(path.join(sandbox.dir, 'outside'));
     await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'escape'), linkType);
 
-    const response = await makeApp().inject({
+    const response = await authed(makeApp(), {
       method: 'GET',
       url: `/api/projects/${await id('proj')}/files?path=escape`,
     });
@@ -187,6 +198,7 @@ describe('the file write routes', () => {
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider: createFakeProvider(),
       spawner: createFakePtySpawner(),
+      auth: createTestAuth(),
     });
     apps.push(app);
     return app;
@@ -202,7 +214,7 @@ describe('the file write routes', () => {
 
   describe('POST files (create)', () => {
     it('creates an empty file with 201 and the bytes land on disk', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=new.txt'),
         payload: { kind: 'file' },
@@ -213,7 +225,7 @@ describe('the file write routes', () => {
     });
 
     it('creates a directory with 201', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=sub'),
         payload: { kind: 'directory' },
@@ -226,7 +238,7 @@ describe('the file write routes', () => {
     it('creates inside a nested existing directory', async () => {
       await mkdir(path.join(root, 'proj', 'src'));
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=src/nested.txt'),
         payload: { kind: 'file' },
@@ -241,12 +253,12 @@ describe('the file write routes', () => {
       await mkdir(path.join(root, 'proj', 'existsdir'));
       const app = makeApp();
 
-      const file = await app.inject({
+      const file = await authed(app, {
         method: 'POST',
         url: await filesUrl('?path=exists.txt'),
         payload: { kind: 'file' },
       });
-      const dir = await app.inject({
+      const dir = await authed(app, {
         method: 'POST',
         url: await filesUrl('?path=existsdir'),
         payload: { kind: 'directory' },
@@ -260,9 +272,9 @@ describe('the file write routes', () => {
     it('rejects a missing or unknown kind with 400 and creates nothing', async () => {
       const app = makeApp();
 
-      const noBody = await app.inject({ method: 'POST', url: await filesUrl('?path=x') });
-      const noKind = await app.inject({ method: 'POST', url: await filesUrl('?path=x'), payload: {} });
-      const badKind = await app.inject({
+      const noBody = await authed(app, { method: 'POST', url: await filesUrl('?path=x') });
+      const noKind = await authed(app, { method: 'POST', url: await filesUrl('?path=x'), payload: {} });
+      const badKind = await authed(app, {
         method: 'POST',
         url: await filesUrl('?path=x'),
         payload: { kind: 'symlink' },
@@ -275,7 +287,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 404 for an unknown project', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: '/api/projects/not-a-project/files?path=x',
         payload: { kind: 'file' },
@@ -285,7 +297,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 404 when the parent directory is missing', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=missing/x.txt'),
         payload: { kind: 'file' },
@@ -297,7 +309,7 @@ describe('the file write routes', () => {
     it('returns 400 when the parent is a file', async () => {
       await writeFile(path.join(root, 'proj', 'f.txt'), 'x');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=f.txt/x'),
         payload: { kind: 'file' },
@@ -307,7 +319,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 400 for the root itself, which is never a valid target', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl(),
         payload: { kind: 'directory' },
@@ -317,7 +329,7 @@ describe('the file write routes', () => {
     });
 
     it('refuses a traversal with the same 400 as a read and creates nothing outside the root', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl(`?path=${encodeURIComponent('../escape.txt')}`),
         payload: { kind: 'file' },
@@ -328,7 +340,7 @@ describe('the file write routes', () => {
     });
 
     it('rejects a NUL in ?path= with 400 and creates nothing', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl(`?path=${encodeURIComponent('\0')}`),
         payload: { kind: 'file' },
@@ -342,7 +354,7 @@ describe('the file write routes', () => {
       await mkdir(path.join(sandbox.dir, 'outside'));
       await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'link'), linkType);
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('?path=link'),
         payload: { kind: 'file' },
@@ -357,7 +369,7 @@ describe('the file write routes', () => {
     it('renames an entry with 200 and the bytes land at the new name', async () => {
       await writeFile(path.join(root, 'proj', 'old.txt'), 'data');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/rename?path=old.txt'),
         payload: { to: 'new.txt' },
@@ -369,7 +381,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 404 when renaming a missing entry', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/rename?path=nope.txt'),
         payload: { to: 'other.txt' },
@@ -383,10 +395,10 @@ describe('the file write routes', () => {
       const app = makeApp();
       const url = await filesUrl('/rename?path=a.txt');
 
-      const noBody = await app.inject({ method: 'POST', url });
-      const missingTo = await app.inject({ method: 'POST', url, payload: {} });
-      const notAString = await app.inject({ method: 'POST', url, payload: { to: 42 } });
-      const withSlash = await app.inject({ method: 'POST', url, payload: { to: '../x' } });
+      const noBody = await authed(app, { method: 'POST', url });
+      const missingTo = await authed(app, { method: 'POST', url, payload: {} });
+      const notAString = await authed(app, { method: 'POST', url, payload: { to: 42 } });
+      const withSlash = await authed(app, { method: 'POST', url, payload: { to: '../x' } });
 
       expect(noBody.statusCode).toBe(400);
       expect(missingTo.statusCode).toBe(400);
@@ -396,7 +408,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 400 when renaming the project root', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/rename'),
         payload: { to: 'x' },
@@ -410,7 +422,7 @@ describe('the file write routes', () => {
     it('deletes a file with 200 and the bytes are gone', async () => {
       await writeFile(path.join(root, 'proj', 'gone.txt'), 'x');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'DELETE',
         url: await filesUrl('?path=gone.txt'),
       });
@@ -423,7 +435,7 @@ describe('the file write routes', () => {
       await mkdir(path.join(root, 'proj', 'sub'));
       await writeFile(path.join(root, 'proj', 'sub', 'inner.txt'), 'x');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'DELETE',
         url: await filesUrl('?path=sub'),
       });
@@ -433,7 +445,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 404 when deleting a missing entry', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'DELETE',
         url: await filesUrl('?path=nope.txt'),
       });
@@ -442,7 +454,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 400 when deleting the project root', async () => {
-      const response = await makeApp().inject({ method: 'DELETE', url: await filesUrl() });
+      const response = await authed(makeApp(), { method: 'DELETE', url: await filesUrl() });
 
       expect(response.statusCode).toBe(400);
       expect((await lstat(path.join(root, 'proj'))).isDirectory()).toBe(true);
@@ -453,7 +465,7 @@ describe('the file write routes', () => {
     it('uploads raw bytes with 201 and they land on disk', async () => {
       const bytes = Buffer.from([0x00, 0xff, 0x10, 0x41]);
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'PUT',
         url: await filesUrl('/content?path=up.bin'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -467,7 +479,7 @@ describe('the file write routes', () => {
     it('refuses to upload over an existing entry with 409', async () => {
       await writeFile(path.join(root, 'proj', 'up.bin'), 'first');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'PUT',
         url: await filesUrl('/content?path=up.bin'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -482,8 +494,8 @@ describe('the file write routes', () => {
       const app = makeApp();
       const url = await filesUrl('/content?path=up.bin');
 
-      const noBody = await app.inject({ method: 'PUT', url });
-      const jsonBody = await app.inject({ method: 'PUT', url, payload: { a: 1 } });
+      const noBody = await authed(app, { method: 'PUT', url });
+      const jsonBody = await authed(app, { method: 'PUT', url, payload: { a: 1 } });
 
       expect(noBody.statusCode).toBe(400);
       expect(jsonBody.statusCode).toBe(400);
@@ -491,7 +503,7 @@ describe('the file write routes', () => {
     });
 
     it('rejects an upload larger than the cap with 413 and writes nothing', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'PUT',
         url: await filesUrl('/content?path=big.bin'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -508,7 +520,7 @@ describe('the file write routes', () => {
       await writeFile(path.join(root, 'proj', 'note.txt'), 'first');
       const bytes = Buffer.from('second');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/save?path=note.txt'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -520,7 +532,7 @@ describe('the file write routes', () => {
     });
 
     it('returns 404 for a missing file and writes nothing', async () => {
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/save?path=gone.txt'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -534,7 +546,7 @@ describe('the file write routes', () => {
     it('returns 400 for a directory target', async () => {
       await mkdir(path.join(root, 'proj', 'sub'));
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/save?path=sub'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -549,7 +561,7 @@ describe('the file write routes', () => {
       await mkdir(path.join(sandbox.dir, 'outside'));
       await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'link'), linkType);
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/save?path=link'),
         headers: { 'content-type': 'application/octet-stream' },
@@ -565,8 +577,8 @@ describe('the file write routes', () => {
       const app = makeApp();
       const url = await filesUrl('/save?path=note.txt');
 
-      const noBody = await app.inject({ method: 'POST', url });
-      const jsonBody = await app.inject({ method: 'POST', url, payload: { a: 1 } });
+      const noBody = await authed(app, { method: 'POST', url });
+      const jsonBody = await authed(app, { method: 'POST', url, payload: { a: 1 } });
 
       expect(noBody.statusCode).toBe(400);
       expect(jsonBody.statusCode).toBe(400);
@@ -576,7 +588,7 @@ describe('the file write routes', () => {
     it('rejects a save larger than the cap with 413 and leaves the file unchanged', async () => {
       await writeFile(path.join(root, 'proj', 'big.txt'), 'keep');
 
-      const response = await makeApp().inject({
+      const response = await authed(makeApp(), {
         method: 'POST',
         url: await filesUrl('/save?path=big.txt'),
         headers: { 'content-type': 'application/octet-stream' },

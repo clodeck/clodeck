@@ -1,6 +1,7 @@
 import type { SDKMessage, SessionMessage, SessionSummary } from '@clodeck/shared';
 
 import { buildApp } from '../app.js';
+import { createAuthOptions } from '../auth/options.js';
 import { loadConfig } from '../config.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createFakeProvider } from './fake-provider.js';
@@ -88,6 +89,10 @@ const app = buildApp({
   // The scripted fake here too, so `dev:fake` boots with no shell and no native
   // binding — the same "no API key, no network" story as the fake provider.
   spawner: createFakePtySpawner(),
+  // The same gate as production: `dev:fake` needs `UI_PASSWORD` too, and
+  // without it the loop is fail-closed rather than open (spec-05 §"Further
+  // notes"). A dev loop with no login is not a dev loop; it is a rehearsal.
+  auth: await createAuthOptions(config.uiPassword),
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from

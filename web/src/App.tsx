@@ -1,6 +1,8 @@
 import type { Project } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
+import { LoginScreen } from './auth/LoginScreen';
+import { useAuth } from './auth/useAuth';
 import { ChatPanel } from './chat/ChatPanel';
 import { FilePanel } from './files/FilePanel';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -8,10 +10,32 @@ import { TerminalPanel } from './terminal/TerminalPanel';
 import { useProjects } from './useProjects';
 
 /**
- * The app shell: the project switcher in the sidebar, and the workspace it fills
- * — chat, terminal, files — beside it.
+ * The app shell, and the gate in front of it (spec-05 §"Shared + web client").
+ *
+ * The gate is a *mount* boundary, not a routing one: while there is no session
+ * nothing below it exists, so no panel fetches and no socket opens before the
+ * user is logged in. That is also why `useProjects` lives in `Shell` — a hook
+ * cannot be called conditionally, so the rule is enforced by where the component
+ * is mounted rather than by a flag.
  */
 export function App(): ReactElement {
+  const { status, login, logout } = useAuth();
+
+  switch (status) {
+    case 'checking':
+      return <CheckingSession />;
+    case 'unauthenticated':
+      return <LoginScreen login={login} />;
+    case 'authenticated':
+      return <Shell onLogout={logout} />;
+  }
+}
+
+/**
+ * The workspace itself: the project switcher in the sidebar, and the panels it
+ * fills beside it.
+ */
+function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
   const { state, reload } = useProjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -23,9 +47,18 @@ export function App(): ReactElement {
   return (
     <div className="flex h-screen bg-canvas text-ink">
       <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
-        <header className="border-b border-line px-4 py-3">
-          <p className="text-sm font-semibold">Clodeck</p>
-          <p className="font-mono text-[11px] text-ink-dim">remote Claude Code</p>
+        <header className="flex items-center justify-between border-b border-line px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold">Clodeck</p>
+            <p className="font-mono text-[11px] text-ink-dim">remote Claude Code</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
+          >
+            Log out
+          </button>
         </header>
         <ProjectSwitcher
           state={state}
@@ -40,6 +73,17 @@ export function App(): ReactElement {
       <main className="flex min-w-0 flex-1 flex-col">
         {selected === null ? <NothingSelected /> : <WorkspacePlaceholder project={selected} />}
       </main>
+    </div>
+  );
+}
+
+/** The session check itself: no spinner row, just the shell's frame staying empty. */
+function CheckingSession(): ReactElement {
+  return (
+    <div className="flex h-screen items-center justify-center bg-canvas">
+      <p className="text-xs text-ink-dim" role="status">
+        Checking your session…
+      </p>
     </div>
   );
 }

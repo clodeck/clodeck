@@ -1,6 +1,8 @@
+import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import type { ProjectDiscovery } from './discovery.js';
 import { registerFileRoutes } from './files/transport.js';
 import type { SdkProvider } from './sdk/provider.js';
@@ -26,6 +28,13 @@ export interface AppOptions {
    * runs against the scripted fake with no real shell (spec-03 §Testing).
    */
   spawner: PtySpawner;
+  /**
+   * The credential, the session store, and the login limiter's tuning — the
+   * fourth and last injected seam (spec-05 §"The seam"). There is no null to
+   * pass: "no password configured" is a verifier that refuses everything, not
+   * an app without a gate.
+   */
+  auth: AuthOptions;
 }
 
 /**
@@ -33,9 +42,12 @@ export interface AppOptions {
  * (tests, `main.ts`) decide when to listen, so the same instance is testable
  * through `inject()`.
  *
- * In this slice every route is unauthenticated. `/api/**` is registered as its
- * own encapsulated scope so the principal-aware hook from wayfinder 07 drops
- * in front of it (and `/ws**` alongside it) without rework.
+ * Everything is authenticated except `/healthz` and the two login routes. The
+ * gate is an `onRequest` hook, and a hook belongs to an encapsulation scope and
+ * applies to *every* route in it — Fastify resolves a scope's hooks when the
+ * tree is ready, so "add the hook between two routes" gates both. The exempt
+ * routes are therefore exempt by *where* they are registered: on the `/api`
+ * scope itself, with the gated routes one scope deeper.
  */
 export function buildApp(options: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -45,6 +57,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // That handling is an `onRoute` hook, so it must load before any WS route.
   app.register(websocket);
 
+  // Root, and before the gate: its own `onRequest` parses `request.cookies`, and
+  // a child scope's hooks run after its parent's — so the gate (and the session
+  // routes) always see parsed cookies.
+  app.register(cookie);
+
   const terminals = createTerminalManager(options.spawner);
 
   // Auth-exempt: used by the proxy's and Docker's healthchecks (wayfinder 08).
@@ -52,17 +69,32 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.register(
     async (api) => {
-      api.get('/projects', async () => ({ projects: await options.projects.listProjects() }));
-      registerSessionRoutes(api, { projects: options.projects, provider: options.provider });
-      registerTerminalSizeRoute(api, { projects: options.projects, terminals });
-      registerFileRoutes(api, { projects: options.projects });
+      // Exempt: the two routes that make a session possible. `registerAuthRoutes`
+      // adds no hook of its own, so this scope stays open.
+      registerAuthRoutes(api, options.auth);
+
+      // Gated: one scope deeper. Everything registered in here is behind the
+      // gate, `/auth/me` included.
+      api.register(async (gated) => {
+        gated.addHook('onRequest', createAuthGate(options.auth.sessions));
+
+        gated.get('/projects', async () => ({ projects: await options.projects.listProjects() }));
+        registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
+        registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
+        registerFileRoutes(gated, { projects: options.projects });
+        registerAuthMeRoute(gated);
+      });
     },
     { prefix: '/api' },
   );
 
-  registerWsBus(app, { projects: options.projects, turns: createTurnManager(options.provider) });
+  registerWsBus(app, {
+    projects: options.projects,
+    turns: createTurnManager(options.provider),
+    auth: options.auth,
+  });
   // The raw-byte sibling of `/ws`, on the same instance — no second server.
-  registerTerminalSocket(app, { projects: options.projects, terminals });
+  registerTerminalSocket(app, { projects: options.projects, terminals, auth: options.auth });
 
   return app;
 }

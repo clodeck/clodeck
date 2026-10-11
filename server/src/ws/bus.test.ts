@@ -11,7 +11,7 @@ import { buildApp } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createFakeProvider, type FakeProvider, type FakeProviderOptions } from '../testing/fake-provider.js';
 import { createFakePtySpawner } from '../testing/fake-pty.js';
-import { createSandbox, removeSandbox, type Sandbox } from '../test-support.js';
+import { createSandbox, createTestAuth, login, removeSandbox, type Sandbox } from '../test-support.js';
 
 /**
  * The `/ws` bus is the second agreed seam (spec-02 §Testing): a real socket on
@@ -35,16 +35,24 @@ describe('the /ws event bus', () => {
     await removeSandbox(sandbox);
   });
 
-  function makeApp(options: FakeProviderOptions = {}): { app: FastifyInstance; provider: FakeProvider } {
+  /**
+   * An app, its provider, and the `cookie` header its socket handshakes need —
+   * logged in through the real route, because the gate fronts `/ws` and has no
+   * bypass (spec-05 §Testing).
+   */
+  async function makeApp(
+    options: FakeProviderOptions = {},
+  ): Promise<{ app: FastifyInstance; provider: FakeProvider; cookie: string }> {
     const provider = createFakeProvider(options);
     const app = buildApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider,
       // `/ws` never touches the pty, but the app factory now needs the seam.
       spawner: createFakePtySpawner(),
+      auth: createTestAuth(),
     });
     apps.push(app);
-    return { app, provider };
+    return { app, provider, cookie: await login(app) };
   }
 
   /** The id the wire carries: base64url of the canonical directory. */
@@ -53,11 +61,11 @@ describe('the /ws event bus', () => {
   }
 
   it('closes the socket with an unknown_project error when the id is not allowlisted', async () => {
-    const { app } = makeApp();
+    const { app, cookie } = await makeApp();
     const port = await listen(app);
     const outside = idFor(path.join(sandbox.dir, 'outside'));
 
-    const client = await connect(port, outside);
+    const client = await connect(port, cookie, outside);
 
     await expect(client.next()).resolves.toMatchObject({
       kind: 'error',
@@ -67,10 +75,10 @@ describe('the /ws event bus', () => {
   });
 
   it('closes a connection that names no project at all', async () => {
-    const { app } = makeApp();
+    const { app, cookie } = await makeApp();
     const port = await listen(app);
 
-    const client = await connect(port, undefined);
+    const client = await connect(port, cookie, undefined);
 
     await expect(client.next()).resolves.toMatchObject({
       kind: 'error',
@@ -81,11 +89,11 @@ describe('the /ws event bus', () => {
 
   it('opens every connection with a snapshot of the project run state', async () => {
     await mkdir(path.join(root, 'alpha'));
-    const { app } = makeApp();
+    const { app, cookie } = await makeApp();
     const port = await listen(app);
     const projectId = await projectIdFor(path.join(root, 'alpha'));
 
-    const client = await connect(port, projectId);
+    const client = await connect(port, cookie, projectId);
     const event = await client.next();
 
     expect(event).toMatchObject({ kind: 'snapshot', seq: 1, projectId });
@@ -103,11 +111,11 @@ describe('the /ws event bus', () => {
   it('streams one turn: turn_started, every SDK message in order, then turn_ended', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: transcript(cwd) });
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
     const port = await listen(app);
     const projectId = idFor(cwd);
 
-    const client = await connect(port, projectId);
+    const client = await connect(port, cookie, projectId);
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
 
@@ -146,10 +154,10 @@ describe('the /ws event bus', () => {
   it('rejects a second send_prompt while a turn is running, without a second query', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'first' } });
     await client.nextMatching((event) => event.kind === 'stream_status');
@@ -169,10 +177,10 @@ describe('the /ws event bus', () => {
   it('interrupts the active turn and reports it with stream_status: interrupted', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
     const started = await client.nextMatching((event) => event.kind === 'stream_status');
@@ -195,10 +203,10 @@ describe('the /ws event bus', () => {
   it('drives the active run’s permission mode when set_permission_mode arrives', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
     await client.nextMatching((event) => event.kind === 'stream_status');
@@ -213,10 +221,10 @@ describe('the /ws event bus', () => {
   it('reports no_active_turn when set_permission_mode arrives with no turn running', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp();
+    const { app, provider, cookie } = await makeApp();
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'set_permission_mode', payload: { mode: 'plan' } });
 
@@ -228,10 +236,10 @@ describe('the /ws event bus', () => {
   it('round-trips a gated tool: approval_request out, approval_response back', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
     await client.nextMatching((event) => event.kind === 'stream_status');
@@ -268,10 +276,10 @@ describe('the /ws event bus', () => {
   it('round-trips a gated AskUserQuestion through the same approval path', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'build me a thing' } });
     await client.nextMatching((event) => event.kind === 'stream_status');
@@ -318,10 +326,10 @@ describe('the /ws event bus', () => {
   it('answers an approval_response whose requestId matches no pending request', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app } = makeApp();
+    const { app, cookie } = await makeApp();
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({
       v: 1,
@@ -337,11 +345,11 @@ describe('the /ws event bus', () => {
   it('rebuilds a reconnecting socket from the snapshot, complete blocks and pending approvals', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: partialTranscript(cwd), holdRuns: true });
+    const { app, provider, cookie } = await makeApp({ messages: partialTranscript(cwd), holdRuns: true });
     const port = await listen(app);
     const projectId = idFor(cwd);
 
-    const first = await connect(port, projectId);
+    const first = await connect(port, cookie, projectId);
     await first.next(); // the snapshot
     first.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
     await first.nextMatching((event) => event.kind === 'stream_status');
@@ -354,7 +362,7 @@ describe('the /ws event bus', () => {
     first.close();
     await first.waitForClose();
 
-    const second = await connect(port, projectId);
+    const second = await connect(port, cookie, projectId);
     const snapshot = await second.next();
 
     expect(snapshot).toMatchObject({ kind: 'snapshot', seq: 1, projectId, sessionId: SESSION_ID });
@@ -386,10 +394,10 @@ describe('the /ws event bus', () => {
   it('applies a continue target to the next send and consumes it', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: transcript(cwd) });
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'resume', payload: { mode: 'continue' } });
     client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'one' } });
@@ -414,10 +422,10 @@ describe('the /ws event bus', () => {
   it('applies a named resume, with fork, to the next send', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: transcript(cwd) });
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'resume', payload: { sessionId: 'sess-42', fork: true } });
     client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'go' } });
@@ -431,10 +439,10 @@ describe('the /ws event bus', () => {
   it('answers invalid_message to a malformed frame and keeps the socket alive', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp({ messages: transcript(cwd) });
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
 
     // Unparseable JSON, an unknown type, and a payload missing a required field
@@ -461,10 +469,10 @@ describe('the /ws event bus', () => {
   it('reports an internal error when a run fails before its result, and returns to idle', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app } = makeApp({ messages: partialTranscript(cwd), failRuns: true });
+    const { app, cookie } = await makeApp({ messages: partialTranscript(cwd), failRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
 
@@ -482,10 +490,10 @@ describe('the /ws event bus', () => {
   it('treats a throw after the result as noise', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app } = makeApp({ messages: transcript(cwd), failRuns: true });
+    const { app, cookie } = await makeApp({ messages: transcript(cwd), failRuns: true });
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
     await client.nextMatching(
@@ -504,7 +512,7 @@ describe('the /ws event bus', () => {
   it('returns the project to idle when the run cannot even start', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
-    const { app, provider } = makeApp();
+    const { app, provider, cookie } = await makeApp();
     // A provider that fails synchronously is the one path the scripted fake does
     // not model, so it is scripted here — the assertion is still the wire's.
     provider.query = () => {
@@ -512,7 +520,7 @@ describe('the /ws event bus', () => {
     };
     const port = await listen(app);
 
-    const client = await connect(port, idFor(cwd));
+    const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
 
@@ -646,10 +654,12 @@ interface BusClient {
   close(): void;
 }
 
-function connect(port: number, projectId: string | undefined): Promise<BusClient> {
+function connect(port: number, cookie: string, projectId: string | undefined): Promise<BusClient> {
   const query = projectId === undefined ? '' : `?projectId=${encodeURIComponent(projectId)}`;
   const url = `ws://127.0.0.1:${port}/ws${query}`;
-  const socket = new WebSocket(url);
+  // The session rides the handshake's headers — the browser sends the same
+  // cookie on a same-origin upgrade with no client code at all.
+  const socket = new WebSocket(url, { headers: { cookie } });
 
   const queued: ServerEvent[] = [];
   const readers: ((event: ServerEvent) => void)[] = [];

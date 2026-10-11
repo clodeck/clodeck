@@ -1,4 +1,5 @@
 import { buildApp } from './app.js';
+import { createAuthOptions } from './auth/options.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import { createAnthropicProvider } from './sdk/anthropic.js';
@@ -12,11 +13,14 @@ const app = buildApp({
   provider: createAnthropicProvider(),
   // The one place the real node-pty binding is reached; tests inject the fake.
   spawner: createNodePtySpawner(),
+  // The password is hashed here, once, at boot — or, when unset, the seam is
+  // built fail-closed and warns (see `auth/options.ts`).
+  auth: await createAuthOptions(config.uiPassword),
 });
 
-// Loopback by default: this slice serves `/api/**` unauthenticated, so it must
-// not be reachable from the network until the auth slice lands. A container
-// sets HOST to bind its internal interface.
+// Loopback by default. It is defense in depth now, not the boundary: the gate
+// covers every route and both websockets, so a container can set HOST to bind
+// its internal interface without becoming an open one.
 const port = Number(process.env['PORT'] ?? DEFAULT_PORT);
 const host = process.env['HOST'] ?? '127.0.0.1';
 

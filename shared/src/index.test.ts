@@ -7,6 +7,7 @@ import {
   type ClientMessage,
   type FileContent,
   type FileEntry,
+  type Principal,
   type Project,
   type SDKMessage,
   type ServerEvent,
@@ -140,6 +141,12 @@ describe('@clodeck/shared', () => {
 
     expect(Object.keys(summary).sort()).toEqual(['createdAt', 'id', 'lastModified', 'tag', 'title']);
     expect(message.content.map((block) => block.type)).toEqual(['text', 'tool_use']);
+  });
+
+  it('is the single source of the principal shape', () => {
+    const principal: Principal = { id: 'default', name: 'default' };
+
+    expect(Object.keys(principal).sort()).toEqual(['id', 'name']);
   });
 
   it('mirrors SDK messages widely enough to read text blocks and ignore unknown ones', () => {

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 
+import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
 import type { ProjectDiscovery } from '../discovery.js';
 import { WS_OPEN, textOf } from '../ws/frames.js';
 import type { TerminalManager } from './manager.js';
@@ -14,11 +15,13 @@ import type { TerminalSize } from './pty.js';
  * channel carries bytes, not the JSON envelope: client input goes straight to
  * the shell, shell output straight to the socket. `protocol.ts` is not involved.
  *
- * Security is the same seam as `/ws`: the client-supplied `projectId` is
- * re-validated through `resolveProject` (the allowlist) *before* any process
- * exists, so a non-allowlisted id is closed rather than turned into a shell. The
- * resolved project's path is the shell's `cwd` — a convenience (relative paths
- * just work), not a sandbox; the shell may still `cd` anywhere.
+ * Security is the same two seams as `/ws`: the handshake's `Origin` and session
+ * cookie are checked before it becomes a socket (spec-05), and then the
+ * client-supplied `projectId` is re-validated through `resolveProject` (the
+ * allowlist) *before* any process exists, so a non-allowlisted id is closed
+ * rather than turned into a shell. The resolved project's path is the shell's
+ * `cwd` — a convenience (relative paths just work), not a sandbox; the shell
+ * may still `cd` anywhere.
  */
 
 /** The close code for a rejected, unauthenticated id — WebSocket policy violation. */
@@ -43,7 +46,7 @@ const DEFAULT_ROWS = 24;
  */
 export function registerTerminalSocket(
   app: FastifyInstance,
-  options: { projects: ProjectDiscovery; terminals: TerminalManager },
+  options: { projects: ProjectDiscovery; terminals: TerminalManager; auth: AuthOptions },
 ): void {
   /**
    * The connection that currently owns each project's shell. The manager keeps
@@ -65,6 +68,8 @@ export function registerTerminalSocket(
   });
 
   app.register(async (terminal) => {
+    installWebSocketGuards(terminal, options.auth);
+
     terminal.get('/ws/terminal', { websocket: true }, (socket, request) => {
       void openTerminal(socket, request, options, owners);
     });
