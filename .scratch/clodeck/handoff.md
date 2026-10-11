@@ -4,8 +4,29 @@
 **Effort spec:** [spec-05-auth.md](spec-05-auth.md) — **built, tested, code-reviewed; tickets 23–26 resolved.**
 That was the last MVP slice that was planned. The remaining wayfinder slice is **08 (Docker/compose/Caddy)**,
 still **unticketed**.
-Tickets 15–22 landed as `b0b006c` on `main`; the auth slice is the commit that carries this file.
+`main` is at **`febf53e`** — the auth slice is `e7b1f46`, and `febf53e` is the dev-loop port fix that followed it
+(both below the handoff commit). Nothing is pushed: **`origin` is two commits behind `main`.**
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
+
+## Read this first: the dev loop needs `PORT=3300` on this machine
+
+Port **3001 is unbindable here** — Windows gave `2980–3079` to Hyper-V/WSL as a dynamic exclusion range, and the
+OS refuses every bind inside it with `EACCES`. The server dies at startup, its log stays empty, and every request
+through the client is a **502 that looks like a bug in whatever was last built** (that is exactly how the auth
+slice got blamed for one). Before running anything by hand:
+
+```cmd
+set UI_PASSWORD=dev
+set PROJECTS_ROOT=D:\work\clodeck-projects
+set PORT=3300
+npm run dev
+```
+
+The Vite proxy follows `PORT` (`web/vite.config.ts`), so the client on `localhost:5173` reaches the server on
+3300. If Vite says "Port 5173 is in use", read its log for the port it took instead (5174) — a second dev loop
+shifts it silently. The alternative is an elevated `net stop winnat && net start winnat` (releases the ranges
+until the next reboot), and the whole failure mode is written up in the README under "When the dev server
+answers 502".
 
 ## Where this stands
 
@@ -164,23 +185,33 @@ drawer — all of it behind one password. `UI_PASSWORD` unset → fail-closed (4
 ## Resume
 
 ```
-Auth (spec-05, tickets 23-26) is COMPLETE: reviewed, merged into `main`, tested. The whole MVP surface is built
-and gated - chat over the Agent SDK, per-project shell, file drawer, and a single-password login in front of all
-of it. `main` is the repo's only branch; every per-ticket branch is merged or was never created.
+READ FIRST: the dev loop must run on a port outside Windows' excluded ranges - use `PORT=3300`, or the server
+never starts and the client just 502s with an empty server log (see "Read this first" above).
 
-Done this slice:
+Auth (spec-05, tickets 23-26) is COMPLETE: reviewed, committed to `main` (`e7b1f46`), tested. The whole MVP
+surface is built and gated - chat over the Agent SDK, per-project shell, file drawer, and a single-password
+login in front of all of it. `main` is the repo's only branch, and `main` is at `febf53e` (the dev-loop port
+fix). NOTHING IS PUSHED: `origin` is two commits behind.
+
+Done:
   - 23 shared Principal + server/src/auth/password.ts (scrypt, timing-safe) + sessions.ts (sliding 7-day store)
   - 24 server/src/auth/transport.ts (login/logout/me, cookie, the reusable gate + origin guard, per-IP limiter)
   - 25 the install: buildApp({auth}) with the nested gated scope, @fastify/cookie, config.uiPassword,
        auth/options.ts, main.ts + dev-fake.ts, test-support login/createTestAuth, all suites migrated
   - 26 web/src/auth/ (transport, useAuth, LoginScreen) + App-as-gate with a logout control
-  Verified: typecheck + build clean; server 221 passed / 7 skipped, web 84 passed. By hand (dev:fake + curl):
-  login -> cookie -> gated routes 200; anonymous 401; cross-origin WS 403; logout kills the session;
-  UI_PASSWORD unset -> fail-closed with a warning.
+  - dev-loop fix after the slice: web/vite.config.ts follows PORT (+ vite.config.test.ts), empty PORT counts
+    as unset, README documents the EACCES/502 failure mode
+  Verified: typecheck + build clean; server 221 passed / 7 skipped, web 87 passed. By hand with the REAL
+  `npm run dev` on PORT=3300 (SDK imported, not the fake): anonymous /api/projects 401, wrong password 401,
+  correct password 200 + clodeck_session, gated route 200, /healthz 200 - through the Vite proxy. Also by hand
+  on dev:fake: cross-origin WS 403, logout kills the session, UI_PASSWORD unset -> fail-closed with a warning.
 
 Next:
-  1. Drive it by hand - the login screen, then the xterm panel and the file drawer (the browser half of
-     tickets 14, 20-22 and 26 has never been seen by a human). UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects
-     npm run dev, then http://localhost:5173.
-  2. Docker/compose/Caddy (wayfinder 08) - unticketed, the last slice on the wayfinder map.
+  1. Push `main` (two commits: e7b1f46, febf53e) - nothing has left this machine.
+  2. Drive the browser by hand - the login screen, then the xterm panel and the file drawer. The browser half
+     of tickets 14, 20-22 and 26 has NEVER been seen by a human; ticket 26 is the newest and least verified.
+     UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects PORT=3300 npm run dev, then http://localhost:5173.
+  3. Docker/compose/Caddy (wayfinder 08) - unticketed, the last slice on the wayfinder map. It is the slice
+     that makes the deploy story real: HTTPS termination (the cookie is Secure), UI_PASSWORD_FILE as the
+     secret shape, /healthz as the healthcheck, node-pty needing a glibc base.
 ```
