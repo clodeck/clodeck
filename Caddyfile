@@ -1,0 +1,21 @@
+# The public surface (spec-06 §29): one domain, TLS terminated here, and this
+# is the only service with published ports. `{$CLODECK_DOMAIN}` comes from the
+# compose file's environment — see README §Deploy.
+#
+# Automatic HTTPS is the reason this file is four lines and not a dozen cert
+# paths: with a reachable domain and ports 80/443 open, Caddy obtains and renews
+# the Let's Encrypt certificate itself, and a plain-HTTP request is redirected
+# to HTTPS. That is not a convenience here — the session cookie is `Secure`
+# (spec-05), so the app cannot hold a login over plain HTTP at all.
+
+{$CLODECK_DOMAIN} {
+	# Both WebSocket upgrades (`/ws`, `/ws/terminal`) ride this proxy: Caddy
+	# forwards the Upgrade handshake without extra configuration, and the
+	# client's cookie — same origin — comes with it.
+	reverse_proxy app:3001 {
+		# Caddy's upstream health asks the same question Docker's healthcheck
+		# does, so "the app is up" means one thing in both places.
+		health_uri /healthz
+		health_interval 30s
+	}
+}

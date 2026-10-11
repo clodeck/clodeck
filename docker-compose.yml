@@ -1,0 +1,83 @@
+# The deployment (spec-06 §29): the app, plus Caddy terminating TLS in front of
+# it. `CLODECK_DOMAIN`, `ANTHROPIC_API_KEY`, `PROJECTS_ROOT` and `UI_PASSWORD_FILE`
+# come from the environment — or from a `.env` file next to this one, which
+# compose reads automatically. README §Deploy is the contract.
+
+services:
+  app:
+    build: .
+    # tini as PID 1, so `docker compose stop` gives node a real SIGTERM instead
+    # of the signal a shell would have swallowed (wayfinder 08 §4).
+    init: true
+    restart: unless-stopped
+    # Deliberately no `ports:`: the app is on the compose network only, and
+    # Caddy is the single way in.
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3001"
+      WEB_ROOT: /app/web/dist
+      PROJECTS_ROOT: /projects
+      CLAUDE_CONFIG_DIR: /home/node/.claude
+      # The Agent SDK reads the key from the process environment; the server
+      # itself never reads, stores or forwards it.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY}
+      UI_PASSWORD_FILE: /run/secrets/ui_password
+    secrets:
+      - ui_password
+    volumes:
+      # The SDK's transcript store. A named volume rather than the host's
+      # ~/.claude: session history survives a container restart without mixing
+      # the container's state into the host user's own Claude Code state.
+      - claude-data:/home/node/.claude
+      # The real project directories, which live on the host by definition.
+      - ${PROJECTS_ROOT:?set PROJECTS_ROOT to the host directory holding the projects}:/projects
+    healthcheck:
+      # slim has neither curl nor wget, and node is already here. Loopback works
+      # because the app binds 0.0.0.0, which includes it.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CLODECK_DOMAIN: ${CLODECK_DOMAIN:?set CLODECK_DOMAIN to the public hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The issued certificates and the ACME account key. Losing them means
+      # re-obtaining every certificate on the next start.
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      # Caddy's *upstream* health is `/healthz` (see the Caddyfile); this only
+      # asks whether the proxy is alive with a config loaded. The admin API is
+      # the one endpoint that answers inside the container without TLS.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  claude-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  # Compose mounts this file at /run/secrets/ui_password, which is exactly what
+  # UI_PASSWORD_FILE points at: the password is never an environment variable
+  # (visible in `docker inspect`) and never an image layer.
+  ui_password:
+    file: ${UI_PASSWORD_FILE:-./secrets/ui_password.txt}

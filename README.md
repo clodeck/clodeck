@@ -12,7 +12,8 @@ per-project shell (node-pty behind a facade) streamed as raw bytes over `/ws/ter
 xterm.js panel, resized over REST. So does the file drawer: a tree that expands in place, with
 create / rename / delete / upload and an editable preview that saves back to disk, all scoped to the
 project root. Auth fronts all of it — single password, httpOnly session cookie, and everything except
-`/healthz` and the login routes behind a gate.
+`/healthz` and the login routes behind a gate. It deploys: the server serves the built client itself, so
+`docker compose up -d` brings the whole product up behind a TLS-terminating proxy (see [Deploy](#deploy)).
 
 ## Layout
 
@@ -62,6 +63,7 @@ the SDK, so it keeps them.
 | `UI_PASSWORD_FILE` | — | Read only when `UI_PASSWORD` is unset: a file whose trimmed contents are the password (the Docker-secret shape). |
 | `PORT` | `3001` | The server's port. The Vite dev proxy targets the same value, so `PORT=3300 npm run dev` moves both halves together. |
 | `HOST` | `127.0.0.1` | The server's bind address. Loopback by default as defense in depth — the auth gate, not the bind address, is what keeps the surface closed. A container sets it to bind its own interface. |
+| `WEB_ROOT` | — | The built client's directory. Unset → the server serves no client at all, which is what the Vite dev loop wants. Set (the image sets it to `/app/web/dist`) → the server serves the SPA at `/`, auth-exempt with an `index.html` fallback for deep links, and `npm run build && npm start` is the whole app. |
 | `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
 
 `clodeck.config.json` is the fallback for deployments that would rather not export an environment
@@ -127,12 +129,18 @@ On Windows PowerShell:
 $env:UI_PASSWORD = "dev"; $env:PROJECTS_ROOT = "$HOME\clodeck-projects"; npm run dev
 ```
 
-To run the backend on its own (the server does not serve the built client yet):
+To run the backend on its own, serving the client it just built — no Vite at all:
 
 ```sh
 npm run build
-UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm start --workspace @clodeck/server
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects WEB_ROOT="$PWD/web/dist" \
+  npm start --workspace @clodeck/server
 ```
+
+`WEB_ROOT` resolves like `PROJECTS_ROOT` does — against the working directory, which is `server/`
+when a workspace script runs it — so pass an absolute path when in doubt. Then
+<http://127.0.0.1:3001> is the app: the login screen, the shell, everything. `/healthz` and the whole
+`/api` and `/ws` surface work exactly as under Vite; only the client's origin changed.
 
 ## Auth
 
@@ -142,6 +150,66 @@ SameSite=Strict` session cookie, and every `/api/**` route plus both `/ws` and `
 it — `/healthz` and the two login routes are the only exemptions. Logins are rate-limited per
 address (five failures lock it out), session ids live server-side (a logout or a restart invalidates
 them), and a WebSocket upgrade is refused when its `Origin` is not the host it was sent to.
+
+## Deploy
+
+The deployment is two containers: `app` (this repo's `Dockerfile`) and Caddy in front of it,
+terminating TLS. Caddy is the only service with published ports, so the app is reachable on the
+compose network and nowhere else.
+
+### The app image on its own
+
+The image is the whole product — the server serves the built client — so it runs without the proxy:
+
+```sh
+docker build -t clodeck .
+docker run --rm -p 3300:3001 \
+  -e UI_PASSWORD=dev \
+  -e PROJECTS_ROOT=/projects \
+  -v "$HOME/clodeck-projects:/projects" \
+  clodeck
+```
+
+<http://localhost:3300> then answers with the login screen and `/healthz` with `{"status":"ok"}`. Browsers
+treat `http://localhost` as trustworthy, so the `Secure` session cookie works there; any other plain-HTTP
+host cannot hold a login, which is what the proxy below is for.
+
+### The compose deployment
+
+```sh
+mkdir -p secrets
+openssl rand -base64 24 > secrets/ui_password.txt   # this becomes the login password
+cat > .env <<'EOF'
+CLODECK_DOMAIN=clodeck.example.com
+PROJECTS_ROOT=/srv/clodeck-projects
+ANTHROPIC_API_KEY=sk-ant-...
+UI_PASSWORD_FILE=./secrets/ui_password.txt
+EOF
+docker compose up -d
+```
+
+| Variable | What it is |
+|---|---|
+| `CLODECK_DOMAIN` | The public hostname. It is Caddy's site address and the name on the certificate, so it must resolve to this host — **ports 80 and 443 reachable from the internet**, since the certificate is obtained and renewed automatically (Let's Encrypt). There is no cert file to manage. |
+| `PROJECTS_ROOT` | The **host** directory whose immediate child directories are the projects. Bind-mounted at `/projects` inside the app. |
+| `ANTHROPIC_API_KEY` | Read by the Agent SDK from the app's environment. No key, no real chat — the container boots and the login works regardless. |
+| `UI_PASSWORD_FILE` | A file whose trimmed contents are the login password. Compose mounts it at `/run/secrets/ui_password`; the password is never an environment variable (it would show up in `docker inspect`) and never an image layer. Defaults to `./secrets/ui_password.txt`. |
+
+`docker compose` reads `.env` from this directory automatically, so the whole happy path is
+`docker compose up -d`. Then `curl https://$CLODECK_DOMAIN/healthz` answers `{"status":"ok"}`, and the
+login screen at `https://$CLODECK_DOMAIN` signs in with the contents of the password file.
+
+Three volumes keep state across restarts: `claude-data` (the Agent SDK's transcript store, mounted at
+`/home/node/.claude` — session history survives, and is deliberately *not* the host's own `~/.claude`),
+and `caddy-data` / `caddy-config` (the issued certificates and the ACME account key).
+
+Only what the app needs is in the image: production dependencies and the three `dist/` trees, running as
+the image's unprivileged `node` user. `node-pty`'s Linux binding is compiled during the build — the
+tarball ships prebuilds for macOS and Windows only — which is why the dependency stage carries a
+toolchain and the shipped image does not.
+
+If you already run a reverse proxy, skip this compose file: publish the app's port on the proxy's
+network (`127.0.0.1:3001:3001`) and terminate TLS in front of it. Nothing in the app requires Caddy.
 
 ## Docs
 

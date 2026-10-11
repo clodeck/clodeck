@@ -1,0 +1,27 @@
+# The build context is the repository; the image rebuilds everything it needs
+# from source, and nothing development-only should ever reach a layer.
+
+# History and the local tracker.
+.git
+.gitignore
+.scratch
+.claude
+
+# Rebuilt in-image: the deps stage installs, the builder compiles. Shipping
+# either would bake a host build into the image and mask a broken Dockerfile.
+node_modules
+**/node_modules
+dist
+**/dist
+
+# TypeScript's incremental state and test output.
+*.tsbuildinfo
+**/*.tsbuildinfo
+coverage
+
+# Credentials. The password arrives as a Docker secret at run time (spec-06
+# §29); it must never be a layer.
+.env
+.env.*
+!.env.example
+secrets
