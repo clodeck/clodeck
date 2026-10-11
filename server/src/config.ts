@@ -12,6 +12,11 @@ export interface ServerConfig {
    * gated route and socket answers 401 (spec-05 §"Config + main wiring").
    */
   uiPassword: string | null;
+  /**
+   * The built web client's directory, or null when the server serves no client
+   * — the dev loop, where Vite serves it (spec-06 §"Ticket 27").
+   */
+  webRoot: string | null;
 }
 
 export interface LoadConfigOptions {
@@ -33,6 +38,10 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
  * `UI_PASSWORD` first, then `UI_PASSWORD_FILE` (the Docker-secret-friendly
  * way). It is never written to the config file, because the point of the file
  * is convenience and the point of the password is not to be in one.
+ *
+ * `WEB_ROOT` is env-only for the same reason: it names the build artifact the
+ * image produced (spec-06 §"Ticket 27"), which is not a thing an operator keeps
+ * in a convenience file.
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const env = options.env ?? process.env;
@@ -41,7 +50,19 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   return {
     projectsRoot: projectsRoot(env, options.configPath, warn),
     uiPassword: uiPassword(env, warn),
+    webRoot: webRoot(env),
   };
+}
+
+/**
+ * The built client's directory, or null. Environment-only, like the password:
+ * it names a build artifact the image produced, not a preference an operator
+ * would keep in a config file. A blank value counts as unset — an unset
+ * `WEB_ROOT` is what keeps the Vite dev loop's behavior unchanged.
+ */
+function webRoot(env: NodeJS.ProcessEnv): string | null {
+  const fromEnv = env['WEB_ROOT']?.trim();
+  return fromEnv === undefined || fromEnv === '' ? null : path.resolve(fromEnv);
 }
 
 function projectsRoot(

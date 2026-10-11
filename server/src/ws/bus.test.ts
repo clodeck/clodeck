@@ -50,6 +50,8 @@ describe('the /ws event bus', () => {
       // `/ws` never touches the pty, but the app factory now needs the seam.
       spawner: createFakePtySpawner(),
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return { app, provider, cookie: await login(app) };

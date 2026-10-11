@@ -16,6 +16,9 @@ const app = buildApp({
   // The password is hashed here, once, at boot — or, when unset, the seam is
   // built fail-closed and warns (see `auth/options.ts`).
   auth: await createAuthOptions(config.uiPassword),
+  // Set by the image (spec-06 §"Ticket 27"); unset in the dev loop, where Vite
+  // serves the client instead.
+  webRoot: config.webRoot,
 });
 
 // Loopback by default. It is defense in depth now, not the boundary: the gate

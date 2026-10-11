@@ -49,6 +49,8 @@ describe('the /ws/terminal transport', () => {
       provider: createFakeProvider(),
       spawner,
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return { app, spawner, cookie: await login(app) };

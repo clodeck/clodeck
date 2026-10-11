@@ -52,6 +52,8 @@ describe('the server API', () => {
       // The gate is always installed; `/healthz` is the one route that is not
       // behind it, and it is asserted without a login below.
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return app;
@@ -236,6 +238,22 @@ describe('the server API', () => {
     expect(missing.uiPassword).toBeNull();
     expect(warnings.join('\n')).toContain('no-such-password.txt');
     expect(empty.uiPassword).toBeNull();
+  });
+
+  it('takes the web root from WEB_ROOT, and answers null when it is unset or blank', async () => {
+    const built = path.join(sandbox.dir, 'web-dist');
+    const configPath = path.join(sandbox.dir, 'absent.config.json');
+
+    const set = loadConfig({ env: { WEB_ROOT: `  ${built}  ` }, configPath });
+    const unset = loadConfig({ env: {}, configPath });
+    const blank = loadConfig({ env: { WEB_ROOT: '   ' }, configPath });
+
+    // A path, resolved the way the projects root is: the static plugin needs an
+    // absolute one, and a leading space typed into a compose file is not one.
+    expect(set.webRoot).toBe(path.resolve(built));
+    // Unset is the dev loop: Vite serves the client, this server serves none.
+    expect(unset.webRoot).toBeNull();
+    expect(blank.webRoot).toBeNull();
   });
 
   // File symlinks need elevation or Developer Mode on Windows, so this case is

@@ -7,6 +7,7 @@ import type { ProjectDiscovery } from './discovery.js';
 import { registerFileRoutes } from './files/transport.js';
 import type { SdkProvider } from './sdk/provider.js';
 import { registerSessionRoutes } from './sessions.js';
+import { registerStaticClient } from './static.js';
 import { createTerminalManager } from './terminal/manager.js';
 import type { PtySpawner } from './terminal/pty.js';
 import { registerTerminalSizeRoute, registerTerminalSocket } from './terminal/transport.js';
@@ -32,9 +33,17 @@ export interface AppOptions {
    * The credential, the session store, and the login limiter's tuning — the
    * fourth and last injected seam (spec-05 §"The seam"). There is no null to
    * pass: "no password configured" is a verifier that refuses everything, not
-   * an app without a gate.
+   * an app without a gate. `webRoot` is not a fifth seam: it is configuration
+   * (a path to a build artifact), not a facade with a fake behind it.
    */
   auth: AuthOptions;
+  /**
+   * The built web client's directory, or `null` for "this server serves no
+   * client" — the Vite dev loop, and every suite that is not about the bundle.
+   * Configuration, not a seam: it is a path, and there is nothing behind it to
+   * fake.
+   */
+  webRoot: string | null;
 }
 
 /**
@@ -95,6 +104,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   // The raw-byte sibling of `/ws`, on the same instance — no second server.
   registerTerminalSocket(app, { projects: options.projects, terminals, auth: options.auth });
+
+  // Last, and on the root scope: the wildcard it registers only answers paths
+  // no explicit route already owns, so `/healthz`, `/api/**` and both sockets
+  // are served by their own routes (spec-06 §"Ticket 27").
+  if (options.webRoot !== null) registerStaticClient(app, options.webRoot);
 
   return app;
 }

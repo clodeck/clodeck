@@ -40,6 +40,8 @@ describe('the session-history API', () => {
       // The terminal seam is injected even though these routes never spawn.
       spawner: createFakePtySpawner(),
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return app;

@@ -52,6 +52,8 @@ describe('the file read routes', () => {
       provider: createFakeProvider(),
       spawner: createFakePtySpawner(),
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return app;
@@ -199,6 +201,8 @@ describe('the file write routes', () => {
       provider: createFakeProvider(),
       spawner: createFakePtySpawner(),
       auth: createTestAuth(),
+      // This suite is not about the bundle: no client is served.
+      webRoot: null,
     });
     apps.push(app);
     return app;
