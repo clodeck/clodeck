@@ -2,11 +2,10 @@
 
 **Updated:** 2026-10-11
 **Effort spec:** [spec-06-docker.md](spec-06-docker.md) — **implemented**: tickets 27–30 are resolved, reviewed
-on both axes, and committed (`23ca37c`, `838b2f6`, plus the review-fix commit that follows them). Before them,
-the last built slice was auth (spec-05, 23–26). **Every ticket in `.scratch/clodeck/issues/` is now resolved —
-the effort has no open work left.** `origin/main` reached `838b2f6` at 23:07 on 2026-10-11 (something in this
-environment pushes; the agent session did not run `git push`) — check `git status -sb` for whether the
-review-fix commit is still local.
+on both axes, and committed (`23ca37c`, `838b2f6`, `6e9bbc0`). Before them, the last built slice was auth
+(spec-05, 23–26). **Every ticket in `.scratch/clodeck/issues/` is now resolved — the effort has no open work
+left.** As of 2026-10-11 23:30 the working tree is clean and `main` is **level with `origin/main`** at
+`6e9bbc0` (this environment pushes after a commit; the agent session never ran `git push`).
 **This file:** the session-to-session layer for the build. Overwrite each time; git history keeps the old ones.
 
 ## Read this first: the dev loop needs `PORT=3300` on this machine
@@ -50,16 +49,46 @@ serves the client.
 
 ## What the next session is for
 
-1. **Check `git status -sb`**: the slice commits are already on `origin/main`; only a review-fix commit
-   made after them may still be local. Push it if so.
-2. **Drive the browser by hand — still the one thing no run has ever covered**, and now the only real risk
-   left in the repo: login screen → shell → logout, the xterm panel, the file drawer's tree/editable toggle,
-   and (new) the production static serving. `UI_PASSWORD=dev PROJECTS_ROOT=D:\work\clodeck-projects PORT=3300
-   npm run dev`, then <http://localhost:5173>.
-3. **A real public deploy has never happened.** The Let's Encrypt branch of ticket 29 was verified only with
-   Caddy's *internal* CA (`CLODECK_DOMAIN=localhost`), because this machine has no public domain. Everything
-   else in the compose path was exercised for real.
-4. Out of MVP, per `AGENTS.md`: git explorer, plugins, browser-use, markdown preview, a UI model picker.
+**1. Drive the browser by hand.** It is the only part of the MVP no run has ever covered — every slice is
+tested at the HTTP/WS boundary, and the React layer has no rendered test at all. Two loops, in this order:
+
+```cmd
+rem the dev loop (Vite 5173 + server 3300)
+set UI_PASSWORD=dev
+set PROJECTS_ROOT=D:\work\clodeck-projects
+set PORT=3300
+npm run dev
+rem -> http://localhost:5173   (use dev:fake instead if there is no API key)
+
+rem later, the production shape: no Vite at all
+npm run build
+set WEB_ROOT=..\web\dist
+npm start --workspace @clodeck/server
+rem -> http://127.0.0.1:3300
+```
+
+The checklist, none of which has been seen by a human:
+
+1. **Login** — the screen appears with no session; a wrong password says so; five failures say "locked"
+   (the per-IP limiter); the right one lands in the shell. Then **log out** and land back on the screen.
+2. **Project switcher** — `demo` and `hello` are listed from `PROJECTS_ROOT`; drop a new directory in and
+   press refresh; it appears.
+3. **Chat** — send a prompt; text streams in; a tool card and the approval modal come up (`dev:fake`
+   scripts exactly one turn, so a real key is needed for anything longer); reload the page and **resume** a
+   session from history.
+4. **Terminal** — the panel opens a shell in the project directory, typing works, and dragging the panel
+   edge resizes the pty (this is what `@xterm/addon-fit` and the REST resize route exist for). Reload: the
+   new connection takes over the shell.
+5. **File drawer** — expand a nested folder, create a file and a folder, rename, delete, upload, then the
+   editable toggle and save (save is the one route that overwrites on purpose).
+6. **The gate holds in a browser** — after logging out, the shell's next call is a 401, and `/ws` refuses.
+
+**2. A real public deploy has never happened.** The Let's Encrypt branch of ticket 29 was verified only with
+Caddy's *internal* CA (`CLODECK_DOMAIN=localhost`), because this machine has no public domain. Everything
+else in the compose path was exercised for real, including the `wss://` handshake through the proxy.
+
+**3. Out of MVP**, per `AGENTS.md`: git explorer, plugins, browser-use, markdown preview, a UI model picker.
+There is no open ticket and no spec for any of them — the next slice starts with a new spec.
 
 ## Facts that live nowhere else
 
@@ -153,13 +182,16 @@ publish on a high port with MSYS_NO_PATHCONV=1 (see "Read this first").
 ALL TICKETS ARE RESOLVED. The deploy slice (spec-06, tickets 27-30) is built, verified by build+run,
 reviewed on both axes (findings fixed: the SPA fallback no longer answers for /api and /ws, the README no
 longer contradicts compose about ANTHROPIC_API_KEY, and the suites' duplicated listen/handshake/buildApp
-boilerplate collapsed into test-support.ts), and committed.
+boilerplate collapsed into test-support.ts), committed, and pushed - the tree is clean and main is level
+with origin/main at 6e9bbc0.
 
-Next:
-  1. Push `main` if `git status -sb` shows an unpushed commit (the slice commits themselves are already
-     on origin).
-  2. Drive the browser by hand - login -> shell -> logout, the xterm panel, the file drawer, and the
-     production static serving. No human has ever seen this UI.
-  3. There is no open work in the tracker; the next slice is a new spec (the MVP's out-of-scope list in
-     AGENTS.md is the menu).
+Next (nothing is in flight; the tracker has no open ticket):
+  1. Drive the browser by hand - the checklist is in "What the next session is for" above. No human has
+     ever seen this UI: login -> shell -> logout, the switcher, chat (+ resume), the xterm panel, the file
+     drawer's tree/editable/upload/delete. `PORT=3300 npm run dev`, then http://localhost:5173.
+  2. Then the production shape: `npm run build` + `WEB_ROOT=..\web\dist npm start --workspace @clodeck/server`
+     -> http://127.0.0.1:3300 (the server serves the SPA; no Vite).
+  3. A real deploy is the other open verification (no public domain here, so the Let's Encrypt path has
+     never run). After that, the next slice needs a new spec - the out-of-scope list in AGENTS.md is the
+     menu.
 ```
