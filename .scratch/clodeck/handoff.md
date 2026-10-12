@@ -1,10 +1,11 @@
 # Handoff — clodeck: bug hunt (manual browser verification)
 
 **Updated:** 2026-10-12
-**Context:** the build is complete (tickets 01–30). We are in the one phase no run had ever covered:
-**driving the browser by hand**. **Bug #1 is fixed** — root-caused with a real-browser loop, and
-pinned by a regression test at the seam that actually broke. Ticket 31 records it. The fix is in the
-working tree, **uncommitted**.
+**Context:** the build is complete (tickets 01–30), and the prototype↔UI gap list has been settled and
+ticketed (issues **32–45**, none of them started). We are in the one phase no run had ever covered:
+**driving the browser by hand**. **Bug #1 is fixed** — root-caused with a real-browser loop, and pinned
+by a regression test at the seam that actually broke. Ticket 31 records it; the fix is merged to `main`
+(`79bd41c`).
 
 ## Dev loop (unchanged, still load-bearing)
 
@@ -89,14 +90,28 @@ web 89 passed (9 files); `npm run e2e` green.
 
 ## Next
 
-0. **The prototype↔UI gap list is written: [`prototype-parity.md`](prototype-parity.md).** It is the
-   input for the next session's `/to-tickets`: `P0` holds four decisions to settle first (drawer vs
-   column; sessions placement; which prototype file features come into MVP; success feedback), then
-   `P1`/`P2` are ticket-sized. Nothing in it is an MVP gap — the MVP is built; it is all
-   prototype-parity drift and polish.
+0. **The gap list is settled and ticketed: [`prototype-parity.md`](prototype-parity.md) + issues
+   32–45.** The four `P0` decisions were taken on 2026-10-12 and are recorded in the gap list itself
+   (§"Tasmim-haye gerefte-shode") so nobody re-asks them: **D1** = back to Variant A — rail ▸ sidebar ▸
+   chat stage, terminal and files in one summonable bottom drawer; **D2** = sessions stay behind the
+   chat header's History button; **D3** = all five out-of-MVP file features come into MVP (download,
+   markdown preview, `size · modified`, tree⇄flat list, drag-move); **D4** = short success toasts.
+   Nothing in the list is an MVP gap — the MVP is built; it is all parity drift and polish.
+
+   The frontier is **32** (the scope catch-up in `AGENTS.md` + `spec-04`), **33** (tool-card status
+   badge + the `ok` token), **34** (composer autogrow) and **35** (the drawer shell). Everything
+   file-side then waits on **36** (the panel's tree beside its code view), because each remaining item
+   is a control inside the very panel 35/36 moves.
+
+   Two prototype behaviours deliberately did **not** transfer, and their tickets say why: download
+   needs a server route (the viewer's text is truncated and a binary read returns no content at all, so
+   a client-side `Blob` would hand back a damaged file), and the flat list cannot recurse (this
+   product's listing is lazy, one directory per request).
 1. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
    one terminal exercise and that is what found this; `ChatPanel` and `FilePanel` have never been
    clicked through in a browser, and the same duplicate-key class of bug is worth watching for wherever
-   keyed siblings are added.
-2. **`main` is ahead of `origin/main` by four commits** — the fix, its merge, the guardrails and their
-   merge are all unpushed.
+   keyed siblings are added. Note that tickets 35/36 move exactly those two panels into the drawer, so
+   the pass is worth running after them rather than twice.
+2. **`main` is ahead of `origin/main` by five commits** (`origin/main` is `23d770f`) — `AGENTS.md`'s
+   branch-first rule, the parity gap list, the parity tickets 32–45, this handoff update, and the
+   merge that landed them. Nothing is pushed.
