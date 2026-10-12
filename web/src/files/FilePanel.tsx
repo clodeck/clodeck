@@ -253,8 +253,8 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
       </div>
 
       {/* The code column: the open file's path in the head, its bytes in the
-          body. The head's right-hand side is the file's action area — today the
-          edit toggle, and where download (42) and preview (43) will land. */}
+          body. The head's right-hand side is the file's action area — download,
+          the markdown mode switch, and the read-only ⇄ writable toggle. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <CodeHead
           projectId={project.id}
@@ -391,6 +391,39 @@ function ViewerBody({
   }
 }
 
+/**
+ * The four states one directory's listing can be in, which both listings share:
+ * a folder whose listing has not been fetched yet reads as loading, a fetch in
+ * flight reads as loading, a failed fetch says why and offers a retry, and a
+ * listing with no entries in it is the caller's own emptiness (`depth`-dependent
+ * in the tree, one line in the flat list). Only the ready state differs between
+ * the two views, so it is the one the caller supplies.
+ */
+function ListingBody({
+  listing,
+  actions,
+  empty,
+  ready,
+}: {
+  listing: DirListing | undefined;
+  actions: FileViewerActions;
+  empty: ReactElement;
+  ready: (entries: FileEntry[]) => ReactElement;
+}): ReactElement {
+  if (listing === undefined) return <Hint>Loading…</Hint>;
+
+  switch (listing.status) {
+    case 'loading':
+      return <Hint>Loading…</Hint>;
+    case 'error':
+      return <DirError message={listing.message} onRetry={actions.refresh} />;
+    case 'ready':
+      return listing.entries.length === 0 ? empty : ready(listing.entries);
+    default:
+      return assertNever(listing);
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* The flat list                                                              */
 /* -------------------------------------------------------------------------- */
@@ -421,16 +454,12 @@ function FlatList({
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
   const listing = dirs[dir];
-  if (listing === undefined) return <Hint>Loading…</Hint>;
-
-  switch (listing.status) {
-    case 'loading':
-      return <Hint>Loading…</Hint>;
-    case 'error':
-      return <DirError message={listing.message} onRetry={actions.refresh} />;
-    case 'ready':
-      if (listing.entries.length === 0) return <Hint>This folder is empty.</Hint>;
-      return (
+  return (
+    <ListingBody
+      listing={listing}
+      actions={actions}
+      empty={<Hint>This folder is empty.</Hint>}
+      ready={(entries) => (
         <>
           <div className={LIST_GRID}>
             <span className="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Name</span>
@@ -440,7 +469,7 @@ function FlatList({
             <span />
           </div>
           <ul className="flex flex-col">
-            {listing.entries.map((entry) => {
+            {entries.map((entry) => {
               const path = joinPath(dir, entry.name);
               return (
                 <li key={path}>
@@ -458,10 +487,9 @@ function FlatList({
             })}
           </ul>
         </>
-      );
-    default:
-      return assertNever(listing);
-  }
+      )}
+    />
+  );
 }
 
 /** One flat row: the name, the two measurements a file carries, and its menu. */
@@ -493,7 +521,7 @@ function FlatRow({
     >
       <EntryMain
         entry={entry}
-        mode="list"
+        view="list"
         isExpanded={false}
         onClick={isDir ? () => { actions.openDir(path); } : () => { actions.preview(path); }}
       />
@@ -587,22 +615,16 @@ function TreeLevel({
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
-  const listing = dirs[path];
-  // A not-yet-fetched directory (its parent expanded first) reads as loading.
-  if (listing === undefined) return <Hint>Loading…</Hint>;
-
-  switch (listing.status) {
-    case 'loading':
-      return <Hint>Loading…</Hint>;
-    case 'error':
-      return <DirError message={listing.message} onRetry={actions.refresh} />;
-    case 'ready':
-      if (listing.entries.length === 0) {
-        return depth === 0 ? <Hint>This folder is empty.</Hint> : <span />;
-      }
-      return (
+  return (
+    <ListingBody
+      listing={dirs[path]}
+      actions={actions}
+      // Only the root says the folder is empty; a nested empty one is a folder
+      // that happens to hold nothing, and the tree shows that by not opening it.
+      empty={depth === 0 ? <Hint>This folder is empty.</Hint> : <span />}
+      ready={(entries) => (
         <ul className="flex flex-col">
-          {listing.entries.map((entry) => {
+          {entries.map((entry) => {
             const childPath = joinPath(path, entry.name);
             const isDir = entry.type === 'directory';
             const isExpanded = isDir && expanded[childPath] === true;
@@ -638,10 +660,9 @@ function TreeLevel({
             );
           })}
         </ul>
-      );
-    default:
-      return assertNever(listing);
-  }
+      )}
+    />
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -687,7 +708,7 @@ function EntryRow({
     >
       <EntryMain
         entry={entry}
-        mode="tree"
+        view="tree"
         isExpanded={isExpanded}
         onClick={isDir ? () => actions.toggle(path) : () => actions.preview(path)}
       />
@@ -788,13 +809,13 @@ function modifiedTitle(mtime: string): string {
 
 function EntryMain({
   entry,
-  mode,
+  view,
   isExpanded,
   onClick,
 }: {
   entry: FileEntry;
-  /** Where the row is drawn: the tree's arrow says expand, the list's says open. */
-  mode: View;
+  /** Which listing is drawing this row: the tree's folder opens, the list's enters. */
+  view: View;
   isExpanded: boolean;
   onClick: () => void;
 }): ReactElement {
@@ -803,9 +824,9 @@ function EntryMain({
       return (
         <RowButton
           onClick={onClick}
-          title={mode === 'list' ? `Open folder ${entry.name}` : isExpanded ? 'Collapse folder' : 'Expand folder'}
+          title={view === 'list' ? `Open folder ${entry.name}` : isExpanded ? 'Collapse folder' : 'Expand folder'}
         >
-          {mode === 'tree' && <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>}
+          {view === 'tree' && <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>}
           {entry.name}/
         </RowButton>
       );

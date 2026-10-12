@@ -38,6 +38,8 @@ const INLINE =
 
 /** A heading: one to six `#`, then its text. */
 const HEADING = /^(#{1,6})\s+(.*)$/;
+/** The six heading tags, by depth — the only tag names a heading may become. */
+const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const;
 /** A horizontal rule: three or more `-` or `*`. */
 const RULE = /^\s*(?:-{3,}|\*{3,})\s*$/;
 /** A fenced code block's fence, with or without an info string. */
@@ -83,11 +85,13 @@ export function renderMarkdown(source: string): ReactNode[] {
 
     const heading = HEADING.exec(line);
     if (heading !== null) {
-      const level = heading[1] ?? '#';
+      const level = (heading[1] ?? '#').length;
       const text = heading[2] ?? '';
-      const Heading = `h${String(level.length)}` as 'h1';
+      // The tag is picked from real element names, not cast into one: a heading
+      // deeper than six `#` is not a heading the HTML has a tag for.
+      const Heading = HEADINGS[level - 1] ?? 'h6';
       blocks.push(
-        <Heading key={blocks.length} className={`my-2 font-semibold text-ink ${headingSize(level.length)}`}>
+        <Heading key={blocks.length} className={`my-2 font-semibold text-ink ${headingSize(level)}`}>
           {inline(text)}
         </Heading>,
       );

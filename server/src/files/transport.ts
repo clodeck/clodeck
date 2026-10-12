@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
 
 import type { ProjectDiscovery } from '../discovery.js';
-import { createScopedFs, name, type ScopedFs, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
+import { createScopedFs, name, type ResolveResult, type ScopedFs, type ScopedPath, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
 
 /**
  * The file-drawer REST surface (spec-04 §"REST routes"): directory listing and
@@ -40,25 +40,21 @@ export function registerFileRoutes(
   api.get<{ Params: { id: string } }>('/projects/:id/files', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
-    const { files, rel } = opened;
 
-    const resolved = await files.resolve(rel);
-    if (resolved.status !== 'ok') return missing(reply);
-    if (resolved.kind !== 'directory') return reply.code(400).send({ error: 'path is not a directory' });
+    const dir = await resolveAs(reply, opened, 'directory');
+    if (dir === null) return reply;
 
-    return { entries: await files.listDir(resolved.scoped) };
+    return { entries: await opened.files.listDir(dir) };
   });
 
   api.get<{ Params: { id: string } }>('/projects/:id/files/content', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
-    const { files, rel } = opened;
 
-    const resolved = await files.resolve(rel);
-    if (resolved.status !== 'ok') return missing(reply);
-    if (resolved.kind !== 'file') return reply.code(400).send({ error: 'path is not a file' });
+    const file = await resolveAs(reply, opened, 'file');
+    if (file === null) return reply;
 
-    return { content: await files.readFile(resolved.scoped) };
+    return { content: await opened.files.readFile(file) };
   });
 
   /**
@@ -75,18 +71,16 @@ export function registerFileRoutes(
   api.get<{ Params: { id: string } }>('/projects/:id/files/download', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
-    const { files, rel } = opened;
 
-    const resolved = await files.resolve(rel);
-    if (resolved.status !== 'ok') return missing(reply);
-    if (resolved.kind !== 'file') return reply.code(400).send({ error: 'path is not a file' });
+    const file = await resolveAs(reply, opened, 'file');
+    if (file === null) return reply;
 
     // The name the client asked for, not the one realpath resolved: a row shows
     // the link's own name, so that is the name the download is saved under.
     return reply
       .header('content-type', 'application/octet-stream')
-      .header('content-disposition', attachment(path.basename(rel)))
-      .send(files.readStream(resolved.scoped));
+      .header('content-disposition', attachment(path.basename(opened.rel)))
+      .send(opened.files.readStream(file));
   });
 
   api.post<{ Params: { id: string }; Body: unknown }>('/projects/:id/files', async (request, reply) => {
@@ -231,6 +225,31 @@ function relPath(request: FastifyRequest): string | null {
     return null;
   }
   return value;
+}
+
+/**
+ * Resolve the addressed path and insist on its kind — the second half of every
+ * read route's door (`openProject` is the first). The same refusal for all of
+ * them: a path that misses, or that resolves outside the root through a symlink,
+ * is the same 404 whatever was asked for; a path of the wrong kind — a directory
+ * read as a file, the project root either way — is a 400. Like `openProject`, it
+ * answers the request itself and returns `null` when it has.
+ */
+async function resolveAs(
+  reply: FastifyReply,
+  opened: { files: ScopedFs; rel: string },
+  kind: Extract<ResolveResult, { status: 'ok' }>['kind'],
+): Promise<ScopedPath | null> {
+  const resolved = await opened.files.resolve(opened.rel);
+  if (resolved.status !== 'ok') {
+    missing(reply);
+    return null;
+  }
+  if (resolved.kind !== kind) {
+    reply.code(400).send({ error: `path is not a ${kind}` });
+    return null;
+  }
+  return resolved.scoped;
 }
 
 /**

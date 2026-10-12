@@ -172,24 +172,31 @@ export function useFiles(project: Project): FileViewerController {
     );
   }, [project.id]);
 
-  const toggle = useCallback(
+  /** Fetch a folder's listing unless it is already loaded (a re-expand reuses it). */
+  const ensureLoaded = useCallback(
     (path: string): void => {
       const current = treeRef.current;
-      const willExpand = !(current.status === 'ready' && current.expanded[path] === true);
-      setTree((t) => withActive(withExpanded(t, path, willExpand), path));
-      // Lazy-load on first expand; a collapse + re-expand reuses the cached listing.
-      if (willExpand && !(current.status === 'ready' && path in current.dirs)) void loadDir(path);
+      if (current.status === 'ready' && path in current.dirs) return;
+      void loadDir(path);
     },
     [loadDir],
+  );
+
+  const toggle = useCallback(
+    (path: string): void => {
+      const willExpand = !(treeRef.current.status === 'ready' && treeRef.current.expanded[path] === true);
+      setTree((t) => withActive(withExpanded(t, path, willExpand), path));
+      if (willExpand) ensureLoaded(path);
+    },
+    [ensureLoaded],
   );
 
   const openDir = useCallback(
     (path: string): void => {
       setTree((t) => withActive(withExpanded(t, path, true), path));
-      const current = treeRef.current;
-      if (current.status === 'ready' && !(path in current.dirs)) void loadDir(path);
+      ensureLoaded(path);
     },
-    [loadDir],
+    [ensureLoaded],
   );
 
   const refresh = useCallback((): void => {
