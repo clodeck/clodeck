@@ -1,8 +1,10 @@
-import type { FileEntry, Project } from '@clodeck/shared';
+import { MAX_UPLOAD_MB, type FileEntry, type Project } from '@clodeck/shared';
 import { useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
 
 import { useToast } from '../toast/ToastProvider';
+import { formatModified, formatSize } from './format';
 import { assertNever, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
+import { summarizeUploads } from './upload';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
 /**
@@ -21,7 +23,15 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
  * them, it never navigates), each expanded folder's listing is fetched lazily on
  * first open, and the last folder clicked is the "active" folder that New
  * File/Folder and Upload land in. The preview starts **read-only** and flips to
- * a writable `<textarea>` with Save/Cancel — the content-editing toggle.
+ * a writable `<textarea>` with Save/Cancel — the content-editing toggle. Each
+ * file row carries its size, with the modified time a hover away; a directory
+ * row carries nothing, because the wire carries nothing for one.
+ *
+ * Uploads arrive two ways — the toolbar's picker and a drop anywhere on the
+ * panel — and both are one batch: every file is sent, the batch reports itself
+ * **once** when all of it has settled, and a file over the shared cap is refused
+ * before it becomes a request. The drop overlay is where that cap is said, while
+ * the drag is still in the air rather than after a 300 MB body has failed.
  *
  * Two rules are load-bearing, not style:
  *
@@ -39,7 +49,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
 
@@ -50,20 +60,17 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   // the tree itself has nothing to show.
   const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
 
+  /**
+   * Upload a picked or dropped batch. Every file goes, and the batch speaks
+   * **once** when it has all settled: one message with the counts, and the first
+   * failure's reason under it — a five-file drop that lost two says so instead of
+   * looking like a clean one, and two failures do not stomp each other's notice.
+   */
   const uploadFiles = (files: readonly File[]): void => {
-    // A single file is named; a batch's one honest summary is ticket 39's, and
-    // until it lands a batch reports nothing rather than a flurry of overwrites.
-    const single = files.length === 1;
-    for (const file of files) {
-      void actions.upload(file).then(
-        () => {
-          if (single) toast(`uploaded ${file.name}`);
-        },
-        (error: unknown) => {
-          setNotice(messageOf(error));
-        },
-      );
-    }
+    void actions.upload(files).then((outcomes) => {
+      const summary = summarizeUploads(outcomes);
+      if (summary !== null) toast(summary.message, summary.detail ?? undefined);
+    });
   };
 
   const onChosen = (event: ChangeEvent<HTMLInputElement>): void => {
@@ -73,8 +80,28 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     event.target.value = '';
   };
 
-  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+  /**
+   * The panel is one drop target: the overlay is `pointer-events-none`, so a drag
+   * that passes over it still reaches this element. Only a drag carrying OS files
+   * is an upload — an internal row drag for a move (ticket 44) carries
+   * `text/plain` and must leave the tree alone.
+   */
+  const onDragOver = (event: DragEvent<HTMLElement>): void => {
+    if (!hasOsFiles(event)) return;
     event.preventDefault();
+    setDragActive(true);
+  };
+
+  const onDragLeave = (event: DragEvent<HTMLElement>): void => {
+    // Moving between the panel's own children is not leaving the panel.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragActive(false);
+  };
+
+  const onDrop = (event: DragEvent<HTMLElement>): void => {
+    if (!hasOsFiles(event)) return;
+    event.preventDefault();
+    setDragActive(false);
     uploadFiles(Array.from(event.dataTransfer.files));
   };
 
@@ -114,7 +141,13 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   };
 
   return (
-    <section className="relative flex min-h-0 flex-1" aria-label="Files">
+    <section
+      className="relative flex min-h-0 flex-1"
+      aria-label="Files"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {/* The tree column: the toolbar and the breadcrumb it acts in, then the
           tree itself. It is the only column with a fixed width. */}
       <div className="flex w-[300px] shrink-0 flex-col border-r border-line">
@@ -134,7 +167,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
             <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
             <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
-            <ToolbarButton onClick={() => { setNotice(null); actions.refresh(); }}>Refresh</ToolbarButton>
+            <ToolbarButton onClick={actions.refresh}>Refresh</ToolbarButton>
           </div>
         </header>
 
@@ -147,25 +180,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           aria-label="Choose files to upload"
         />
 
-        {notice !== null && (
-          <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
-            <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-err">{notice}</p>
-            <button
-              type="button"
-              onClick={() => { setNotice(null); }}
-              className="shrink-0 rounded px-1 text-[11px] text-ink-dim hover:text-ink"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        <div
-          className="min-h-0 flex-1 overflow-y-auto px-2 py-1"
-          onDragOver={(event) => { event.preventDefault(); }}
-          onDrop={onDrop}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
           <ViewerBody
             viewer={viewer}
             menu={menu}
@@ -206,8 +221,33 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           onCancel={() => { setConfirm(null); }}
         />
       )}
+
+      {dragActive && <DropOverlay />}
     </section>
   );
+}
+
+/**
+ * Where a dropped batch will land, and the size it has to be under. The cap is
+ * named here on purpose: a drop that is going to be refused should say so while
+ * it is still being dragged, not after a 300 MB upload has run its course.
+ */
+function DropOverlay(): ReactElement {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-20 m-1 flex items-center justify-center rounded border-2 border-dashed border-accent bg-canvas/85"
+      aria-hidden="true"
+    >
+      <p className="rounded bg-panel px-3 py-1 font-mono text-[12px] text-accent">
+        Drop files to upload · max {MAX_UPLOAD_MB} MB
+      </p>
+    </div>
+  );
+}
+
+/** Whether a drag is carrying OS files — the only kind that is an upload. */
+function hasOsFiles(event: DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types).includes('Files');
 }
 
 /* -------------------------------------------------------------------------- */
@@ -373,15 +413,20 @@ function EntryRow({
     // `relative`, so the row's own menu is placed against the row. Without it
     // the menu's containing block is the whole panel, `top-full` puts it below
     // the panel, and the tree's scroller clips it away — the `⋯` opens nothing.
+    // The row carries the file's modified time as its tooltip: a title on the
+    // size alone would be a hover on a few characters, and the name's own title
+    // (`Preview x`) still wins where it has one.
     <div
       className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
       style={{ paddingLeft: 8 + depth * 14 }}
+      title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
     >
       <EntryMain
         entry={entry}
         isExpanded={isExpanded}
         onClick={isDir ? () => actions.toggle(path) : () => actions.preview(path)}
       />
+      {entry.type === 'file' && <FileMeta size={entry.size} />}
       <button
         type="button"
         aria-label={`Actions for ${entry.name}`}
@@ -426,6 +471,21 @@ function EntryRow({
       )}
     </div>
   );
+}
+
+/**
+ * A file row's size, dim and at the row's right edge — the one thing the row
+ * shows about the bytes. Only a file gets one: a directory's row is passed no
+ * `size` by the wire type, so it renders blank rather than a number nothing
+ * measured (the prototype's directory numbers were a hash of the name).
+ */
+function FileMeta({ size }: { size: number }): ReactElement {
+  return <span className="shrink-0 font-mono text-[10px] text-ink-dim">{formatSize(size)}</span>;
+}
+
+/** When a file last changed: the relative form, then the server's exact timestamp. */
+function modifiedTitle(mtime: string): string {
+  return `modified ${formatModified(mtime, Date.now())} · ${mtime}`;
 }
 
 function EntryMain({

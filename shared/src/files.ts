@@ -10,9 +10,25 @@
  */
 
 /**
+ * The upload ceiling, in bytes: a raw-body PUT may be at most 200 MiB, larger is
+ * a `413`. It lives here rather than beside the route because the client refuses
+ * an oversize file before it makes the request at all, so the number has exactly
+ * one home — the route's `bodyLimit`, the overlay's "max N MB" and the message a
+ * rejected file carries are all the same constant, and cannot drift apart.
+ */
+export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+/** The same ceiling in the unit the drawer says it in: derived, never a second literal. */
+export const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / (1024 * 1024);
+
+/**
  * One row of a directory listing. A symlink is its own arm because it is not
  * navigable: the server only reports a link it could not resolve inside the
  * project root — an in-root link is listed under its resolved kind instead.
+ *
+ * Only a file carries `size`/`mtime`, and that is the whole of what a row may
+ * show about it: the server reports no permissions, so there is no permission
+ * column to render (spec-04's metadata scope, narrowed by ticket 32).
  */
 export type FileEntry =
   | { type: 'file'; name: string; size: number; mtime: string }

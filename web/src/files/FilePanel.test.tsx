@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { Project } from '@clodeck/shared';
+import { MAX_UPLOAD_BYTES, type Project } from '@clodeck/shared';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,35 +26,64 @@ const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
 
 const FILE_BODY = 'const answer = 42;';
 
+/** A listing row's size, independent of the content body so the two cannot be confused. */
+const README_SIZE = 1536;
+
+/** An mtime three hours old, so a row's relative label is a fixed `3h ago`. */
+function threeHoursAgo(): string {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+}
+
+/** One request the panel made: how, and to which relative path. */
+interface Call {
+  method: string;
+  path: string;
+}
+
+/** The server's error envelope, as the transport's mapping expects it. */
+function failure(status: number, statusText: string, error: string): Response {
+  return { ok: false, status, statusText, json: () => Promise.resolve({ error }) } as Response;
+}
+
 /**
  * One file endpoint: a root listing (a folder and a file), the file's content,
- * and mutations that succeed — or fail, when `failMutations` says so.
+ * and mutations that succeed — or fail, when `failMutations` says so, or when the
+ * path is one of `failUploads` (a 409 on that file alone, so a batch's other
+ * files still land). Every request is recorded, which is how "no request was
+ * made" and "the listing re-listed once" are asserted.
  */
-function stubFiles(failMutations = false): void {
+function stubFiles(options: { failMutations?: boolean; failUploads?: string[] } = {}): {
+  calls: Call[];
+  mtime: string;
+} {
+  const { failMutations = false, failUploads = [] } = options;
+  const calls: Call[] = [];
+  const mtime = threeHoursAgo();
+
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
-    const { pathname } = new URL(String(input), 'http://localhost');
-    if ((init?.method ?? 'GET') !== 'GET') {
-      return Promise.resolve(
-        failMutations
-          ? {
-              ok: false,
-              status: 500,
-              statusText: 'Internal Server Error',
-              json: () => Promise.resolve({ error: 'disk is full' }),
-            }
-          : { ok: true, status: 200, json: () => Promise.resolve({}) },
-      );
+    const url = new URL(String(input), 'http://localhost');
+    const method = init?.method ?? 'GET';
+    const path = url.searchParams.get('path') ?? '';
+    calls.push({ method, path });
+
+    if (method !== 'GET') {
+      if (failMutations) return Promise.resolve(failure(500, 'Internal Server Error', 'disk is full'));
+      if (failUploads.includes(path)) return Promise.resolve(failure(409, 'Conflict', 'already exists'));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
     }
-    const body = pathname.endsWith('/files/content')
+
+    const body = url.pathname.endsWith('/files/content')
       ? { content: { kind: 'text', content: FILE_BODY, truncated: false, size: FILE_BODY.length } }
       : {
           entries: [
             { type: 'directory', name: 'src' },
-            { type: 'file', name: 'README.md', size: FILE_BODY.length, mtime: '2026-10-12T00:00:00.000Z' },
+            { type: 'file', name: 'README.md', size: README_SIZE, mtime },
           ],
         };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   });
+
+  return { calls, mtime };
 }
 
 afterEach(() => {
@@ -64,13 +93,27 @@ afterEach(() => {
 });
 
 /** The panel where it lives, returning the toast surface it speaks through. */
-function renderPanel(): { container: HTMLElement; notifications: HTMLElement } {
+function renderPanel(): { container: HTMLElement; panel: HTMLElement; notifications: HTMLElement } {
   const { container } = render(
     <ToastProvider>
       <FilePanel project={project} />
     </ToastProvider>,
   );
-  return { container, notifications: screen.getByRole('status') };
+  const panel = container.querySelector<HTMLElement>('section[aria-label="Files"]');
+  if (panel === null) throw new Error('no Files panel');
+  return { container, panel, notifications: screen.getByRole('status') };
+}
+
+/** A drag carrying OS files — the shape the panel reacts to. */
+function osDrag(files: File[]): { dataTransfer: { types: string[]; files: File[] } } {
+  return { dataTransfer: { types: ['Files'], files } };
+}
+
+/** A file that reports itself over the cap, without allocating 200 MiB to say so. */
+function oversize(name: string): File {
+  const file = new File(['x'], name);
+  Object.defineProperty(file, 'size', { value: MAX_UPLOAD_BYTES + 1 });
+  return file;
 }
 
 /** Fill the name prompt and commit it. */
@@ -169,7 +212,7 @@ describe('the file panel says what it did', () => {
     });
   });
 
-  it('reports a single uploaded file, and stays quiet on a failure', async () => {
+  it('reports a single uploaded file', async () => {
     stubFiles();
     const { notifications } = renderPanel();
     await screen.findByRole('button', { name: 'README.md' });
@@ -182,7 +225,7 @@ describe('the file panel says what it did', () => {
   });
 
   it('leaves the surface empty when a mutation fails, and the error where it was', async () => {
-    stubFiles(true);
+    stubFiles({ failMutations: true });
     const { notifications } = renderPanel();
     await screen.findByRole('button', { name: 'README.md' });
 
@@ -192,5 +235,133 @@ describe('the file panel says what it did', () => {
     // and the success surface never speaks.
     expect(await screen.findByText('500 Internal Server Error: disk is full')).toBeTruthy();
     expect(notifications.textContent).toBe('');
+  });
+});
+
+describe('dropping files on the drawer', () => {
+  it('shows where they will land and the cap they have to be under, and clears on leave', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    expect(screen.queryByText('Drop files to upload · max 200 MB')).toBeNull();
+
+    fireEvent.dragOver(panel, osDrag([]));
+    expect(screen.getByText('Drop files to upload · max 200 MB')).toBeTruthy();
+
+    fireEvent.dragLeave(panel, { relatedTarget: null });
+    expect(screen.queryByText('Drop files to upload · max 200 MB')).toBeNull();
+  });
+
+  it('ignores a drag that is not carrying OS files', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    // A tree row dragged for a move (ticket 44) carries text/plain, not Files.
+    fireEvent.dragOver(panel, { dataTransfer: { types: ['text/plain'], files: [] } });
+    expect(screen.queryByText('Drop files to upload · max 200 MB')).toBeNull();
+  });
+});
+
+describe('a batch upload reports itself once', () => {
+  it('sends every dropped file and settles into one message, re-listing once', async () => {
+    const { calls } = stubFiles();
+    const { panel, notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+    const listings = calls.filter((call) => call.method === 'GET').length;
+
+    const files = [new File(['a'], 'one.txt'), new File(['b'], 'two.txt')];
+    fireEvent.dragOver(panel, osDrag(files));
+    fireEvent.drop(panel, osDrag(files));
+
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('2 uploaded');
+    });
+    expect(calls.filter((call) => call.method === 'PUT').map((call) => call.path)).toEqual([
+      'one.txt',
+      'two.txt',
+    ]);
+    // The overlay is gone, and the whole batch cost exactly one re-listing.
+    expect(screen.queryByText('Drop files to upload · max 200 MB')).toBeNull();
+    await waitFor(() => {
+      expect(calls.filter((call) => call.method === 'GET')).toHaveLength(listings + 1);
+    });
+  });
+
+  it('counts a mixed batch, keeps the first reason, and still re-lists', async () => {
+    const { calls } = stubFiles({ failUploads: ['dup.txt'] });
+    const { panel, notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+    const listings = calls.filter((call) => call.method === 'GET').length;
+
+    const files = [new File(['a'], 'one.txt'), new File(['b'], 'dup.txt'), new File(['c'], 'two.txt')];
+    fireEvent.drop(panel, osDrag(files));
+
+    await waitFor(() => {
+      expect(within(notifications).getByText('2 uploaded · 1 failed')).toBeTruthy();
+    });
+    // The reason rides with the counts instead of being swallowed by them.
+    expect(within(notifications).getByText('409 Conflict: already exists')).toBeTruthy();
+    // One bad file did not abort the batch: all three were sent.
+    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(3);
+    await waitFor(() => {
+      expect(calls.filter((call) => call.method === 'GET')).toHaveLength(listings + 1);
+    });
+  });
+
+  it('refuses an oversize file in the client, with no request at all', async () => {
+    const { calls } = stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.change(screen.getByLabelText('Choose files to upload'), {
+      target: { files: [oversize('big.bin')] },
+    });
+
+    await waitFor(() => {
+      expect(within(notifications).getByText('1 failed')).toBeTruthy();
+    });
+    expect(within(notifications).getByText('over the 200 MB upload limit')).toBeTruthy();
+    // The server's 413 is the backstop, not the way this is found out.
+    expect(calls.filter((call) => call.method === 'PUT')).toEqual([]);
+  });
+
+  it('counts a refused file with the rest of the batch rather than on its own', async () => {
+    const { calls } = stubFiles();
+    const { panel, notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    const files = [new File(['a'], 'one.txt'), oversize('big.bin')];
+    fireEvent.drop(panel, osDrag(files));
+
+    // One summary, not a message per file: the oversize one is a failure in it.
+    await waitFor(() => {
+      expect(within(notifications).getByText('1 uploaded · 1 failed')).toBeTruthy();
+    });
+    expect(within(notifications).getByText('over the 200 MB upload limit')).toBeTruthy();
+    // The file that fits still went.
+    expect(calls.filter((call) => call.method === 'PUT').map((call) => call.path)).toEqual(['one.txt']);
+  });
+});
+
+describe('file rows carry their metadata', () => {
+  it('shows a size and, in the tooltip, when it changed — and nothing for a folder', async () => {
+    const { mtime } = stubFiles();
+    renderPanel();
+
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+    const fileRow = readme.parentElement;
+    const dirRow = screen.getByTitle('Expand folder').parentElement;
+    if (fileRow === null || dirRow === null) throw new Error('a row has no element');
+
+    expect(within(fileRow).getByText('1.5 KB')).toBeTruthy();
+    // The row's tooltip: the relative form over the server's exact timestamp.
+    expect(fileRow.getAttribute('title')).toBe(`modified 3h ago · ${mtime}`);
+
+    // A directory has no size or mtime on the wire, so its row is its name and
+    // its menu, with nothing measured invented in between.
+    expect(dirRow.textContent).toBe('▸ src/⋯');
+    expect(dirRow.getAttribute('title')).toBeNull();
   });
 });

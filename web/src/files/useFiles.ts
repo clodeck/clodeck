@@ -40,6 +40,7 @@ import {
   saveContent,
   uploadEntry,
 } from './transport';
+import { exceedsUploadCap, OVER_LIMIT_REASON, type UploadOutcome } from './upload';
 
 /**
  * The file drawer's data seam, shaped like `useChat` / `useTerminal`: one
@@ -74,8 +75,16 @@ export interface FileViewerActions {
   rename(path: string, to: string): Promise<void>;
   /** Delete the entry at `path` (the panel confirms first). */
   remove(path: string): Promise<void>;
-  /** Upload `file` into the active folder. */
-  upload(file: File): Promise<void>;
+  /**
+   * Upload a batch into the active folder. The requests are independent — one
+   * bad file does not abort the rest — and the affected directory re-lists
+   * **once** for the whole batch, so a partial failure leaves the listing in its
+   * real state rather than an error state. A file over the cap never becomes a
+   * request: it settles as a failure here. It therefore never *rejects* — it
+   * resolves with one outcome per file, which is what the panel's single summary
+   * is built from.
+   */
+  upload(files: readonly File[]): Promise<UploadOutcome[]>;
   /** Read-only → writable (no-op unless the preview is a text file). */
   edit(): void;
   /** Live editor keystrokes. */
@@ -192,9 +201,11 @@ export function useFiles(project: Project): FileViewerController {
   );
 
   /**
-   * One place every mutation goes through. Success re-lists the affected
-   * directory so the tree reflects what just changed; a failure *rejects* so
-   * the panel can keep its dialog open and show the server's message.
+   * One place the mutations that *reject* go through — rename and delete, where
+   * the panel keeps its dialog open and shows the server's message. Success
+   * re-lists the affected directory so the tree reflects what just changed; no
+   * folder is forced open, because neither of these lands in one. Create and
+   * upload settle through {@link settle} instead, since both do.
    */
   const runMutation = useCallback(
     async (operation: () => Promise<void>, affectedDir: string): Promise<void> => {
@@ -210,23 +221,52 @@ export function useFiles(project: Project): FileViewerController {
     return current.status === 'ready' ? current.active : '';
   }, []);
 
+  /**
+   * What a mutation does to the folder it landed in: re-list it, and leave it
+   * open. Without the second half a file created in a collapsed folder would
+   * land invisibly; the root is never collapsed, so it has nothing to expand.
+   */
+  const settle = useCallback(
+    (dir: string): void => {
+      void loadDir(dir);
+      if (dir !== '') setTree((t) => withExpanded(t, dir, true));
+    },
+    [loadDir],
+  );
+
   const create = useCallback(
     async (kind: 'file' | 'directory', name: string): Promise<void> => {
       const dir = activeDir();
-      await runMutation(() => createEntry(project.id, joinPath(dir, name), kind), dir);
-      // The new entry must be visible: keep its folder expanded.
-      if (dir !== '') setTree((t) => withExpanded(t, dir, true));
+      await createEntry(project.id, joinPath(dir, name), kind);
+      settle(dir);
     },
-    [project.id, runMutation, activeDir],
+    [project.id, settle, activeDir],
   );
 
   const upload = useCallback(
-    async (file: File): Promise<void> => {
+    async (files: readonly File[]): Promise<UploadOutcome[]> => {
+      // An empty drop is not a batch: nothing to send, nothing to re-list.
+      if (files.length === 0) return [];
       const dir = activeDir();
-      await runMutation(() => uploadEntry(project.id, joinPath(dir, file.name), file), dir);
-      if (dir !== '') setTree((t) => withExpanded(t, dir, true));
+      // Independent on purpose: each file's outcome is its own, so two that fail
+      // do not stop the third that would have worked. An oversize file is
+      // refused here rather than by the server's 413 — same cap, no round trip.
+      const outcomes = await Promise.all(
+        files.map(async (file): Promise<UploadOutcome> => {
+          if (exceedsUploadCap(file.size)) return { ok: false, name: file.name, reason: OVER_LIMIT_REASON };
+          try {
+            await uploadEntry(project.id, joinPath(dir, file.name), file);
+            return { ok: true, name: file.name };
+          } catch (error: unknown) {
+            return { ok: false, name: file.name, reason: messageOf(error) };
+          }
+        }),
+      );
+
+      settle(dir);
+      return outcomes;
     },
-    [project.id, runMutation, activeDir],
+    [project.id, settle, activeDir],
   );
 
   const rename = useCallback(
