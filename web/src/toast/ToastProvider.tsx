@@ -4,10 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
  * The app's one success surface: a mutation that worked says so.
  *
  * It is a context rather than a `useState` per panel because there is exactly
- * one surface for the whole app — a file operation in the drawer, a download and
- * a drag-move all report through `useToast()` — and because one message at a
- * time means they cannot each own one. Like the prototype's (`common.js:666-672`)
- * it replaces whatever is showing and clears itself after about two seconds.
+ * one surface for the whole app — every file operation in the drawer reports
+ * through `useToast()`, and the later ones (upload summary, download, move) add
+ * senders rather than a second surface — and because one message at a time means
+ * they cannot each own one. Like the prototype's (`common.js:666-672`) it
+ * replaces whatever is showing and clears itself after about two seconds.
  *
  * The surface is rendered *beside* the workspace, not inside it: the drawer is a
  * 42vh strip with its own scrollers, and anything mounted within it would be

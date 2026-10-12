@@ -43,8 +43,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
 
-  // The folder create/upload land in, exactly as the hook computes it: `''` is
-  // the root, and the toast below names it rather than saying "in root".
+  // The folder create/upload land in, read off the view model: `''` is the root.
   const activeDir = viewer.status === 'ready' ? viewer.active : '';
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
   // The code column's state, which is `none` until a file is opened and whenever
@@ -81,16 +80,19 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
 
   const submitPrompt = async (name: string): Promise<void> => {
     if (prompt === null) return;
+    // The prototype's vocabulary, root included: it says nothing about the root,
+    // because a bare `file x created` already says the whole of it.
+    const inDir = activeDir === '' ? '' : ` in ${activeDir}`;
     try {
       if (prompt.mode === 'rename') {
         await actions.rename(prompt.path, name);
         toast(`renamed to ${name}`);
+      } else if (prompt.mode === 'create-file') {
+        await actions.create('file', name);
+        toast(`file ${name} created${inDir}`);
       } else {
-        const kind = prompt.mode === 'create-file' ? 'file' : 'folder';
-        await actions.create(prompt.mode === 'create-file' ? 'file' : 'directory', name);
-        // The prototype's vocabulary, including its silence about the root: a
-        // bare `file x created` already says the whole of it.
-        toast(`${kind} ${name} created${activeDir === '' ? '' : ` in ${activeDir}`}`);
+        await actions.create('directory', name);
+        toast(`folder ${name} created${inDir}`);
       }
       setPrompt(null);
       setPromptError(null);
