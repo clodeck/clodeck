@@ -1,11 +1,11 @@
 # Handoff — clodeck: the parity pass continues (tickets 41–43)
 
 **Updated:** 2026-10-12
-**Where the tree is:** the three tickets are on **`clodeck/41-42-43-flat-list-download-markdown`**
-(five commits: 41, 42, 43, the browser spec + evidence, and the review fixes). Merging it
-(`git switch main && git merge --no-ff clodeck/41-42-43-flat-list-download-markdown`) puts HEAD on
-`main` with **41** (the flat list beside the tree), **42** (download as the bytes on disk) and **43**
-(markdown `Preview ⇄ Source`) merged. Nothing else has been started.
+**Where the tree is:** HEAD is on **`main`**, with tickets **41** (the flat list beside the tree),
+**42** (download as the bytes on disk) and **43** (markdown `Preview ⇄ Source`) merged. The ticket
+branch is deleted and the next ticket has not been started. (Merged in `--no-ff`, so the five commits
+under it — 41, 42, 43, the browser spec + evidence, and the review fixes — are readable as the change
+they were.)
 
 ## What this phase is
 
@@ -42,7 +42,7 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 ## Where the frontier is
 
-**Done:** 32–43 — all merged except 41–43, which are on the branch above.
+**Done:** 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 — all merged.
 
 **Ready now, blocked by nothing:** **44** (drag-move — `spec-04` already pins
 `POST /files/move?path=&to=`; the server has no cross-directory move yet, and the row drag it needs is
