@@ -1,11 +1,16 @@
-# Handoff — clodeck: bug hunt (manual browser verification)
+# Handoff — clodeck: the parity pass (tickets 32–45)
 
 **Updated:** 2026-10-12
-**Context:** the build is complete (tickets 01–30), and the prototype↔UI gap list has been settled and
-ticketed (issues **32–45**, none of them started). We are in the one phase no run had ever covered:
-**driving the browser by hand**. **Bug #1 is fixed** — root-caused with a real-browser loop, and pinned
-by a regression test at the seam that actually broke. Ticket 31 records it; the fix is merged to `main`
-(`79bd41c`).
+**Where the tree is:** HEAD is on **`clodeck/33-tool-card-status-badge-ok-token`**
+(`b6771ac` + `e9e27e5`), **not merged**. `main` is at `07ea473` — ticket **32** (the scope
+catch-up in `AGENTS.md` + `spec-04`) is merged there, and nothing is pushed.
+
+## What this phase is
+
+The build is complete (tickets 01–30) and the prototype↔UI gap list is settled, ticketed and now
+being worked: **issues 32–45**, from `prototype-parity.md` §"Tasmim-haye gerefte-shode". Nothing in
+that list is an MVP gap — the MVP is built; it is all parity drift and polish. Ticket 31 (a real bug,
+fixed) is behind us and lives in `issues/31-terminal-accumulates-on-switch.md`.
 
 ## Dev loop (unchanged, still load-bearing)
 
@@ -19,99 +24,59 @@ npm run dev
 rem -> http://localhost:5173    (or npm run dev:fake if there is no API key)
 ```
 
-## Bug #1 — terminal accumulates on project switch (FIXED)
+## Guardrails (do not lose these)
 
-**Report (verbatim):** selecting a project opens a terminal on the right; switching to another project
-leaves the previous terminal on screen and opens a new one *below* it, and this keeps growing. Expected:
-the new terminal replaces the old one.
+- **The pre-commit hook** (`.githooks/pre-commit`, wired through `core.hooksPath` by `npm install`)
+  runs `npm run typecheck` and `npm test`. There is no CI; the hook is why a red tree cannot be
+  committed. `--no-verify` only if the user asks.
+- **The browser loop is real**: `web/e2e/project-switch.spec.ts` + `npm run e2e` (drives the machine's
+  installed Chrome — the Playwright Chromium download fails on this network — so it needs
+  `PORT=3300 npm run dev` already up). It found bug #1; see `issues/31-…md` for what a panel-alone
+  test cannot see.
 
-**Root cause: a duplicate key.** `WorkspacePlaceholder` (`web/src/App.tsx`) rendered `TerminalPanel` and
-`FilePanel` as siblings both keyed `project.id`. React warns that non-unique keys "may cause children to
-be duplicated and/or omitted", and its key map holds one entry per key — so the *first* sibling dropped
-out of its bookkeeping and was never unmounted. `FilePanel` was the sibling React kept, which is why only
-the terminal duplicated. Fixed with a panel prefix on each key.
+## Where the frontier is
 
-**Why the code "looked correct" and two jsdom tests stayed green:** `TerminalPanel.test.tsx` renders the
-panel *alone*, so it can never see a collision with a sibling. That is the lesson worth carrying: the
-seam was wrong, not the panel. The replacement, `web/src/App.workspace.test.tsx`, renders
-`WorkspacePlaceholder` and rerenders it with a second project — red before the fix, green after.
+**Done:** 32 (merged), 33 (on its branch, reviewed, green).
 
-**Full write-up, mechanism and evidence:** `.scratch/clodeck/issues/31-terminal-accumulates-on-switch.md`.
+**Ready, blocked by nothing:** **34** (composer autogrow + the `Enter to send` hint) and **35** (the
+drawer shell — rail ▸ sidebar ▸ chat stage, terminal + files in one summonable bottom drawer). Both
+are self-contained UI tickets.
 
-## How the loop was built (now permanent)
+**Everything after waits on the drawer:** **36** moves the file panel to `300px tree | code view`
+inside the drawer, and **37–44** each add a control to that panel — 37 (success toasts, which 39/42/44
+report through), 40 (`size · modified`), 41 (tree ⇄ flat-list), 42 (download + its server route), 43
+(markdown `Preview ⇄ Source`), 44 (drag-move + its server route), then 45 (code-view gutter).
 
-The Playwright loop that found bug #1 is a real suite, not scratch:
+Two prototype behaviours deliberately did **not** transfer, and their tickets say why: download needs
+a server route (viewer text is truncated and a binary read returns no content, so a client-side `Blob`
+would hand back a damaged file), and the flat list cannot recurse (listing is lazy, one directory per
+request).
 
-- `web/playwright.config.ts` — `testDir: './e2e'`, `channel: 'chrome'` with `headless: true` and
-  `baseURL: http://localhost:5173`. The Playwright **Chromium download fails on this network**
-  (`Failed to download Chrome for Testing`), so it drives the machine's installed Chrome instead. It
-  needs the dev loop already up.
-- `web/e2e/project-switch.spec.ts` — logs in via `UI_PASSWORD` from the environment, then switches
-  demo → hello → demo → hello asserting exactly one `.xterm` throughout.
-- `.scratch/clodeck/evidence/31-terminal-switch-after-fix.png` — the post-fix screenshot, with the ticket.
+**Then the manual pass.** Only the terminal has ever been driven by hand in a browser; `ChatPanel` and
+`FilePanel` have never been clicked through. Tickets 35/36 move both panels, so run the pass *after*
+them rather than twice — and watch for the duplicate-key class of bug wherever keyed siblings are
+added.
 
-```bash
-UI_PASSWORD=dev npm run e2e      # needs `PORT=3300 npm run dev` up in another shell
-```
+## Known loose ends
 
-## State of the tree
+- **`README.md:5` still reads "a terminal and a file drawer alongside"** — true of the old two-column
+  workspace and made wrong by ticket **35**, which owns the sentence. Deliberately not fixed in 32
+  (a scope document's job).
+- **Ticket 33's palette token has no test.** jsdom does not process the Tailwind stylesheet, so a test
+  could only assert the class name. `npm run build` emitting `--color-ok:#4ea87a` / `.text-ok` was the
+  check instead; keep an eye on it if the palette is ever restructured.
+- **Parked, deliberately:** make the rendered tests fail on `console.error`. React printed the
+  duplicate-key warning to stderr *during* a jsdom run and the suite stayed green. It would be a safety
+  net for future bugs, not one that would have caught bug #1 (the panel-alone test produced no
+  warning); left until it earns its keep.
+- **`main` is ahead of `origin/main` by 8 commits** (`origin/main` is `23d770f`). Nothing is pushed.
 
-The fix is **merged to `main`** (`79bd41c`, branch `clodeck/31-terminal-accumulates-on-switch`). It
-carries:
+## Working agreements worth re-reading
 
-- `web/src/App.tsx` — the fix, plus `WorkspacePlaceholder` exported so its seam is testable.
-- `web/src/App.workspace.test.tsx` — the regression test (grid, not panel).
-- `web/src/testing/xterm-jsdom.ts` — the jsdom/xterm stubs, shared by both terminal tests.
-- `web/src/terminal/TerminalPanel.test.tsx` — refactored onto the shared stub, scope documented.
-- `web/package.json` + `package-lock.json` — `@playwright/test`, `jsdom`, `@testing-library/react` and
-  `@testing-library/dom` devDeps (the first rendered-test infrastructure for the React layer).
-- `.scratch/clodeck/issues/31-terminal-accumulates-on-switch.md`, this file, the evidence screenshot.
+`AGENTS.md` carries them: Finglish-with-Latin-letters for the user, branch first and **stop at the
+merge** unless asked (`git switch main && git merge --no-ff <branch>`), one commit per coherent
+change, and the standing decisions — including the Variant A layout and the D3-promoted MVP scope
+that ticket 32 just landed.
 
-Evidence at this point: `npm run typecheck` clean; `npm test` → shared 9, server 230 passed + 7 skipped,
-web 89 passed (9 files); `npm run e2e` green.
-
-## Guardrails added since (the `/retro` of this session)
-
-- **A pre-commit hook**, `.githooks/pre-commit`, run through `core.hooksPath` — wired by the root
-  `prepare` script on every `npm install`. It runs `npm run typecheck` and `npm test`. This repo has no
-  CI, and the reason it exists is concrete: a test file once sat in the working tree with
-  `npm run typecheck` failing, for a whole session, because nothing ran it.
-- **The browser loop is permanent**: `web/e2e/` + `npm run e2e`, documented in the README.
-- **`AGENTS.md`'s Finglish line now defines the term** — "Persian written in Latin letters, never in
-  Persian script" — after I answered in Persian script and the user had to correct it.
-
-## Parked, deliberately
-
-- **Make the rendered tests fail on `console.error`.** React printed `Encountered two children with the
-  same key` to stderr *during* the jsdom run and the suite stayed green; asserting no `console.error`
-  in `web/src/testing/` would turn that class of React diagnostic into a failure. Not done yet — it is
-  a safety net for future bugs, not one that would have caught this one (the panel-alone test produced
-  no warning). Decided with the user to leave it until it earns its keep.
-
-## Next
-
-0. **The gap list is settled and ticketed: [`prototype-parity.md`](prototype-parity.md) + issues
-   32–45.** The four `P0` decisions were taken on 2026-10-12 and are recorded in the gap list itself
-   (§"Tasmim-haye gerefte-shode") so nobody re-asks them: **D1** = back to Variant A — rail ▸ sidebar ▸
-   chat stage, terminal and files in one summonable bottom drawer; **D2** = sessions stay behind the
-   chat header's History button; **D3** = all five out-of-MVP file features come into MVP (download,
-   markdown preview, `size · modified`, tree⇄flat list, drag-move); **D4** = short success toasts.
-   Nothing in the list is an MVP gap — the MVP is built; it is all parity drift and polish.
-
-   The frontier is **32** (the scope catch-up in `AGENTS.md` + `spec-04`), **33** (tool-card status
-   badge + the `ok` token), **34** (composer autogrow) and **35** (the drawer shell). Everything
-   file-side then waits on **36** (the panel's tree beside its code view), because each remaining item
-   is a control inside the very panel 35/36 moves.
-
-   Two prototype behaviours deliberately did **not** transfer, and their tickets say why: download
-   needs a server route (the viewer's text is truncated and a binary read returns no content at all, so
-   a client-side `Blob` would hand back a damaged file), and the flat list cannot recurse (this
-   product's listing is lazy, one directory per request).
-1. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
-   one terminal exercise and that is what found this; `ChatPanel` and `FilePanel` have never been
-   clicked through in a browser, and the same duplicate-key class of bug is worth watching for wherever
-   keyed siblings are added. Note that tickets 35/36 move exactly those two panels into the drawer, so
-   the pass is worth running after them rather than twice.
-2. **`main` is ahead of `origin/main` by five commits** (`origin/main` is `23d770f`) — `AGENTS.md`'s
-   branch-first rule, the parity gap list, the parity tickets 32–45, this handoff update, and the
-   merge that landed them. Nothing is pushed.
+**Evidence:** `npm run typecheck` clean; `npm test` → shared 9, server 230 passed + 7 skipped, web 94
+(10 files); `npm run e2e` green as of ticket 31.
