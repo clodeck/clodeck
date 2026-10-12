@@ -8,22 +8,22 @@ of each growing its own.
 
 **Blocked by:** 33 (the `ok` token), 36 (the panel the operations live in)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A single toast surface for the web app: one message at a time, transient (about 2.2s), stacked
+- [x] A single toast surface for the web app: one message at a time, transient (about 2.2s), stacked
       above the drawer so it is not clipped by it, and exposed as a live region so a screen reader
       announces it.
-- [ ] These mutations each emit exactly one toast on success: new file (`file x created in y`), new
+- [x] These mutations each emit exactly one toast on success: new file (`file x created in y`), new
       folder, rename (`renamed to x`), delete (`deleted x`), and a single-file upload. The messages
       match the operation's own vocabulary, not a generic "success".
-- [ ] It is a reusable seam (a hook/component), not four copies of a `useState` string — tickets 39, 42
+- [x] It is a reusable seam (a hook/component), not four copies of a `useState` string — tickets 39, 42
       and 44 add senders, not a second surface.
-- [ ] Failure behaviour is unchanged: a failed mutation still surfaces where it does today (the viewer's
+- [x] Failure behaviour is unchanged: a failed mutation still surfaces where it does today (the viewer's
       error arm, the name prompt's inline error, the confirm dialog's error) and a success toast never
       replaces an error surface.
-- [ ] The toast uses the `ok` token from 33 for its success accent, so the badge and the toast read as
+- [x] The toast uses the `ok` token from 33 for its success accent, so the badge and the toast read as
       one system.
-- [ ] Tests: a successful create and a successful delete each emit one toast with the expected text; a
+- [x] Tests: a successful create and a successful delete each emit one toast with the expected text; a
       failed mutation emits none.
 
 ## Reference

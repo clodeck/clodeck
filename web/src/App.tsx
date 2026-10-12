@@ -7,6 +7,7 @@ import { ChatPanel } from './chat/ChatPanel';
 import { FilePanel } from './files/FilePanel';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { TerminalPanel } from './terminal/TerminalPanel';
+import { ToastProvider } from './toast/ToastProvider';
 import { useProjects, type ProjectsState } from './useProjects';
 
 /**
@@ -73,6 +74,10 @@ interface WorkspaceProps {
  * The drawer's tab is *workspace* state, held here rather than in the panels: it
  * outlives a project switch, so picking another project keeps the tab and only
  * rebuilds that tab's body for the new project.
+ *
+ * Its toast provider ({@link ToastProvider}) wraps the whole shell: the panels
+ * in the drawer speak through it, and its surface is rendered as the workspace's
+ * sibling rather than a child of the drawer, which would clip it.
  */
 export function Workspace({
   state,
@@ -89,41 +94,43 @@ export function Workspace({
     state.status === 'ready' ? (state.projects.find((project) => project.id === selectedId) ?? null) : null;
 
   return (
-    <div className="flex h-screen bg-canvas text-ink">
-      <Rail tab={drawerTab} onTab={setDrawerTab} />
+    <ToastProvider>
+      <div className="flex h-screen bg-canvas text-ink">
+        <Rail tab={drawerTab} onTab={setDrawerTab} />
 
-      <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
-        <header className="flex items-center justify-between border-b border-line px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold">Clodeck</p>
-            <p className="font-mono text-[11px] text-ink-dim">remote Claude Code</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void onLogout()}
-            className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
-          >
-            Log out
-          </button>
-        </header>
-        <ProjectSwitcher
-          state={state}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onRefresh={onRefresh}
-        />
-      </aside>
+        <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
+          <header className="flex items-center justify-between border-b border-line px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Clodeck</p>
+              <p className="font-mono text-[11px] text-ink-dim">remote Claude Code</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void onLogout()}
+              className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
+            >
+              Log out
+            </button>
+          </header>
+          <ProjectSwitcher
+            state={state}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onRefresh={onRefresh}
+          />
+        </aside>
 
-      {/* The stage column: the chat on top, and the drawer (when open) below it,
-          shrinking the chat rather than covering it. */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {selected === null ? (
-          <NothingSelected />
-        ) : (
-          <ChatStage project={selected} drawerTab={drawerTab} onDrawerTab={setDrawerTab} />
-        )}
+        {/* The stage column: the chat on top, and the drawer (when open) below
+            it, shrinking the chat rather than covering it. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {selected === null ? (
+            <NothingSelected />
+          ) : (
+            <ChatStage project={selected} drawerTab={drawerTab} onDrawerTab={setDrawerTab} />
+          )}
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }
 

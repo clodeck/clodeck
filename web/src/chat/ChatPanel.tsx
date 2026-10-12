@@ -2,6 +2,7 @@ import type { ApprovalRequestPayload, ApprovalResponsePayload, Project, ResumePa
 import { useState, type ReactElement } from 'react';
 
 import { EntryView, formatInput } from './EntryView';
+import { Composer } from './Composer';
 import type { ChatView, TurnResult } from './reducer';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
@@ -314,54 +315,8 @@ function ApprovalDialog({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Composer                                                                   */
+/* Connection state                                                           */
 /* -------------------------------------------------------------------------- */
-
-function Composer({ onSend, disabled }: { onSend: (prompt: string) => void; disabled: boolean }): ReactElement {
-  const [value, setValue] = useState('');
-  const canSend = value.trim() !== '' && !disabled;
-
-  const submit = (): void => {
-    if (!canSend) return;
-    onSend(value);
-    setValue('');
-  };
-
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-      className="flex items-end gap-2"
-    >
-      <textarea
-        value={value}
-        onChange={(event) => {
-          setValue(event.target.value);
-        }}
-        onKeyDown={(event) => {
-          // Enter sends; Shift+Enter is a newline.
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            submit();
-          }
-        }}
-        rows={2}
-        placeholder={disabled ? 'Connecting…' : 'Ask Claude…'}
-        aria-label="Message"
-        className="min-h-0 flex-1 resize-none rounded border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
-      />
-      <button
-        type="submit"
-        disabled={!canSend}
-        className="rounded bg-accent px-3 py-2 text-sm font-semibold text-canvas hover:opacity-90 disabled:opacity-40"
-      >
-        Send
-      </button>
-    </form>
-  );
-}
 
 function ConnectionPill({ connection }: { connection: ChatConnection }): ReactElement {
   const label = connection === 'live' ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…';
