@@ -6,26 +6,41 @@ markdown files.
 
 **Blocked by:** 36
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A `Preview ⇄ Source` control appears in the code column's head only when the selected file is
+- [x] A `Preview ⇄ Source` control appears in the code column's head only when the selected file is
       markdown, and is absent for every other file type. The label names the mode the click will switch
       to, and the control's state is exposed to assistive tech.
-- [ ] Preview renders the markdown the server returned: headings, bold, italic, inline code, links,
+- [x] Preview renders the markdown the server returned: headings, bold, italic, inline code, links,
       paragraphs, ordered and unordered lists, blockquotes, horizontal rules and fenced code blocks.
-- [ ] **It renders as React elements, not as injected HTML, and adds no dependency.** The file's bytes
+- [x] **It renders as React elements, not as injected HTML, and adds no dependency.** The file's bytes
       are untrusted and the whole viewer renders them as text nodes today (`spec-04`); building a real
       HTML string and setting it would be the one place in the app that executes file content. A small
       element-producing renderer over the same subset keeps that posture and costs one module.
-- [ ] What is previewed is exactly what the server sent, including the truncation note for a large file
+- [x] What is previewed is exactly what the server sent, including the truncation note for a large file
       — the editor does not fetch the whole file to preview it.
-- [ ] Links open in a new tab with `noopener noreferrer`; a link in a file never navigates the app away
+- [x] Links open in a new tab with `noopener noreferrer`; a link in a file never navigates the app away
       from the workspace.
-- [ ] The fenced-code blocks render as plain `<pre>` in this ticket; ticket 45's gutter and colouring
+- [x] The fenced-code blocks render as plain `<pre>` in this ticket; ticket 45's gutter and colouring
       apply to **source** mode only.
-- [ ] Tests: the renderer is pure (`string → elements`) and unit-tested over a fixture covering each
+- [x] Tests: the renderer is pure (`string → elements`) and unit-tested over a fixture covering each
       supported construct; a test asserts nothing is injected as HTML; and a rendered test asserts the
       toggle appears for `.md` and not for `.ts`.
+
+**Landed as:** `web/src/files/markdown.tsx` — `renderMarkdown(source): ReactNode[]`, pure and
+dependency-free, over the prototype's subset (headings, bold, italic, inline code, links,
+paragraphs, both list kinds, blockquotes, rules, fenced blocks as a plain `<pre>`), returning
+elements rather than an HTML string so a file's markup stays content; `isMarkdown` names the files it
+applies to (`.md` and `.markdown`). `MarkdownToggle` sits in the code head's text arm and nowhere
+else, labelled with the mode a click switches to and carrying `aria-pressed` for the mode it is in.
+The mode is a path in the panel's own state, so each open starts from source (the prototype's
+default) — including the same file opened again. Seen in the browser: `evidence/43-markdown-preview.png`.
+
+**Two things a file's links still are:** an `href` is passed through as written — no scheme check,
+which is the prototype's behaviour and outside this ticket's ask — so a `data:` link opens an opaque
+new tab and a `javascript:` one is neutralised by React itself. Relative links open a new tab onto
+the app's own origin rather than resolving inside the project, which is what "never navigates the
+workspace away" leaves room for.
 
 ## Reference
 
