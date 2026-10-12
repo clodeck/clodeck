@@ -1,9 +1,9 @@
 import { MAX_UPLOAD_MB, type FileEntry, type Project } from '@clodeck/shared';
-import { useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
 
 import { useToast } from '../toast/ToastProvider';
 import { formatModified, formatSize } from './format';
-import { assertNever, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
+import { assertNever, baseName, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
 import { summarizeUploads } from './upload';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
@@ -27,6 +27,15 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
  * file row carries its size, with the modified time a hover away; a directory
  * row carries nothing, because the wire carries nothing for one.
  *
+ * The toolbar's `List` ⇄ `Tree` toggle swaps the tree for a flat list of **the
+ * folder being shown** — this product lists one directory per request and has no
+ * recursive listing route, so the flat view is one folder's entries with their
+ * size and modified time, not the whole project flattened. The switch is
+ * rendering only: both views read the same loaded listings, which is why the
+ * open file and the current folder survive it. In the flat list a folder click
+ * *enters* it (there is nothing to expand into) and the breadcrumb — a plain
+ * `in <folder>` line in tree mode — becomes the way back up.
+ *
  * Uploads arrive two ways — the toolbar's picker and a drop anywhere on the
  * panel — and both are one batch: every file is sent, the batch reports itself
  * **once** when all of it has settled, and a file over the shared cap is refused
@@ -44,6 +53,13 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
 
 export function FilePanel({ project }: { project: Project }): ReactElement {
   const { viewer, actions } = useFiles(project);
+  /**
+   * Which of the two listings the tree column is showing. It is panel state on
+   * purpose — a `useState` here, like the open menu and the dialogs — so it dies
+   * with the panel (which `App`'s drawer re-mounts per project) rather than
+   * becoming a stored preference per project.
+   */
+  const [view, setView] = useState<View>('tree');
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -155,19 +171,31 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             not fit across 300px, and a squeezed path is the one thing here the
             reader cannot do without (it is where new file/folder land). */}
         <header className="shrink-0 border-b border-line px-3 py-2">
-          {activeLabel !== null && (
-            <p
-              className="truncate font-mono text-[11px] text-ink-dim"
-              title={`New file, new folder and upload land in: ${activeLabel}`}
-            >
-              in {activeLabel}
-            </p>
+          {/* Where create and upload land, and — in the flat list, which has no
+              other navigator — the way back up out of a folder. */}
+          {view === 'list' ? (
+            <Breadcrumb active={activeDir} onOpen={actions.openDir} />
+          ) : (
+            activeLabel !== null && (
+              <p
+                className="truncate font-mono text-[11px] text-ink-dim"
+                title={`New file, new folder and upload land in: ${activeLabel}`}
+              >
+                in {activeLabel}
+              </p>
+            )
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
             <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
             <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
             <ToolbarButton onClick={actions.refresh}>Refresh</ToolbarButton>
+            <ToolbarButton
+              onClick={() => { setView(view === 'tree' ? 'list' : 'tree'); }}
+              title={view === 'tree' ? 'Flat list of this folder' : 'Tree view'}
+            >
+              {view === 'tree' ? 'List' : 'Tree'}
+            </ToolbarButton>
           </div>
         </header>
 
@@ -182,6 +210,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
           <ViewerBody
+            view={view}
             viewer={viewer}
             menu={menu}
             actions={actions}
@@ -250,11 +279,25 @@ function hasOsFiles(event: DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes('Files');
 }
 
+/**
+ * The listing the tree column is showing. Not persisted, not per project — the
+ * panel is re-mounted per project and this dies with it.
+ */
+type View = 'tree' | 'list';
+
+/**
+ * The columns of the flat list, one grid for the head and for every row, so the
+ * head's labels sit over the cells they name. `minmax(0,1fr)` lets a long name
+ * truncate instead of pushing the numbers off the row.
+ */
+const LIST_GRID = 'grid grid-cols-[minmax(0,1fr)_4rem_5rem_1.5rem] items-center gap-1';
+
 /* -------------------------------------------------------------------------- */
 /* The body, dispatched on the viewer's status                                */
 /* -------------------------------------------------------------------------- */
 
 function ViewerBody({
+  view,
   viewer,
   menu,
   actions,
@@ -262,6 +305,7 @@ function ViewerBody({
   onRename,
   onDelete,
 }: {
+  view: View;
   viewer: FileViewer;
   menu: string | null;
   actions: FileViewerActions;
@@ -277,7 +321,20 @@ function ViewerBody({
     case 'error':
       return <DirError message={viewer.message} onRetry={actions.refresh} />;
     case 'ready':
-      return (
+      // The same loaded tree either way: the toggle changes the rendering, never
+      // what has been fetched, which is what keeps the open file and the current
+      // folder across a flip.
+      return view === 'list' ? (
+        <FlatList
+          dir={viewer.active}
+          dirs={viewer.dirs}
+          menu={menu}
+          actions={actions}
+          onMenu={onMenu}
+          onRename={onRename}
+          onDelete={onDelete}
+        />
+      ) : (
         <TreeLevel
           path=""
           depth={0}
@@ -294,6 +351,175 @@ function ViewerBody({
     default:
       return assertNever(viewer);
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* The flat list                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One folder's entries as rows with columns — the same listing the tree is
+ * showing, one folder of it, which is all this product lists per request.
+ *
+ * A folder row here **opens** that folder (the same thing a folder click does in
+ * the tree) instead of expanding it: there is nothing to expand into. A file row
+ * opens the file, and both rows keep the `⋯` menu.
+ */
+function FlatList({
+  dir,
+  dirs,
+  menu,
+  actions,
+  onMenu,
+  onRename,
+  onDelete,
+}: {
+  dir: string;
+  dirs: Record<string, DirListing>;
+  menu: string | null;
+  actions: FileViewerActions;
+  onMenu: (path: string | null) => void;
+  onRename: (path: string, initial: string) => void;
+  onDelete: (entry: Confirm) => void;
+}): ReactElement {
+  const listing = dirs[dir];
+  if (listing === undefined) return <Hint>Loading…</Hint>;
+
+  switch (listing.status) {
+    case 'loading':
+      return <Hint>Loading…</Hint>;
+    case 'error':
+      return <DirError message={listing.message} onRetry={actions.refresh} />;
+    case 'ready':
+      if (listing.entries.length === 0) return <Hint>This folder is empty.</Hint>;
+      return (
+        <>
+          <div className={LIST_GRID}>
+            <span className="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Name</span>
+            <span className="text-right font-mono text-[10px] tracking-wider text-ink-dim uppercase">Size</span>
+            <span className="text-right font-mono text-[10px] tracking-wider text-ink-dim uppercase">Modified</span>
+            {/* The rows' `⋯` column: the head names the three things a row carries. */}
+            <span />
+          </div>
+          <ul className="flex flex-col">
+            {listing.entries.map((entry) => {
+              const path = joinPath(dir, entry.name);
+              return (
+                <li key={path}>
+                  <FlatRow
+                    entry={entry}
+                    path={path}
+                    menuOpen={menu === path}
+                    actions={actions}
+                    onMenu={onMenu}
+                    onRename={onRename}
+                    onDelete={onDelete}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      );
+    default:
+      return assertNever(listing);
+  }
+}
+
+/** One flat row: the name, the two measurements a file carries, and its menu. */
+function FlatRow({
+  entry,
+  path,
+  menuOpen,
+  actions,
+  onMenu,
+  onRename,
+  onDelete,
+}: {
+  entry: FileEntry;
+  path: string;
+  menuOpen: boolean;
+  actions: FileViewerActions;
+  onMenu: (path: string | null) => void;
+  onRename: (path: string, initial: string) => void;
+  onDelete: (entry: Confirm) => void;
+}): ReactElement {
+  const isDir = entry.type === 'directory';
+
+  return (
+    // `relative` for the same reason the tree row has it: the menu is placed
+    // against its own row, not against the panel.
+    <div
+      className={`${LIST_GRID} relative rounded hover:bg-white/5`}
+      title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
+    >
+      <EntryMain
+        entry={entry}
+        mode="list"
+        isExpanded={false}
+        onClick={isDir ? () => { actions.openDir(path); } : () => { actions.preview(path); }}
+      />
+      {/* A folder has neither on the wire, so both cells stay empty rather than
+          showing a number nothing measured. */}
+      <Cell>{entry.type === 'file' ? formatSize(entry.size) : ''}</Cell>
+      <Cell>{entry.type === 'file' ? formatModified(entry.mtime, Date.now()) : ''}</Cell>
+      <EntryActions
+        entry={entry}
+        path={path}
+        menuOpen={menuOpen}
+        onMenu={onMenu}
+        onRename={onRename}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+}
+
+/** One measurement cell — right-aligned, dim, monospace, like the tree's size. */
+function Cell({ children }: { children: ReactNode }): ReactElement {
+  return <span className="truncate text-right font-mono text-[10px] text-ink-dim">{children}</span>;
+}
+
+/**
+ * The flat list's breadcrumb: the folder being listed, from the root down, with
+ * every folder above the current one a step back up to it. The tree does not
+ * need this — a folder click there expands in place and the tree is its own
+ * navigator — so the line is a plain `in <folder>` in tree mode.
+ */
+function Breadcrumb({ active, onOpen }: { active: string; onOpen: (path: string) => void }): ReactElement {
+  return (
+    <nav aria-label="Folder" className="flex flex-wrap items-center gap-1 font-mono text-[11px]">
+      {crumbsOf(active).map((crumb, index) => (
+        <Fragment key={crumb}>
+          {index > 0 && <span className="text-ink-dim">/</span>}
+          {crumb === active ? (
+            <span className="truncate text-ink" aria-current="true">
+              {crumbLabel(crumb)}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { onOpen(crumb); }}
+              className="truncate text-ink-dim hover:text-accent"
+            >
+              {crumbLabel(crumb)}
+            </button>
+          )}
+        </Fragment>
+      ))}
+    </nav>
+  );
+}
+
+/** The root, then every ancestor of `dir` down to `dir` itself. */
+function crumbsOf(dir: string): string[] {
+  if (dir === '') return [''];
+  const segments = dir.split('/');
+  return ['', ...segments.map((_segment, index) => segments.slice(0, index + 1).join('/'))];
+}
+
+function crumbLabel(path: string): string {
+  return path === '' ? 'root' : baseName(path);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -423,10 +649,44 @@ function EntryRow({
     >
       <EntryMain
         entry={entry}
+        mode="tree"
         isExpanded={isExpanded}
         onClick={isDir ? () => actions.toggle(path) : () => actions.preview(path)}
       />
       {entry.type === 'file' && <FileMeta size={entry.size} />}
+      <EntryActions
+        entry={entry}
+        path={path}
+        menuOpen={menuOpen}
+        onMenu={onMenu}
+        onRename={onRename}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+}
+
+/**
+ * A row's `⋯` and the menu it opens — the same two entries on a tree row and a
+ * flat row, so both say the same thing about an entry.
+ */
+function EntryActions({
+  entry,
+  path,
+  menuOpen,
+  onMenu,
+  onRename,
+  onDelete,
+}: {
+  entry: FileEntry;
+  path: string;
+  menuOpen: boolean;
+  onMenu: (path: string | null) => void;
+  onRename: (path: string, initial: string) => void;
+  onDelete: (entry: Confirm) => void;
+}): ReactElement {
+  return (
+    <>
       <button
         type="button"
         aria-label={`Actions for ${entry.name}`}
@@ -469,7 +729,7 @@ function EntryRow({
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -490,18 +750,24 @@ function modifiedTitle(mtime: string): string {
 
 function EntryMain({
   entry,
+  mode,
   isExpanded,
   onClick,
 }: {
   entry: FileEntry;
+  /** Where the row is drawn: the tree's arrow says expand, the list's says open. */
+  mode: View;
   isExpanded: boolean;
   onClick: () => void;
 }): ReactElement {
   switch (entry.type) {
     case 'directory':
       return (
-        <RowButton onClick={onClick} title={isExpanded ? 'Collapse folder' : 'Expand folder'}>
-          <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>
+        <RowButton
+          onClick={onClick}
+          title={mode === 'list' ? `Open folder ${entry.name}` : isExpanded ? 'Collapse folder' : 'Expand folder'}
+        >
+          {mode === 'tree' && <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>}
           {entry.name}/
         </RowButton>
       );
@@ -707,11 +973,20 @@ function Note({ tone, children }: { tone?: 'accent'; children: ReactNode }): Rea
 /* Small pieces                                                               */
 /* -------------------------------------------------------------------------- */
 
-function ToolbarButton({ children, onClick }: { children: string; onClick: () => void }): ReactElement {
+function ToolbarButton({
+  children,
+  onClick,
+  title,
+}: {
+  children: string;
+  onClick: () => void;
+  title?: string;
+}): ReactElement {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
     >
       {children}

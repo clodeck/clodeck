@@ -123,6 +123,13 @@ function create(name: string): void {
   fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 }
 
+/** The row element a name button belongs to (the tree row and the flat row are both one). */
+function rowOf(button: HTMLElement): HTMLElement {
+  const row = button.parentElement;
+  if (row === null) throw new Error('a row button has no row');
+  return row;
+}
+
 /** One of the panel's two columns, by position. */
 function column(panel: Element, index: number): HTMLElement {
   const child = panel.children[index];
@@ -342,6 +349,94 @@ describe('a batch upload reports itself once', () => {
     expect(within(notifications).getByText('over the 200 MB upload limit')).toBeTruthy();
     // The file that fits still went.
     expect(calls.filter((call) => call.method === 'PUT').map((call) => call.path)).toEqual(['one.txt']);
+  });
+});
+
+describe('the tree and the flat list are two views of one folder', () => {
+  it('flips to a flat list that shows the columns, and back to the tree', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const tree = column(panel, 0);
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'README.md' }));
+    await screen.findByText(FILE_BODY);
+
+    // The tree: folders expand in place, and no list head anywhere.
+    expect(screen.getByTitle('Expand folder')).toBeTruthy();
+    expect(screen.queryByText('Size')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+
+    // One folder's entries under a head that names the three columns.
+    expect(within(tree).getByText('Name')).toBeTruthy();
+    expect(within(tree).getByText('Size')).toBeTruthy();
+    expect(within(tree).getByText('Modified')).toBeTruthy();
+
+    const dirRow = screen.getByRole('button', { name: 'src/' });
+    const fileRow = screen.getByRole('button', { name: 'README.md' });
+    // Directories first, as the tree sorts them.
+    expect(dirRow.compareDocumentPosition(fileRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const fileCells = rowOf(fileRow);
+    expect(within(fileCells).getByText('1.5 KB')).toBeTruthy();
+    expect(within(fileCells).getByText('3h ago')).toBeTruthy();
+    // A folder has neither on the wire, so its row is its name and its menu.
+    expect(rowOf(dirRow).textContent).toBe('src/⋯');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+
+    // Back to the tree, with the open file still where it was.
+    expect(screen.getByTitle('Expand folder')).toBeTruthy();
+    expect(screen.queryByText('Size')).toBeNull();
+    expect(code.contains(screen.getByText(FILE_BODY))).toBe(true);
+  });
+
+  it('opens a folder in the list, keeps the scope visible, and creates in it', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'src/' }));
+
+    // The breadcrumb names the folder being listed: the root, then the one we opened.
+    const crumbs = await screen.findByRole('navigation', { name: 'Folder' });
+    expect(within(crumbs).getByRole('button', { name: 'root' })).toBeTruthy();
+    expect(within(crumbs).getByText('src').getAttribute('aria-current')).toBe('true');
+
+    // New file and upload target the folder being shown, not the root.
+    create('notes.md');
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('file notes.md created in src');
+    });
+
+    // Up through the breadcrumb — and the folder we opened stays open, because
+    // entering it is not the same click as expanding it.
+    fireEvent.click(within(crumbs).getByRole('button', { name: 'root' }));
+    expect(within(crumbs).getByText('root').getAttribute('aria-current')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+    expect(screen.getByTitle('Collapse folder')).toBeTruthy();
+  });
+
+  it('addresses a flat row by the folder being listed', async () => {
+    const { calls } = stubFiles();
+    renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'src/' }));
+
+    // The row menu is the same one the tree rows carry, over a path joined to
+    // the folder on screen rather than to the root.
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for README.md' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'GUIDE.md' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() => {
+      expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['src/README.md']);
+    });
   });
 });
 
