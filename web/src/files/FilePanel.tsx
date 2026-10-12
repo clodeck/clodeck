@@ -1,19 +1,26 @@
 import type { FileEntry, Project } from '@clodeck/shared';
 import { useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
 
-import { assertNever, isValidName, joinPath, type DirListing } from './reducer';
+import { assertNever, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
 /**
- * The file drawer — the view half of `useFiles`. It is keyed by project id in
- * `App` (like `ChatPanel` / `TerminalPanel`), so switching projects remounts a
- * fresh drawer rather than carrying one project's tree and preview into another.
+ * The file panel — the view half of `useFiles`. It is keyed by project id in
+ * `App`'s drawer (like `ChatPanel` / `TerminalPanel`), so switching projects
+ * remounts a fresh panel rather than carrying one project's tree and preview
+ * into another.
  *
- * The drawer is now a **tree**: folders expand in place (a click toggles them,
- * it never navigates), each expanded folder's listing is fetched lazily on first
- * open, and the last folder clicked is the "active" folder that New File/Folder
- * and Upload land in. The preview pane starts **read-only** and flips to a
- * writable `<textarea>` with Save/Cancel — the content-editing toggle.
+ * It is laid out as two columns, `300px` of tree and a code view that takes the
+ * rest: the tree is the navigator and owns the toolbar and the breadcrumb, the
+ * code column owns the open file — its path in the head, its bytes (or its
+ * editor) in the body. Neither column grows the other: both are `min-h-0` and
+ * scroll on their own, because the panel lives inside a fixed-height drawer.
+ *
+ * The tree keeps its old behaviour: folders expand in place (a click toggles
+ * them, it never navigates), each expanded folder's listing is fetched lazily on
+ * first open, and the last folder clicked is the "active" folder that New
+ * File/Folder and Upload land in. The preview starts **read-only** and flips to
+ * a writable `<textarea>` with Save/Cancel — the content-editing toggle.
  *
  * Two rules are load-bearing, not style:
  *
@@ -35,6 +42,9 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
+  // The code column's state, which is `none` until a file is opened and whenever
+  // the tree itself has nothing to show.
+  const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
 
   const uploadFiles = (files: readonly File[]): void => {
     for (const file of files) {
@@ -80,68 +90,78 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   };
 
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col" aria-label="Files">
-      <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Files</h2>
+    <section className="relative flex min-h-0 flex-1" aria-label="Files">
+      {/* The tree column: the toolbar and the breadcrumb it acts in, then the
+          tree itself. It is the only column with a fixed width. */}
+      <div className="flex w-[300px] shrink-0 flex-col border-r border-line">
+        {/* The breadcrumb gets its own line: four labelled buttons plus a path do
+            not fit across 300px, and a squeezed path is the one thing here the
+            reader cannot do without (it is where new file/folder land). */}
+        <header className="shrink-0 border-b border-line px-3 py-2">
           {activeLabel !== null && (
-            <span
-              className="truncate font-mono text-[10px] text-ink-dim/70"
+            <p
+              className="truncate font-mono text-[11px] text-ink-dim"
               title={`New file, new folder and upload land in: ${activeLabel}`}
             >
               in {activeLabel}
-            </span>
+            </p>
           )}
-        </div>
-        <div className="flex items-center gap-1">
-          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
-          <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
-          <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
-          <ToolbarButton onClick={() => { setNotice(null); actions.refresh(); }}>Refresh</ToolbarButton>
-        </div>
-      </header>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
+            <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
+            <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
+            <ToolbarButton onClick={() => { setNotice(null); actions.refresh(); }}>Refresh</ToolbarButton>
+          </div>
+        </header>
 
-      <input
-        ref={fileInput}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={onChosen}
-        aria-label="Choose files to upload"
-      />
-
-      {notice !== null && (
-        <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
-          <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-err">{notice}</p>
-          <button
-            type="button"
-            onClick={() => { setNotice(null); }}
-            className="shrink-0 rounded px-1 text-[11px] text-ink-dim hover:text-ink"
-            aria-label="Dismiss"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      <div
-        className="min-h-0 flex-1 overflow-y-auto px-2 py-1"
-        onDragOver={(event) => { event.preventDefault(); }}
-        onDrop={onDrop}
-      >
-        <ViewerBody
-          viewer={viewer}
-          menu={menu}
-          actions={actions}
-          onMenu={setMenu}
-          onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); setPromptError(null); }}
-          onDelete={(entry) => { setMenu(null); setConfirm(entry); setConfirmError(null); }}
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={onChosen}
+          aria-label="Choose files to upload"
         />
+
+        {notice !== null && (
+          <div className="flex items-center gap-2 border-b border-line px-3 py-1.5">
+            <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-err">{notice}</p>
+            <button
+              type="button"
+              onClick={() => { setNotice(null); }}
+              className="shrink-0 rounded px-1 text-[11px] text-ink-dim hover:text-ink"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-2 py-1"
+          onDragOver={(event) => { event.preventDefault(); }}
+          onDrop={onDrop}
+        >
+          <ViewerBody
+            viewer={viewer}
+            menu={menu}
+            actions={actions}
+            onMenu={setMenu}
+            onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); setPromptError(null); }}
+            onDelete={(entry) => { setMenu(null); setConfirm(entry); setConfirmError(null); }}
+          />
+        </div>
       </div>
 
-      {viewer.status === 'ready' && viewer.preview.kind !== 'none' && (
-        <PreviewPane preview={viewer.preview} actions={actions} />
-      )}
+      {/* The code column: the open file's path in the head, its bytes in the
+          body. The head's right-hand side is the file's action area — today the
+          edit toggle, and where download (42) and preview (43) will land. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <CodeHead preview={preview} actions={actions} />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <PreviewBody preview={preview} actions={actions} />
+        </div>
+      </div>
 
       {prompt !== null && (
         <NameDialog
@@ -326,8 +346,11 @@ function EntryRow({
   const isDir = entry.type === 'directory';
 
   return (
+    // `relative`, so the row's own menu is placed against the row. Without it
+    // the menu's containing block is the whole panel, `top-full` puts it below
+    // the panel, and the tree's scroller clips it away — the `⋯` opens nothing.
     <div
-      className={`flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
+      className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
       style={{ paddingLeft: 8 + depth * 14 }}
     >
       <EntryMain
@@ -447,54 +470,114 @@ function RowButton({
 /* Preview + editor                                                           */
 /* -------------------------------------------------------------------------- */
 
-function PreviewPane({ preview, actions }: { preview: PreviewState; actions: FileViewerActions }): ReactElement | null {
+/**
+ * The code column's head: which file this column is showing, and what can be
+ * done to it. `no file selected` is the empty column's own label — the panel has
+ * no other empty state, so the head never disappears.
+ */
+function CodeHead({ preview, actions }: { preview: PreviewState; actions: FileViewerActions }): ReactElement {
+  const path = previewPath(preview);
+
+  return (
+    <header className="flex items-center gap-2 border-b border-line px-3 py-1">
+      {path === null ? (
+        <span className="truncate font-mono text-[11px] text-ink-dim">no file selected</span>
+      ) : (
+        <span className="truncate font-mono text-[11px] text-ink" title={path}>
+          {path}
+        </span>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <CodeActions preview={preview} actions={actions} />
+      </span>
+    </header>
+  );
+}
+
+/** The open file's controls — the right-hand half of the code head. */
+function CodeActions({
+  preview,
+  actions,
+}: {
+  preview: PreviewState;
+  actions: FileViewerActions;
+}): ReactElement | null {
+  switch (preview.kind) {
+    case 'none':
+    case 'loading':
+    case 'binary':
+      return null;
+    case 'text':
+      return (
+        <>
+          <Note>{preview.truncated ? 'truncated' : 'read-only'}</Note>
+          {/* A truncated file holds only the 256 KiB prefix; editing it would
+              clobber the rest, so the writable toggle is withheld. */}
+          {preview.truncated ? null : <EditToggle onClick={actions.edit} />}
+        </>
+      );
+    case 'editing':
+      return (
+        <>
+          <Note tone="accent">writable</Note>
+          <button
+            type="button"
+            onClick={actions.cancel}
+            disabled={preview.saving}
+            className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => { void actions.save(); }}
+            disabled={preview.saving || !preview.dirty}
+            className="rounded bg-accent px-2 py-0.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-40"
+          >
+            {preview.saving ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      );
+    case 'error':
+      return (
+        <button
+          type="button"
+          onClick={actions.dismiss}
+          className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+        >
+          Close
+        </button>
+      );
+    default:
+      return assertNever(preview);
+  }
+}
+
+/** The code column's body: the file's bytes, or the editor over them. */
+function PreviewBody({
+  preview,
+  actions,
+}: {
+  preview: PreviewState;
+  actions: FileViewerActions;
+}): ReactElement | null {
   switch (preview.kind) {
     case 'none':
       return null;
     case 'loading':
-      return <PreviewFrame name={preview.name}>Loading…</PreviewFrame>;
+      return <Hint>Loading…</Hint>;
     case 'text':
-      return (
-        <PreviewFrame
-          name={preview.name}
-          note={preview.truncated ? 'truncated' : 'read-only'}
-          // A truncated file holds only the 256 KiB prefix; editing it would
-          // clobber the rest, so the writable toggle is withheld.
-          actions={preview.truncated ? null : <EditToggle onClick={actions.edit} />}
-        >
-          {/* A file's bytes are untrusted: they are a React text node, never HTML. */}
-          <pre className="overflow-auto p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>
-        </PreviewFrame>
-      );
+      // A file's bytes are untrusted: they are a React text node, never HTML.
+      return <pre className="p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>;
     case 'binary':
-      return <PreviewFrame name={preview.name}>binary · {preview.size} bytes</PreviewFrame>;
-    case 'editing':
       return (
-        <PreviewFrame
-          name={preview.name}
-          note="writable"
-          tall
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={actions.cancel}
-                disabled={preview.saving}
-                className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => { void actions.save(); }}
-                disabled={preview.saving || !preview.dirty}
-                className="rounded bg-accent px-2 py-0.5 text-[11px] font-semibold text-canvas hover:opacity-90 disabled:opacity-40"
-              >
-                {preview.saving ? 'Saving…' : 'Save'}
-              </button>
-            </>
-          }
-        >
+        <p className="p-2 font-mono text-[11px] text-ink-dim">binary · {preview.size} bytes</p>
+      );
+    case 'editing':
+      // A column so a save error takes its own line and the editor keeps the
+      // rest of the height, rather than being pushed out of the drawer.
+      return (
+        <div className="flex h-full min-h-0 flex-col">
           {preview.error !== null && (
             <p className="border-b border-line px-2 py-1 font-mono text-[11px] text-err">{preview.error}</p>
           )}
@@ -503,27 +586,12 @@ function PreviewPane({ preview, actions }: { preview: PreviewState; actions: Fil
             onChange={(event) => { actions.editValue(event.target.value); }}
             disabled={preview.saving}
             spellCheck={false}
-            className="h-full w-full resize-none bg-transparent p-2 font-mono text-[12px] leading-relaxed text-ink outline-none disabled:opacity-60"
+            className="min-h-0 flex-1 resize-none bg-transparent p-2 font-mono text-[12px] leading-relaxed text-ink outline-none disabled:opacity-60"
           />
-        </PreviewFrame>
+        </div>
       );
     case 'error':
-      return (
-        <PreviewFrame
-          name={preview.name}
-          actions={
-            <button
-              type="button"
-              onClick={actions.dismiss}
-              className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
-            >
-              Close
-            </button>
-          }
-        >
-          <p className="px-2 py-1 font-mono text-[11px] break-words text-err">{preview.message}</p>
-        </PreviewFrame>
-      );
+      return <p className="px-2 py-1 font-mono text-[11px] break-words text-err">{preview.message}</p>;
     default:
       return assertNever(preview);
   }
@@ -543,35 +611,11 @@ function EditToggle({ onClick }: { onClick: () => void }): ReactElement {
   );
 }
 
-function PreviewFrame({
-  name,
-  note,
-  tall,
-  actions,
-  children,
-}: {
-  name: string;
-  note?: string | null;
-  tall?: boolean;
-  actions?: ReactNode;
-  children: ReactNode;
-}): ReactElement {
+function Note({ tone, children }: { tone?: 'accent'; children: ReactNode }): ReactElement {
   return (
-    <section
-      aria-label="Preview"
-      className={`flex ${tall ? 'max-h-[75%]' : 'max-h-[45%]'} min-h-0 flex-col border-t border-line`}
-    >
-      <header className="flex items-center gap-2 border-b border-line px-3 py-1">
-        <span className="truncate font-mono text-[11px] text-ink">{name}</span>
-        {note != null && (
-          <span className={`text-[10px] tracking-wider uppercase ${note === 'writable' ? 'text-accent' : 'text-ink-dim'}`}>
-            {note}
-          </span>
-        )}
-        {actions != null && <span className="ml-auto flex shrink-0 items-center gap-2">{actions}</span>}
-      </header>
-      <div className="min-h-0 flex-1 overflow-auto text-[11px] text-ink-dim">{children}</div>
-    </section>
+    <span className={`text-[10px] tracking-wider uppercase ${tone === 'accent' ? 'text-accent' : 'text-ink-dim'}`}>
+      {children}
+    </span>
   );
 }
 
