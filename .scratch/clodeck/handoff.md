@@ -89,6 +89,11 @@ web 89 passed (9 files); `npm run e2e` green.
 
 ## Next
 
+0. **The prototype↔UI gap list is written: [`prototype-parity.md`](prototype-parity.md).** It is the
+   input for the next session's `/to-tickets`: `P0` holds four decisions to settle first (drawer vs
+   column; sessions placement; which prototype file features come into MVP; success feedback), then
+   `P1`/`P2` are ticket-sized. Nothing in it is an MVP gap — the MVP is built; it is all
+   prototype-parity drift and polish.
 1. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
    one terminal exercise and that is what found this; `ChatPanel` and `FilePanel` have never been
    clicked through in a browser, and the same duplicate-key class of bug is worth watching for wherever
