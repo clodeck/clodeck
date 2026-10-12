@@ -167,6 +167,87 @@ describe('the file read routes', () => {
 
     expect(response.statusCode).toBe(404);
   });
+
+  /**
+   * The download route (ticket 42): the read side's guards exactly, but the
+   * bytes as they are on disk — not the truncated text window `content` returns,
+   * and not a `Blob` built from what the browser happens to be showing.
+   */
+  describe('download', () => {
+    async function download(query: string): Promise<LightMyRequestResponse> {
+      return authed(makeApp(), {
+        method: 'GET',
+        url: `/api/projects/${await id('proj')}/files/download?path=${encodeURIComponent(query)}`,
+      });
+    }
+
+    it('serves a file as it is on disk, as an attachment under its own name', async () => {
+      await writeFile(path.join(root, 'proj', 'report.txt'), 'the bytes, as written');
+
+      const response = await download('report.txt');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-disposition']).toBe(
+        `attachment; filename="report.txt"; filename*=UTF-8''report.txt`,
+      );
+      expect(response.rawPayload.toString('utf8')).toBe('the bytes, as written');
+    });
+
+    it('escapes a non-ASCII name in the disposition so the file keeps its name', async () => {
+      await writeFile(path.join(root, 'proj', 'تست.md'), 'hello');
+
+      const response = await download('تست.md');
+
+      expect(response.statusCode).toBe(200);
+      // The RFC 5987 form carries the real name; the plain `filename` is the
+      // ASCII fallback a client that ignores it would use.
+      expect(response.headers['content-disposition']).toBe(
+        `attachment; filename="___.md"; filename*=UTF-8''%D8%AA%D8%B3%D8%AA.md`,
+      );
+      expect(response.rawPayload.toString('utf8')).toBe('hello');
+    });
+
+    it('serves the whole file, past the window a text read truncates at', async () => {
+      // The reader's text cap is 256 KiB; a download is not a read of a preview.
+      const whole = Buffer.alloc(300 * 1024, 0x61);
+      await writeFile(path.join(root, 'proj', 'big.txt'), whole);
+
+      const response = await download('big.txt');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.rawPayload).toHaveLength(whole.length);
+      expect(response.rawPayload.equals(whole)).toBe(true);
+    });
+
+    it('refuses what a read refuses: a missing file, the root, a directory, a bad path', async () => {
+      await mkdir(path.join(root, 'proj', 'dir'));
+      const app = makeApp();
+      const pid = await id('proj');
+      const url = (path: string): string =>
+        `/api/projects/${pid}/files/download?path=${encodeURIComponent(path)}`;
+
+      expect((await authed(app, { method: 'GET', url: url('gone.txt') })).statusCode).toBe(404);
+      expect((await authed(app, { method: 'GET', url: url('') })).statusCode).toBe(400);
+      expect((await authed(app, { method: 'GET', url: url('dir') })).statusCode).toBe(400);
+      expect((await authed(app, { method: 'GET', url: url('..') })).statusCode).toBe(400);
+      expect((await authed(app, { method: 'GET', url: url('/etc') })).statusCode).toBe(400);
+      expect(
+        (await authed(app, { method: 'GET', url: '/api/projects/not-a-project/files/download?path=x' }))
+          .statusCode,
+      ).toBe(404);
+    });
+
+    it('never serves a file behind a symlink that leaves the root', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await writeFile(path.join(sandbox.dir, 'outside', 'secret.txt'), 'not yours');
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'escape'), linkType);
+
+      const response = await download('escape/secret.txt');
+
+      expect(response.statusCode).toBe(404);
+      expect(response.rawPayload.toString('utf8')).not.toContain('not yours');
+    });
+  });
 });
 
 /**

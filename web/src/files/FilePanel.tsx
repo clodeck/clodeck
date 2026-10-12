@@ -4,6 +4,7 @@ import { Fragment, useRef, useState, type ChangeEvent, type DragEvent, type Reac
 import { useToast } from '../toast/ToastProvider';
 import { formatModified, formatSize } from './format';
 import { assertNever, baseName, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
+import { downloadUrl } from './transport';
 import { summarizeUploads } from './upload';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
@@ -225,7 +226,12 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           body. The head's right-hand side is the file's action area — today the
           edit toggle, and where download (42) and preview (43) will land. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <CodeHead preview={preview} actions={actions} />
+        <CodeHead
+          projectId={project.id}
+          preview={preview}
+          actions={actions}
+          onDownloaded={(name) => { toast(`downloaded ${name}`); }}
+        />
         <div className="min-h-0 flex-1 overflow-auto">
           <PreviewBody preview={preview} actions={actions} />
         </div>
@@ -824,8 +830,24 @@ function RowButton({
  * The code column's head: which file this column is showing, and what can be
  * done to it. `no file selected` is the empty column's own label — the panel has
  * no other empty state, so the head never disappears.
+ *
+ * Download sits outside the per-kind switch below because it answers a different
+ * question: not "what can be done to these bytes" but "is there a file here at
+ * all". Any selected entry can be downloaded — including one whose read failed
+ * (the file's bytes never depended on the read) — so the only condition is that
+ * something is selected.
  */
-function CodeHead({ preview, actions }: { preview: PreviewState; actions: FileViewerActions }): ReactElement {
+function CodeHead({
+  projectId,
+  preview,
+  actions,
+  onDownloaded,
+}: {
+  projectId: string;
+  preview: PreviewState;
+  actions: FileViewerActions;
+  onDownloaded: (name: string) => void;
+}): ReactElement {
   const path = previewPath(preview);
 
   return (
@@ -838,9 +860,44 @@ function CodeHead({ preview, actions }: { preview: PreviewState; actions: FileVi
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2">
+        {path !== null && <DownloadLink projectId={projectId} path={path} onDownloaded={onDownloaded} />}
         <CodeActions preview={preview} actions={actions} />
       </span>
     </header>
+  );
+}
+
+/**
+ * The download control. It is a real anchor to the route — not a `fetch` and a
+ * `Blob` — because the bytes have to come from the disk: the viewer's text is the
+ * server's truncated window (and a binary file has no text at all), so building
+ * the file out of what is on screen would save a damaged one. `download` names it
+ * as the row does; the server's disposition names it the same way.
+ *
+ * What it says afterwards is the honest half this side can see: the message
+ * fires on the click, because a browser tells the page nothing about a download
+ * finishing — `downloaded x` means it was handed over, not that the save landed.
+ */
+function DownloadLink({
+  projectId,
+  path,
+  onDownloaded,
+}: {
+  projectId: string;
+  path: string;
+  onDownloaded: (name: string) => void;
+}): ReactElement {
+  const name = baseName(path);
+
+  return (
+    <a
+      href={downloadUrl(projectId, path)}
+      download={name}
+      onClick={() => { onDownloaded(name); }}
+      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+    >
+      Download
+    </a>
   );
 }
 

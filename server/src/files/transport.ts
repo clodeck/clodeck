@@ -61,6 +61,34 @@ export function registerFileRoutes(
     return { content: await files.readFile(resolved.scoped) };
   });
 
+  /**
+   * The bytes as they are on disk, streamed as an attachment.
+   *
+   * The viewer's own text cannot stand in for this: `readFile` returns a window
+   * capped at 256 KiB and reports a binary file with no content at all, so a
+   * client that built the download out of what it was showing would hand back a
+   * truncated or empty file. The guards are `/files/content`'s exactly — the same
+   * syntax check, the same realpath containment, an escaping symlink a 404, a
+   * directory (and so the root) a 400 — and the response is not capped, because
+   * a download is not an upload.
+   */
+  api.get<{ Params: { id: string } }>('/projects/:id/files/download', async (request, reply) => {
+    const opened = await openProject(request, reply, options);
+    if (opened === null) return reply;
+    const { files, rel } = opened;
+
+    const resolved = await files.resolve(rel);
+    if (resolved.status !== 'ok') return missing(reply);
+    if (resolved.kind !== 'file') return reply.code(400).send({ error: 'path is not a file' });
+
+    // The name the client asked for, not the one realpath resolved: a row shows
+    // the link's own name, so that is the name the download is saved under.
+    return reply
+      .header('content-type', 'application/octet-stream')
+      .header('content-disposition', attachment(path.basename(rel)))
+      .send(files.readStream(resolved.scoped));
+  });
+
   api.post<{ Params: { id: string }; Body: unknown }>('/projects/:id/files', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
@@ -203,6 +231,29 @@ function relPath(request: FastifyRequest): string | null {
     return null;
   }
   return value;
+}
+
+/**
+ * A `Content-Disposition` that saves the file under its own name. The plain
+ * `filename` is the form every client reads, so it is kept ASCII-only; the
+ * RFC 5987 `filename*` beside it carries the real name percent-encoded, which is
+ * how a file called `تست.md` downloads as itself rather than as `___.md`.
+ */
+function attachment(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${rfc5987(filename)}`;
+}
+
+/**
+ * RFC 5987's encoding. `encodeURIComponent` leaves `'`, `(`, `)`, `*` alone and
+ * RFC 5987's `attr-char` does not include them, so a name with a quote in it
+ * would otherwise produce a different — or broken — header.
+ */
+function rfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 /** A create request's `kind`: `file` or `directory`, or `null` for anything else. */

@@ -352,6 +352,30 @@ describe('a batch upload reports itself once', () => {
   });
 });
 
+describe('downloading the open file', () => {
+  it('offers the selected entry as a link to its own bytes, and says it was handed over', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+
+    // Nothing selected yet, so there is nothing to download.
+    expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'README.md' }));
+    await screen.findByText(FILE_BODY);
+
+    // A real link to the route, under the file's own name — the browser saves
+    // the bytes, not the panel's copy of them.
+    const link = screen.getByRole('link', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=README.md');
+    expect(link.getAttribute('download')).toBe('README.md');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded README.md');
+    });
+  });
+});
+
 describe('the tree and the flat list are two views of one folder', () => {
   it('flips to a flat list that shows the columns, and back to the tree', async () => {
     stubFiles();

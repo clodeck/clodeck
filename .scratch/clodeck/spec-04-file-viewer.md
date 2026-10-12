@@ -104,6 +104,7 @@ export type ResolveResult =
   - `directory` → `{ type:'directory', name }`
   - symlink → `resolve`-e child; inside-root va dir/file → hamun kind; escape/broken → `{ type:'symlink', name }` (non-navigable). Sort: directory-ha ghabl, ba'd name asc (ruh-e `compareEntries`).
 - **`readFile(file)`**: `stat` baray-e size; `read`-e avvalin `MAX_TEXT_BYTES` (256 KiB). Binary: NUL dar window ya `TextDecoder('utf-8', { fatal: true })` fail → `{ kind:'binary', size }`. Vagarna `{ kind:'text', content, truncated: size > MAX_TEXT_BYTES, size }`. Hich file-i kamel load nemishe.
+- **`readStream(file)`** (ticket **42**): `createReadStream` roye hamun `ScopedPath`-e resolve-shode — byte-ha-ye kamel, bedune cap va bedune buffer-e kamel dar memory. In `readFile` nist: download route be in niyaz darad, chon window-e truncated-e text ya `binary`-e bedune-content baraye save-kardan-e file-e dorost kafi nist. Chon `resolve` realpath karde, hich symlink-i dar in path namoonde ke stream azash farar kone.
 
 ### The writer — write half (same module)
 
