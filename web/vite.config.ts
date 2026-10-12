@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -28,5 +29,12 @@ export default defineConfig({
       '/api': { target: BACKEND_ORIGIN },
       '/ws': { target: BACKEND_ORIGIN, ws: true },
     },
+  },
+  test: {
+    // Unit tests are `*.test.*` and live beside what they test; the end-to-end
+    // suite is `*.spec.*` under `e2e/` and belongs to Playwright (`npm run e2e`).
+    // Vitest's default pattern collects `*.spec.*` too, which would drag the
+    // Playwright specs in — and Playwright's `test` does not run under vitest.
+    include: ['**/*.test.{ts,tsx}'],
   },
 });

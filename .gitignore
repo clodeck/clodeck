@@ -10,5 +10,11 @@ coverage/
 # The compose deployment's password file (docker-compose.yml `secrets:`).
 secrets/
 
+# The end-to-end suite's run output (web/playwright.config.ts) — traces,
+# screenshots and the HTML report, all regenerated per run.
+test-results/
+playwright-report/
+blob-report/
+
 .DS_Store
 Thumbs.db

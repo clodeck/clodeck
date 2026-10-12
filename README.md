@@ -41,6 +41,7 @@ Every command runs from the repo root.
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
+| `npm run e2e` | Runs the Playwright suite in `web/e2e/` against a dev loop that is already up (see [End-to-end](#end-to-end)). |
 
 `dev`, `test`, `build`, and `typecheck` all build `shared` first, because `server` and `web` resolve
 it through its built `exports` (`shared/dist`) — a clean clone has nothing to import until that
@@ -53,6 +54,31 @@ the server runs under `tsx watch`: the server process starts, prints nothing, ne
 client's proxy answers 502 for `/api/projects`. `--raw` passes the children's output straight
 through and the loop works; the cost is the `[server]`/`[web]` prefixes. `dev:fake` never imports
 the SDK, so it keeps them.
+
+`npm install` wires a **pre-commit hook** — `.githooks/pre-commit`, through `core.hooksPath` — that
+runs `npm run typecheck` and `npm test`. It is the only automatic check this repo has, there being no
+CI, so it is what keeps a red tree from being committed. `git commit --no-verify` skips it once. If it
+never seems to fire, `git config core.hooksPath` should answer `.githooks`; `npm run prepare` sets it.
+
+## End-to-end
+
+`npm run e2e` drives the real app in a real browser — `web/e2e/`, Playwright. It is **not** part of
+`npm test`: it needs a dev loop already running and a browser, neither of which the Vitest suite
+touches. So run the two in separate shells:
+
+```sh
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects PORT=3300 npm run dev   # one shell
+UI_PASSWORD=dev npm run e2e                                              # another
+```
+
+The dev server must be on <http://localhost:5173>, and the server must be hashed against the same
+`UI_PASSWORD` the suite sends, because it logs in like a person does. `web/playwright.config.ts` has
+the rest.
+
+The suite drives the machine's **installed Chrome** (`channel: 'chrome'`), not a Playwright-downloaded
+Chromium — `npx playwright install chromium` fails on this network with `Failed to download Chrome for
+Testing`. That is why the config looks the way it does; the comment there says so too, so the next
+person does not "fix" it back.
 
 ## Configuration
 

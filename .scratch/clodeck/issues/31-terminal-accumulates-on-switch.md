@@ -61,7 +61,9 @@ web/src/App.tsx                        key={`terminal:${project.id}`} / key={`fi
 web/src/App.workspace.test.tsx         the regression test — the workspace grid, switching projects
 web/src/testing/xterm-jsdom.ts         the jsdom/xterm stubs, now shared by both terminal tests
 web/src/terminal/TerminalPanel.test.tsx  refactored onto the shared stub, scope documented
-.scratch/clodeck/debug/                the throwaway Playwright loop that found it (see below)
+web/e2e/project-switch.spec.ts         the browser loop that found it, now a permanent E2E spec
+web/playwright.config.ts               its config — installed Chrome, because the Chromium download fails here
+.scratch/clodeck/evidence/             the post-fix screenshot
 ```
 
 - **The keys carry a panel prefix** — `terminal:${project.id}` and `files:${project.id}`. Both panels
@@ -81,16 +83,13 @@ web/src/terminal/TerminalPanel.test.tsx  refactored onto the shared stub, scope 
 
 ## Known gaps
 
-- **The browser loop is not in the test suite.** `.scratch/clodeck/debug/` holds a Playwright config
-  and spec that drive the real app in the machine's installed Chrome. It is deliberately outside
-  `npm test`: it needs a running dev server and a browser. It is the only check that would have caught
-  this bug end-to-end, so it is kept as a clearly-marked debug harness rather than deleted — but
+- **The browser loop is not part of `npm test`.** It is a real suite at `web/e2e/`, run with
+  `npm run e2e` — but it needs a dev loop already up on <http://localhost:5173> and a browser, so it
+  stays out of the Vitest run. It is the only check that would have caught this bug end to end, and
   nothing runs it for you.
 - **Playwright's Chromium download fails on this network.** `npx playwright install chromium` dies
-  with `Failed to download Chrome for Testing`; the harness works around it with `channel: 'chrome'`
-  against the installed browser. A CI job would need its own answer.
-- **`@playwright/test` is a `web` devDependency** with no script that uses it. If the debug harness is
-  dropped, the dependency should go with it.
+  with `Failed to download Chrome for Testing`; the config works around it with `channel: 'chrome'`
+  against the machine's installed browser. A CI job would need its own answer.
 - **The `FilePanel`/`ChatPanel` panels were never verified by hand.** Only the terminal bug was chased;
   the rest of the manual pass ticket 14 asked for is still outstanding.
 - **jsdom logs `Not implemented: HTMLCanvasElement's getContext()`** once per terminal test. It is
@@ -99,12 +98,13 @@ web/src/terminal/TerminalPanel.test.tsx  refactored onto the shared stub, scope 
 
 ## Evidence
 
-The loop, before the fix — red, on the user's exact symptom:
+The loop, before the fix — red, on the user's exact symptom (the spec at the time logged the count
+after each switch; it now asserts silently, and `web/e2e/` is where it ended up):
 
 ```
-$ UI_PASSWORD=dev npx playwright test --config .scratch/clodeck/debug/playwright.config.ts
-[debug] after selecting demo: 1
-[debug] after switching to hello: 2
+$ UI_PASSWORD=dev npm run e2e
+  [debug] after selecting demo: 1
+  [debug] after switching to hello: 2
   ✘ 1 failed
     Expected: 1   Received: 2
 ```
@@ -124,11 +124,7 @@ AssertionError: expected 2 to be 1
 After the fix:
 
 ```
-$ UI_PASSWORD=dev npx playwright test --config .scratch/clodeck/debug/playwright.config.ts
-[debug] after selecting demo: 1
-[debug] after switching to hello: 1
-[debug] after switching to demo: 1
-[debug] after switching to hello: 1
+$ UI_PASSWORD=dev npm run e2e
   ✓ 1 passed
 ```
 
@@ -137,5 +133,5 @@ npm run typecheck   → clean
 npm test            → shared 7 | server 107 passed, 1 skipped | web 89 passed (9 files)
 ```
 
-The post-fix screenshot (`.scratch/clodeck/debug/after-fix.png`) shows one `TERMINAL` header on
-`…\hello>`, one `FILES` drawer below it, and the layout intact.
+The post-fix screenshot (`.scratch/clodeck/evidence/31-terminal-switch-after-fix.png`) shows one
+`TERMINAL` header on `…\hello>`, one `FILES` drawer below it, and the layout intact.

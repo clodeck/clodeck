@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# The repo's only automatic check. There is no CI, so without this nothing runs
+# `typecheck` or the suite between a commit and someone noticing a red tree —
+# which is exactly how a test file once sat in the working tree with
+# `npm run typecheck` failing, for a whole session.
+#
+# Wired by `core.hooksPath`, which the root `prepare` script sets on every
+# `npm install` (see the README's Commands table). Bypass a single commit with
+# `git commit --no-verify` when the red is deliberate.
+
+set -e
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "pre-commit: npm is not on PATH, so the checks cannot run." >&2
+  echo "pre-commit: fix PATH, or commit with --no-verify." >&2
+  exit 1
+fi
+
+echo "pre-commit: npm run typecheck"
+npm run typecheck
+
+echo "pre-commit: npm test"
+npm test
