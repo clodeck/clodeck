@@ -96,7 +96,7 @@ function NothingSelected(): ReactElement {
   );
 }
 
-function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
+export function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
   return (
     <>
       <header className="flex items-baseline gap-3 border-b border-line px-5 py-3">
@@ -111,12 +111,14 @@ function WorkspacePlaceholder({ project }: { project: Project }): ReactElement {
         <ChatPanel key={project.id} project={project} />
         <div className="grid min-h-0 grid-rows-2 divide-y divide-line">
           {/* Keyed by project so switching projects remounts a fresh shell (and
-              tears the previous socket down with the old panel). */}
-          <TerminalPanel key={project.id} project={project} />
-          {/* Keyed by project so switching projects remounts a fresh drawer
-              (path, listing, and preview) instead of carrying one project's
-              view into another. */}
-          <FilePanel key={project.id} project={project} />
+              tears the previous socket down with the old panel), and the file
+              drawer likewise. The keys carry a panel prefix because these two
+              are siblings: a shared `project.id` is a *duplicate key*, and
+              React's key map holds one entry per key, so the first sibling drops
+              out of its bookkeeping and is never unmounted — the old terminal
+              then stays on screen while a new one is appended below it. */}
+          <TerminalPanel key={`terminal:${project.id}`} project={project} />
+          <FilePanel key={`files:${project.id}`} project={project} />
         </div>
       </div>
     </>
