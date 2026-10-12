@@ -9,7 +9,9 @@ import {
   dirLoading,
   dirReady,
   idleTree,
+  insidePath,
   joinPath,
+  movedPath,
   noPreview,
   parentPath,
   previewError,
@@ -314,7 +316,7 @@ export function useFiles(project: Project): FileViewerController {
       await runMutation(() => removeEntry(project.id, path), parentPath(path));
       // A delete invalidates a preview of the removed entry (or anything under it).
       const previewed = previewPath(previewRef.current);
-      if (previewed !== null && (previewed === path || previewed.startsWith(`${path}/`))) setPreview(noPreview);
+      if (previewed !== null && insidePath(previewed, path)) setPreview(noPreview);
     },
     [project.id, runMutation],
   );
@@ -333,11 +335,7 @@ export function useFiles(project: Project): FileViewerController {
       // whole subtree moved with it. A stale path would otherwise keep showing
       // the file under a name that is no longer there.
       const previewed = previewPath(previewRef.current);
-      if (previewed === path) {
-        preview(joinPath(dest, baseName(path)));
-      } else if (previewed !== null && previewed.startsWith(`${path}/`)) {
-        preview(joinPath(dest, previewed.slice(path.length + 1)));
-      }
+      if (previewed !== null && insidePath(previewed, path)) preview(movedPath(previewed, path, dest));
     },
     [project.id, loadDir, settle, preview],
   );

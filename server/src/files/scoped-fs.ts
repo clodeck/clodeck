@@ -290,10 +290,10 @@ export function createScopedFs(projectPath: string): ScopedFs {
     // `resolveWriteTarget` realpath'd the source's parent), so "the same folder"
     // is a string comparison and "inside it" is the containment rule the root
     // check already uses — no symlink can hide a subtree behind either test.
-    if (from === path.join(destDir, source.name)) return { status: 'same_directory' };
+    const to = path.join(destDir, source.name);
+    if (from === to) return { status: 'same_directory' };
     if (entry.isDirectory() && isInsideRoot(from, destDir)) return { status: 'into_own_descendant' };
 
-    const to = path.join(destDir, source.name);
     // A move never overwrites — the same posture as `createFile` (the save route
     // stays the app's one deliberate overwrite) — and an existing entry at the
     // name is a refusal whether it is a file, a directory or a link.

@@ -50,6 +50,13 @@ Seen in the browser: `evidence/44-drag-target.png`, `evidence/44-move-confirm.pn
    show the trail now. The tree's crumb buttons go through the same `openDir` the flat list's do.
 3. **The follow is not just the open file's own path.** A file *inside* a folder that moves follows too —
    it is the same staleness, one level down, and the delete path already handles that shape.
+4. **"No symlink in either final segment" turned out to be true of the source only.** A symlink as the
+   *source* is refused (a link is never moved onto its target), but the destination goes through the
+   reader's `resolve`, which follows an in-root link by design — that is what makes a linked directory
+   navigable, and every other write accepts it too (`createFile`'s parent is resolved the same way). So a
+   drop into an in-root linked folder lands in what it points at. Refusing it here would have made `move`
+   the one write that rejects what `create` accepts; containment still holds, and a link that leaves the
+   root is a `404` like any other miss. `spec-04` now says this rather than the other thing.
 
 ## Reference
 

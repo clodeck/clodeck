@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { login } from './support';
 
 /**
  * The code view's layout, in a real browser.
@@ -13,27 +14,9 @@ import { expect, test, type Page } from '@playwright/test';
  * It writes into the project it drives, and deletes what it made before it ends.
  */
 
-/** A required environment variable, or the suite stops before it drives anything. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`${name} must be set — the server under test reads the same value`);
-  }
-  return value;
-}
-
-const password = requireEnv('UI_PASSWORD');
-
 const NAME = 'zz-e2e-code.ts';
 /** A keyword, a number and a comment, then a line long enough to overflow the column. */
 const BODY = `const x = 42; // ${'a'.repeat(400)}\nsecond line\n`;
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.fill('#password', password);
-  await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
-}
 
 test('the code view numbers its lines, keeps them from wrapping, and colours them', async ({ page }) => {
   await login(page);
@@ -86,7 +69,11 @@ test('the code view numbers its lines, keeps them from wrapping, and colours the
   expect(new Set(layout.cells.map((cell) => cell.rowHeight)).size).toBe(1);
   expect(layout.scrollWidth).toBeGreaterThan(layout.clientWidth);
 
-  // The colours are the palette tokens, as the stylesheet resolved them.
+  // The colours, as the browser resolved them. The three values are the palette's
+  // own hexes (`index.css`'s `--color-code-*`, which are the prototype's), restated
+  // here on purpose: the point of asking a browser is that the token reaches the
+  // paint at all — a class that no stylesheet turns into a colour fails this, and
+  // it is the one check the palette cannot have anywhere else.
   const tone = (text: string): Promise<string> =>
     page
       .getByText(text, { exact: true })

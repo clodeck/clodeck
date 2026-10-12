@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { login, removeRow } from './support';
 
 /**
  * Moving a file by dragging its row onto a folder, in a real browser.
@@ -14,27 +15,9 @@ import { expect, test, type Page } from '@playwright/test';
  * the folder it made (which takes the moved file with it).
  */
 
-/** A required environment variable, or the suite stops before it drives anything. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`${name} must be set — the server under test reads the same value`);
-  }
-  return value;
-}
-
-const password = requireEnv('UI_PASSWORD');
-
 const FILE = 'zz-e2e-move.txt';
 const FOLDER = 'zz-e2e-movedir';
 const LONG_LINE = `// ${'a'.repeat(400)}`;
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.fill('#password', password);
-  await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
-}
 
 test('a file row dragged onto a folder row moves the file, and follows it back', async ({ page }) => {
   await login(page);
@@ -77,8 +60,9 @@ test('a file row dragged onto a folder row moves the file, and follows it back',
   await expect(page.getByRole('button', { name: FILE, exact: true })).toHaveCount(1);
   await expect(page.getByTitle('Collapse folder')).toBeVisible();
   // And the open file followed itself rather than going stale: the code head
-  // names the path its bytes now live at.
-  await expect(page.getByTitle(`${FOLDER}/${FILE}`)).toBeVisible();
+  // names the path its bytes now live at. `exact` because a file row's tooltip is
+  // `Preview <name>` — a substring match would find the row as well as the head.
+  await expect(page.getByTitle(`${FOLDER}/${FILE}`, { exact: true })).toBeVisible();
 
   // Back out to the root, by dropping on the breadcrumb's root crumb — the drop
   // target the prototype did not have, and the only way home from the tree.
@@ -93,7 +77,7 @@ test('a file row dragged onto a folder row moves the file, and follows it back',
 
   await expect(page.getByRole('status')).toHaveText(`moved ${FILE} → root`);
   // Home again: the head names the bare name once more, and one row carries it.
-  await expect(page.getByTitle(FILE)).toBeVisible();
+  await expect(page.getByTitle(FILE, { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: FILE, exact: true })).toHaveCount(1);
 
   // Clean up: the file, then the folder it visited.

@@ -30,9 +30,11 @@ finishing piece that makes download (42) and preview (43) feel like a real viewe
 
 **Landed as:** `web/src/files/code.tsx` — `languageOf(name)` (extension → the one of two colouring
 passes the prototype really has), the pure `highlightLine(line, language) → Segment[]`, and the
-`CodeView` that draws it: an `<ol aria-label="Source">` with one row per line, the number in a fixed
-`3ch`/`4ch` gutter (`select-none`, `aria-hidden`, so a copy takes the file's bytes and not its numbers)
-and the line beside it in `whitespace-pre`. Five tokens joined the palette in `index.css`
+`CodeView` that draws it: an `<ol aria-label="Source">` with one row per line, the number in a gutter
+whose width comes from the line count (`${String(lines.length).length}ch`, so it is one column whatever
+the digits, and the code starts at the same x on line 9 as on line 10), `select-none` and `aria-hidden`
+so a copy takes the file's bytes and not its numbers, with the line beside it in `whitespace-pre`. Five
+tokens joined the palette in `index.css`
 (`--color-code-kw/-str/-com/-num/-ln`, the prototype's `.c-kw`/`.c-str`/`.c-com`/`.c-num`/`.ln` values),
 and the `npm run build` bundle emits both them and their `text-code-*` utilities. Seen in the browser:
 `evidence/45-code-view.png`.

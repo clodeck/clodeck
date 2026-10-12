@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { login } from './support';
 
 /**
  * Switching projects in the workspace, in a real browser.
@@ -17,24 +18,6 @@ import { expect, test, type Page } from '@playwright/test';
  * rail's choice is workspace state, which is why the drawer stays on Terminal
  * across every switch below.
  */
-
-/** A required environment variable, or the suite stops before it drives anything. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`${name} must be set — the server under test reads the same value`);
-  }
-  return value;
-}
-
-const password = requireEnv('UI_PASSWORD');
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.fill('#password', password);
-  await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
-}
 
 test('switching projects replaces the terminal rather than accumulating one', async ({ page }) => {
   await login(page);

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { login, removeRow } from './support';
 
 /**
  * Downloading a file, in a real browser.
@@ -17,34 +18,8 @@ import { expect, test, type Page } from '@playwright/test';
  * created through the row menu before it ends.
  */
 
-/** A required environment variable, or the suite stops before it drives anything. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`${name} must be set — the server under test reads the same value`);
-  }
-  return value;
-}
-
-const password = requireEnv('UI_PASSWORD');
-
 const NAME = 'zz-e2e-دانلود.txt';
 const BODY = 'the bytes, as written';
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.fill('#password', password);
-  await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
-}
-
-/** Delete the file this spec made, through its row menu. */
-async function removeRow(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: `Actions for ${name}` }).click();
-  await page.getByRole('menuitem', { name: 'Delete' }).click();
-  await page.getByRole('dialog', { name: 'Confirm delete' }).getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
-}
 
 test('a file downloads under its own name, with the bytes the server holds', async ({ page }) => {
   await login(page);
