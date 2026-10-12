@@ -55,6 +55,35 @@ feature, and each names the ticket that implements it. `README.md` still reads "
 drawer alongside" (`README.md:5`) — it is not one of the two scope documents and ticket **35** is where
 that sentence goes stale; left untouched on purpose.
 
+## Code review
+
+Reviewed along both axes (Standards, Spec) on the branch (`5f44b31`). No hard violation on either axis,
+and the Spec axis confirmed every present-tense claim in the diff against source (`FileEntry` carries no
+permissions; no download/move route exists yet; the route details match tickets 42/44 verbatim).
+
+Fixed in one pass (the review-fix commit on this branch, on top of `5f44b31`):
+
+1. **The two decisions read as one.** `AGENTS.md` cited *"decision 03"* (the layout) next to *"decision
+   D3"* (the MVP promotions) — different decisions, easily read as a typo of each other. The layout
+   bullet now names `web-claude-ui decision 03` and says outright that it is not the `D3` in the MVP
+   bullet, which now points at `prototype-parity.md`.
+2. **Prototype measurements pinned in the wrong document.** The layout bullet carried `52px` and `~42vh`
+   — chrome numbers that belong to ticket **35**. Dropped; `AGENTS.md` keeps the shape, the ticket keeps
+   the pixels.
+3. **A stale layout line survived in the second scope document.** `spec-04` §"Further Notes" still placed
+   `FilePanel` in the lower-right cell as a `Stub` replacement — false twice over (the stub is gone, and
+   ticket 35 moves the panel into the drawer). Corrected with a dated pointer at ticket 35, which is what
+   this ticket exists to prevent.
+
+Declined on purpose:
+
+- **Dropping the `README.md:5` "alongside" line.** It is not one of the two documents carrying scope,
+  and ticket 35 is the change that makes it wrong; the writer of that ticket owns the sentence.
+- **Rewriting `issues/42-file-download.md`'s `تست.md` example.** It is a non-ASCII *filename* inside a
+  code span — the point of that acceptance criterion is that such a name downloads as itself — so the
+  language rule's Finglish target (prose) does not make it wrong. Left alone rather than edited from a
+  ticket that does not own it.
+
 ## Note on why this is a ticket and not a footnote
 
 `spec-04` §"Out of Scope" is the reason. It listed the editable toggle as out of MVP *after* the user
