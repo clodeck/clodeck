@@ -80,7 +80,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   };
 
   return (
-    <section className="relative flex min-h-0 flex-col" aria-label="Files">
+    <section className="relative flex min-h-0 flex-1 flex-col" aria-label="Files">
       <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Files</h2>
