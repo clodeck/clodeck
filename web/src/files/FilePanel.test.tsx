@@ -26,6 +26,9 @@ const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
 
 const FILE_BODY = 'const answer = 42;';
 
+/** Markdown, with the constructs the preview has to render. */
+const MD_BODY = '# Guide\n\nRead **this**, not that.';
+
 /** A listing row's size, independent of the content body so the two cannot be confused. */
 const README_SIZE = 1536;
 
@@ -52,11 +55,11 @@ function failure(status: number, statusText: string, error: string): Response {
  * files still land). Every request is recorded, which is how "no request was
  * made" and "the listing re-listed once" are asserted.
  */
-function stubFiles(options: { failMutations?: boolean; failUploads?: string[] } = {}): {
+function stubFiles(options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean } = {}): {
   calls: Call[];
   mtime: string;
 } {
-  const { failMutations = false, failUploads = [] } = options;
+  const { failMutations = false, failUploads = [], truncated = false } = options;
   const calls: Call[] = [];
   const mtime = threeHoursAgo();
 
@@ -72,12 +75,15 @@ function stubFiles(options: { failMutations?: boolean; failUploads?: string[] } 
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
     }
 
+    const content = path.endsWith('GUIDE.md') ? MD_BODY : FILE_BODY;
     const body = url.pathname.endsWith('/files/content')
-      ? { content: { kind: 'text', content: FILE_BODY, truncated: false, size: FILE_BODY.length } }
+      ? { content: { kind: 'text', content, truncated, size: content.length } }
       : {
           entries: [
             { type: 'directory', name: 'src' },
             { type: 'file', name: 'README.md', size: README_SIZE, mtime },
+            { type: 'file', name: 'GUIDE.md', size: README_SIZE, mtime },
+            { type: 'file', name: 'main.ts', size: README_SIZE, mtime },
           ],
         };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
@@ -349,6 +355,72 @@ describe('a batch upload reports itself once', () => {
     expect(within(notifications).getByText('over the 200 MB upload limit')).toBeTruthy();
     // The file that fits still went.
     expect(calls.filter((call) => call.method === 'PUT').map((call) => call.path)).toEqual(['one.txt']);
+  });
+});
+
+describe('a markdown file can be read as markdown', () => {
+  it('offers the toggle on a markdown file only, and opens each file as source', async () => {
+    stubFiles();
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    // Source first, as the prototype opens one: the label names where a click goes.
+    const toggle = await screen.findByRole('button', { name: 'Preview' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Source' })).toBeTruthy();
+
+    // A file that is not markdown has no preview mode at all...
+    fireEvent.click(screen.getByRole('button', { name: 'main.ts' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Source' })).toBeNull();
+    });
+
+    // ...and opening a markdown file again starts from its source.
+    fireEvent.click(screen.getByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Preview' }).getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+  it('renders the markdown the server sent, and switches back to the source', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Guide' })).toBeTruthy();
+    expect(within(code).getByText('this')).toBeTruthy();
+    // The same bytes, read two ways — and the control says which way is next.
+    const toggle = screen.getByRole('button', { name: 'Source' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+  });
+
+  it('previews what the server sent — the truncation note included, and no second read', async () => {
+    const { calls } = stubFiles({ truncated: true });
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    await screen.findByText('truncated');
+    const reads = calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Guide' })).toBeTruthy();
+
+    // The preview is the truncated window the read returned, said so in the
+    // head: rendering it is not a reason to ask the server for the whole file.
+    expect(screen.getByText('truncated')).toBeTruthy();
+    expect(calls).toHaveLength(reads);
   });
 });
 

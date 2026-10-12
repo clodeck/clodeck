@@ -1,8 +1,18 @@
 import { MAX_UPLOAD_MB, type FileEntry, type Project } from '@clodeck/shared';
-import { Fragment, useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 import { useToast } from '../toast/ToastProvider';
 import { formatModified, formatSize } from './format';
+import { isMarkdown, renderMarkdown } from './markdown';
 import { assertNever, baseName, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
 import { downloadUrl } from './transport';
 import { summarizeUploads } from './upload';
@@ -24,9 +34,12 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
  * them, it never navigates), each expanded folder's listing is fetched lazily on
  * first open, and the last folder clicked is the "active" folder that New
  * File/Folder and Upload land in. The preview starts **read-only** and flips to
- * a writable `<textarea>` with Save/Cancel — the content-editing toggle. Each
- * file row carries its size, with the modified time a hover away; a directory
- * row carries nothing, because the wire carries nothing for one.
+ * a writable `<textarea>` with Save/Cancel — the content-editing toggle. A
+ * markdown file also gets a `Preview ⇄ Source` toggle in the code head, which
+ * reads the very bytes the server sent through `renderMarkdown` instead of
+ * showing them as text; the file opens as its source, as the prototype's does.
+ * Each file row carries its size, with the modified time a hover away; a
+ * directory row carries nothing, because the wire carries nothing for one.
  *
  * The toolbar's `List` ⇄ `Tree` toggle swaps the tree for a flat list of **the
  * folder being shown** — this product lists one directory per request and has no
@@ -45,8 +58,9 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
  *
  * Two rules are load-bearing, not style:
  *
- * - File bytes are rendered **only** as React text nodes (`<pre>{content}</pre>`
- *   and a controlled `<textarea value>`); there is no `innerHTML` and no
+ * - File bytes are rendered **only** as React nodes this app builds itself — a
+ *   `<pre>{content}</pre>`, a controlled `<textarea value>`, and the elements
+ *   `renderMarkdown` makes out of a markdown file. There is no `innerHTML` and no
  *   `dangerouslySetInnerHTML` anywhere, because a file's bytes are untrusted.
  * - Every renderer over a closed union is an exhaustive `switch` ending in
  *   {@link assertNever}, so a new entry type or content kind is a compile error.
@@ -61,6 +75,14 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
    * becoming a stored preference per project.
    */
   const [view, setView] = useState<View>('tree');
+  /**
+   * The markdown file whose *rendered* form is on screen, if any. It holds a
+   * path rather than a flag because opening a file has to reset it: every file
+   * opens as its source — the prototype's default, and the only thing a
+   * non-markdown file ever gets — and the toggle shows the rendering for the file
+   * it was clicked on.
+   */
+  const [previewFor, setPreviewFor] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -76,6 +98,14 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   // The code column's state, which is `none` until a file is opened and whenever
   // the tree itself has nothing to show.
   const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
+  // Whether the column is showing the rendered markdown rather than the source:
+  // only ever for a markdown file, and only for as long as its toggle says so.
+  const shown = previewPath(preview);
+  const previewingMarkdown = shown !== null && isMarkdown(shown) && previewFor === shown;
+  // Every file opens as its source: the mode is where you left it *for a file*,
+  // not a column-wide setting that follows you into the next one.
+  useEffect(() => { setPreviewFor(null); }, [shown]);
+  const toggleMarkdown = (): void => { setPreviewFor(previewingMarkdown ? null : shown); };
 
   /**
    * Upload a picked or dropped batch. Every file goes, and the batch speaks
@@ -230,10 +260,12 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           projectId={project.id}
           preview={preview}
           actions={actions}
+          previewingMarkdown={previewingMarkdown}
+          onToggleMarkdown={toggleMarkdown}
           onDownloaded={(name) => { toast(`downloaded ${name}`); }}
         />
         <div className="min-h-0 flex-1 overflow-auto">
-          <PreviewBody preview={preview} actions={actions} />
+          <PreviewBody preview={preview} actions={actions} previewingMarkdown={previewingMarkdown} />
         </div>
       </div>
 
@@ -841,11 +873,15 @@ function CodeHead({
   projectId,
   preview,
   actions,
+  previewingMarkdown,
+  onToggleMarkdown,
   onDownloaded,
 }: {
   projectId: string;
   preview: PreviewState;
   actions: FileViewerActions;
+  previewingMarkdown: boolean;
+  onToggleMarkdown: () => void;
   onDownloaded: (name: string) => void;
 }): ReactElement {
   const path = previewPath(preview);
@@ -861,7 +897,12 @@ function CodeHead({
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2">
         {path !== null && <DownloadLink projectId={projectId} path={path} onDownloaded={onDownloaded} />}
-        <CodeActions preview={preview} actions={actions} />
+        <CodeActions
+          preview={preview}
+          actions={actions}
+          previewingMarkdown={previewingMarkdown}
+          onToggleMarkdown={onToggleMarkdown}
+        />
       </span>
     </header>
   );
@@ -905,9 +946,13 @@ function DownloadLink({
 function CodeActions({
   preview,
   actions,
+  previewingMarkdown,
+  onToggleMarkdown,
 }: {
   preview: PreviewState;
   actions: FileViewerActions;
+  previewingMarkdown: boolean;
+  onToggleMarkdown: () => void;
 }): ReactElement | null {
   switch (preview.kind) {
     case 'none':
@@ -918,6 +963,11 @@ function CodeActions({
       return (
         <>
           <Note>{preview.truncated ? 'truncated' : 'read-only'}</Note>
+          {/* Markdown gets a second way to read the same bytes; every other
+              file type has only the source, so it gets no such control. */}
+          {isMarkdown(preview.name) && (
+            <MarkdownToggle previewing={previewingMarkdown} onToggle={onToggleMarkdown} />
+          )}
           {/* A truncated file holds only the 256 KiB prefix; editing it would
               clobber the rest, so the writable toggle is withheld. */}
           {preview.truncated ? null : <EditToggle onClick={actions.edit} />}
@@ -964,9 +1014,11 @@ function CodeActions({
 function PreviewBody({
   preview,
   actions,
+  previewingMarkdown,
 }: {
   preview: PreviewState;
   actions: FileViewerActions;
+  previewingMarkdown: boolean;
 }): ReactElement | null {
   switch (preview.kind) {
     case 'none':
@@ -974,8 +1026,13 @@ function PreviewBody({
     case 'loading':
       return <Hint>Loading…</Hint>;
     case 'text':
-      // A file's bytes are untrusted: they are a React text node, never HTML.
-      return <pre className="p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>;
+      // A file's bytes are untrusted: they are React text nodes either way —
+      // the source's one `<pre>`, or the elements `renderMarkdown` builds.
+      return previewingMarkdown ? (
+        <div className="p-2">{renderMarkdown(preview.content)}</div>
+      ) : (
+        <pre className="p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>
+      );
     case 'binary':
       return (
         <p className="p-2 font-mono text-[11px] text-ink-dim">binary · {preview.size} bytes</p>
@@ -1002,6 +1059,26 @@ function PreviewBody({
     default:
       return assertNever(preview);
   }
+}
+
+/**
+ * The markdown mode switch: `Preview ⇄ Source`, named for the mode a click will
+ * switch *to* (the prototype's `pvBtn`, `variant-a.js:132`). `aria-pressed` is
+ * what carries the mode it is in — the label is the action, the state is the
+ * button's.
+ */
+function MarkdownToggle({ previewing, onToggle }: { previewing: boolean; onToggle: () => void }): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={previewing}
+      title={previewing ? 'Show the markdown source' : 'Show the rendered markdown'}
+      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+    >
+      {previewing ? 'Source' : 'Preview'}
+    </button>
+  );
 }
 
 /** The read-only ⇄ writable switch: an "Edit" pill, shown only when editable. */
