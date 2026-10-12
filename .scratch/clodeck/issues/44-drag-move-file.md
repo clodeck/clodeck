@@ -6,28 +6,50 @@ confirm it, and give the server the cross-directory move it is missing.
 
 **Blocked by:** 36, 37
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A file row can be dragged onto any folder row in the tree; the target highlights while hovered and
+- [x] A file row can be dragged onto any folder row in the tree; the target highlights while hovered and
       clears when the drag ends or leaves.
-- [ ] The **root** is a drop target too, via the breadcrumb's root crumb. The prototype could not do this
+- [x] The **root** is a drop target too, via the breadcrumb's root crumb. The prototype could not do this
       (only folder rows accepted a drop), which would have left a file dragged out of a subfolder with
       no way home.
-- [ ] Dropping opens the prototype's confirmation (`Move "x" into "y"?`); cancelling changes nothing and
+- [x] Dropping opens the prototype's confirmation (`Move "x" into "y"?`); cancelling changes nothing and
       disturbs no row state.
-- [ ] Confirming performs the move, re-lists the directories involved, follows the open file to its new
+- [x] Confirming performs the move, re-lists the directories involved, follows the open file to its new
       path if it was the one open, and reports it through 37's toast (`moved x → y`).
-- [ ] Refusals, each surfaced with a reason instead of a silent no-op: dropping into the directory the
+- [x] Refusals, each surfaced with a reason instead of a silent no-op: dropping into the directory the
       file already lives in; dropping a folder into itself or one of its own descendants; a name that
       already exists at the destination (no overwrite — the same posture the create route takes, and the
       save route stays the app's only deliberate overwrite).
-- [ ] Server: a **move** operation on the scoped writer plus a route taking the source path and the
+- [x] Server: a **move** operation on the scoped writer plus a route taking the source path and the
       destination **directory** (renaming stays `rename`'s job). Both ends are re-validated by `realpath`
       containment, the destination must be an existing directory inside the project root, the final
       segment of neither end may be a symlink, and neither end may be the project root.
-- [ ] Tests: writer unit tests (happy path, escaping symlink at either end, destination not a directory,
+- [x] Tests: writer unit tests (happy path, escaping symlink at either end, destination not a directory,
       name collision, into-own-descendant, root as source) on a real temp sandbox; route tests for the
       status codes; web tests for the confirm, the cancel and the same-directory refusal.
+
+**Landed as:** `ScopedFs.move(source: WriteTarget, destDir: ScopedPath)` → its own `MoveResult` union
+(the four arms it shares with `WriteResult` plus `same_directory`, `into_own_descendant` and
+`not_a_directory` — arms no other write op can return), and `POST /api/projects/:id/files/move` whose
+body `to` is a *path* and so passes `relPath`'s syntax check rather than `name()`'s. `relPath` grew the
+`isRelative` it had always been; the destination goes through `resolve` (the reader's door), the source
+through `resolveWriteTarget`. On the client the seam gained `move(path, dest)`; the panel holds the drag
+(`dragging`/`over`) and a `MoveControl` handed to the tree rows and the root crumb, the `MoveDialog` is
+the prototype's question with the server's refusal kept in it, and the toast says `moved x → y`.
+Seen in the browser: `evidence/44-drag-target.png`, `evidence/44-move-confirm.png`.
+
+**Three interpretations worth naming:**
+
+1. **"Dropping opens the confirmation" is taken literally**, so a drop into the folder the file already
+   lives in still opens the dialog — and confirming *that* is refused with `already in <folder>`, as the
+   prototype's `moveNode` does. The refusal is the client's own (no request); the same move attempted
+   over the wire is a `409`.
+2. **The breadcrumb now renders in tree mode as well.** Ticket 41 left the tree a plain `in <folder>`
+   line; the root crumb is the only drop target a file dragged out of a subfolder has, so both listings
+   show the trail now. The tree's crumb buttons go through the same `openDir` the flat list's do.
+3. **The follow is not just the open file's own path.** A file *inside* a folder that moves follows too —
+   it is the same staleness, one level down, and the delete path already handles that shape.
 
 ## Reference
 
