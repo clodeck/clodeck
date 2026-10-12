@@ -17,6 +17,30 @@ prototype↔mahsul ast ke bayad ya taeid shan ya biyan.
 
 ---
 
+## Tasmim-haye gerefte-shode (2026-10-12)
+
+Chahar soal-e `P0` javab gereftan; inja sabt shodeand ta session-e ba'di dobare naporsad.
+
+- **D1 = (a) — bargasht be Variant A.** Rail ▸ project sidebar ▸ chat stage, va terminal **va** files
+  dar yek **bottom drawer**-e summonable (42vh). In hamun chizi ast ke decision 03 (`map.md`) gofte bud —
+  pas split-e do-sotune drift-e mahsul bud, na tasmim. Ticket **35** (shell + rail + tabs) va **36**
+  (`300px tree | code view`).
+- **D2 = hamin ke hast.** Sessions dar **History button**-e header-e chat mimoonan; sidebar faghat
+  projects. **Bedoone ticket** — do manba-e-haghighat sakhtan gereh-e bi-arzesh ast.
+- **D3 = har 5 item be MVP miad:** #15 download, #16 markdown preview, #17 metadata, #18 tree⇄flat, #19
+  drag-move. Ticket **32** `AGENTS.md` + `spec-04` ro be-rooz mikone (ghabl az kod), va **40/41/42/43/44**
+  feature-ha-ro.
+- **D4 = toast-e kootah-e movafaghiat.** Ticket **37** (va **33** baraye token-e `--color-ok`, ke badge
+  ham lazamesh darad).
+- **P2:** faghat **#24** (line-number + highlight) entekhab shod → ticket **45**. Baghi-ye `P2` (#7, #8,
+  #9, #10, #26) bi-ticket mimoonan, va `P3` hamin-tor rad-shode ast.
+
+Do ja prototype be mahsul **muntaghel nemishe** va ticket-ha tasmim-e khodeshun ro neveshtan: download
+client-side `Blob` nist (content truncate mishe, binary hich vaght nemiad → 42 route-e server mikhad), va
+flat-list recursiv nist (listing lazy ast → 41 faghat hamun directory).
+
+---
+
 ## P0 — tasmim-e ghabl az ticket
 
 In chahar ta **structure va scope** ro avaz mikonan, pas ticket-haye ba'di-ro gheyde-mand mikonan.
@@ -142,8 +166,10 @@ Bedoone tasmim-e jadid, vali nabayad ba P1 ghati shan. Har item mitone yek ticke
 
 ## Tarz-e estefade dar session-e jadid
 
-1. `P0` — chahar soal-e D1..D4 ro az user bepors (tavsie-ha neveshte shode); har javab mitone
-   `AGENTS.md`'s MVP bullet ya `spec-04`'s out-of-scope list ro avaz kone.
-2. `P1` (+`P2`-e entekhab-shode + `D3`-e entekhab-shode) → `/to-tickets`: yek ticket be azaye
-   jadval, har kodum ba eshare be `Appendix` (bedoone re-derive) va block-haye vazeh.
+1. `P0` — ~~chahar soal-e D1..D4 ro az user bepors~~ **javab dade shod** (2026-10-12) va dar bakhsh-e
+   "Tasmim-haye gerefte-shode" sabt ast. Javab-ha `AGENTS.md` + `spec-04` ro avaz mikonan — oon kar
+   ticket **32** ast.
+2. `P1` (+`P2`-e entekhab-shode + `D3`-e entekhab-shode) → `/to-tickets`: **anjam shod** — ticket-ha
+   **32…45** dar `.scratch/clodeck/issues/`. Har kodum ba eshare be `Appendix` (bedoone re-derive) va
+   block-haye vazeh.
 3. `P3` ra nanevis — in ha tasmim-e ghabl-and, na kar-e moam-and.
