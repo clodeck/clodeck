@@ -26,6 +26,9 @@ const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
 
 const FILE_BODY = 'const answer = 42;';
 
+/** Markdown, with the constructs the preview has to render. */
+const MD_BODY = '# Guide\n\nRead **this**, not that.';
+
 /** A listing row's size, independent of the content body so the two cannot be confused. */
 const README_SIZE = 1536;
 
@@ -52,11 +55,11 @@ function failure(status: number, statusText: string, error: string): Response {
  * files still land). Every request is recorded, which is how "no request was
  * made" and "the listing re-listed once" are asserted.
  */
-function stubFiles(options: { failMutations?: boolean; failUploads?: string[] } = {}): {
+function stubFiles(options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean } = {}): {
   calls: Call[];
   mtime: string;
 } {
-  const { failMutations = false, failUploads = [] } = options;
+  const { failMutations = false, failUploads = [], truncated = false } = options;
   const calls: Call[] = [];
   const mtime = threeHoursAgo();
 
@@ -72,12 +75,15 @@ function stubFiles(options: { failMutations?: boolean; failUploads?: string[] } 
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
     }
 
+    const content = path.endsWith('GUIDE.md') ? MD_BODY : FILE_BODY;
     const body = url.pathname.endsWith('/files/content')
-      ? { content: { kind: 'text', content: FILE_BODY, truncated: false, size: FILE_BODY.length } }
+      ? { content: { kind: 'text', content, truncated, size: content.length } }
       : {
           entries: [
             { type: 'directory', name: 'src' },
             { type: 'file', name: 'README.md', size: README_SIZE, mtime },
+            { type: 'file', name: 'GUIDE.md', size: README_SIZE, mtime },
+            { type: 'file', name: 'main.ts', size: README_SIZE, mtime },
           ],
         };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
@@ -121,6 +127,13 @@ function create(name: string): void {
   fireEvent.click(screen.getByRole('button', { name: 'New File' }));
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: name } });
   fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+}
+
+/** The row element a name button belongs to (the tree row and the flat row are both one). */
+function rowOf(button: HTMLElement): HTMLElement {
+  const row = button.parentElement;
+  if (row === null) throw new Error('a row button has no row');
+  return row;
 }
 
 /** One of the panel's two columns, by position. */
@@ -342,6 +355,184 @@ describe('a batch upload reports itself once', () => {
     expect(within(notifications).getByText('over the 200 MB upload limit')).toBeTruthy();
     // The file that fits still went.
     expect(calls.filter((call) => call.method === 'PUT').map((call) => call.path)).toEqual(['one.txt']);
+  });
+});
+
+describe('a markdown file can be read as markdown', () => {
+  it('offers the toggle on a markdown file only, and opens each file as source', async () => {
+    stubFiles();
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    // Source first, as the prototype opens one: the label names where a click goes.
+    const toggle = await screen.findByRole('button', { name: 'Preview' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Source' })).toBeTruthy();
+
+    // A file that is not markdown has no preview mode at all...
+    fireEvent.click(screen.getByRole('button', { name: 'main.ts' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Source' })).toBeNull();
+    });
+
+    // ...and opening a markdown file again starts from its source.
+    fireEvent.click(screen.getByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Preview' }).getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
+  it('renders the markdown the server sent, and switches back to the source', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Guide' })).toBeTruthy();
+    expect(within(code).getByText('this')).toBeTruthy();
+    // The same bytes, read two ways — and the control says which way is next.
+    const toggle = screen.getByRole('button', { name: 'Source' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+  });
+
+  it('previews what the server sent — the truncation note included, and no second read', async () => {
+    const { calls } = stubFiles({ truncated: true });
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+    await screen.findByText('truncated');
+    const reads = calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Guide' })).toBeTruthy();
+
+    // The preview is the truncated window the read returned, said so in the
+    // head: rendering it is not a reason to ask the server for the whole file.
+    expect(screen.getByText('truncated')).toBeTruthy();
+    expect(calls).toHaveLength(reads);
+  });
+});
+
+describe('downloading the open file', () => {
+  it('offers the selected entry as a link to its own bytes, and says it was handed over', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+
+    // Nothing selected yet, so there is nothing to download.
+    expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'README.md' }));
+    await screen.findByText(FILE_BODY);
+
+    // A real link to the route, under the file's own name — the browser saves
+    // the bytes, not the panel's copy of them.
+    const link = screen.getByRole('link', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=README.md');
+    expect(link.getAttribute('download')).toBe('README.md');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded README.md');
+    });
+  });
+});
+
+describe('the tree and the flat list are two views of one folder', () => {
+  it('flips to a flat list that shows the columns, and back to the tree', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const tree = column(panel, 0);
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'README.md' }));
+    await screen.findByText(FILE_BODY);
+
+    // The tree: folders expand in place, and no list head anywhere.
+    expect(screen.getByTitle('Expand folder')).toBeTruthy();
+    expect(screen.queryByText('Size')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+
+    // One folder's entries under a head that names the three columns.
+    expect(within(tree).getByText('Name')).toBeTruthy();
+    expect(within(tree).getByText('Size')).toBeTruthy();
+    expect(within(tree).getByText('Modified')).toBeTruthy();
+
+    const dirRow = screen.getByRole('button', { name: 'src/' });
+    const fileRow = screen.getByRole('button', { name: 'README.md' });
+    // Directories first, as the tree sorts them.
+    expect(dirRow.compareDocumentPosition(fileRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const fileCells = rowOf(fileRow);
+    expect(within(fileCells).getByText('1.5 KB')).toBeTruthy();
+    expect(within(fileCells).getByText('3h ago')).toBeTruthy();
+    // A folder has neither on the wire, so its row is its name and its menu.
+    expect(rowOf(dirRow).textContent).toBe('src/⋯');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+
+    // Back to the tree, with the open file still where it was.
+    expect(screen.getByTitle('Expand folder')).toBeTruthy();
+    expect(screen.queryByText('Size')).toBeNull();
+    expect(code.contains(screen.getByText(FILE_BODY))).toBe(true);
+  });
+
+  it('opens a folder in the list, keeps the scope visible, and creates in it', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'src/' }));
+
+    // The breadcrumb names the folder being listed: the root, then the one we opened.
+    const crumbs = await screen.findByRole('navigation', { name: 'Folder' });
+    expect(within(crumbs).getByRole('button', { name: 'root' })).toBeTruthy();
+    expect(within(crumbs).getByText('src').getAttribute('aria-current')).toBe('true');
+
+    // New file and upload target the folder being shown, not the root.
+    create('notes.md');
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('file notes.md created in src');
+    });
+
+    // Up through the breadcrumb — and the folder we opened stays open, because
+    // entering it is not the same click as expanding it.
+    fireEvent.click(within(crumbs).getByRole('button', { name: 'root' }));
+    expect(within(crumbs).getByText('root').getAttribute('aria-current')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }));
+    expect(screen.getByTitle('Collapse folder')).toBeTruthy();
+  });
+
+  it('addresses a flat row by the folder being listed', async () => {
+    const { calls } = stubFiles();
+    renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'src/' }));
+
+    // The row menu is the same one the tree rows carry, over a path joined to
+    // the folder on screen rather than to the root.
+    fireEvent.click(await screen.findByRole('button', { name: 'Actions for README.md' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'GUIDE.md' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() => {
+      expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['src/README.md']);
+    });
   });
 });
 

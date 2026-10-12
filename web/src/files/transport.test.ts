@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   contentUrl,
   createEntry,
+  downloadUrl,
   fetchContent,
   fetchEntries,
   filesUrl,
@@ -52,6 +53,12 @@ describe('URLs', () => {
 
   it('builds the save endpoint under the same files scope', () => {
     expect(saveUrl('p', 'a.txt')).toBe('/api/projects/p/files/save?path=a.txt');
+  });
+
+  it('builds the download endpoint the browser is pointed at directly', () => {
+    expect(downloadUrl('p', 'sub dir/تست.md')).toBe(
+      '/api/projects/p/files/download?path=sub%20dir%2F%D8%AA%D8%B3%D8%AA.md',
+    );
   });
 });
 

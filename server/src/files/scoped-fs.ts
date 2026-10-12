@@ -1,4 +1,5 @@
 import type { Dirent, Stats } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -11,6 +12,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 
 import type { FileContent, FileEntry } from '@clodeck/shared';
 
@@ -82,6 +84,12 @@ export interface ScopedFs {
   listDir(dir: ScopedPath): Promise<FileEntry[]>;
   /** Read one file (already resolved), capped and binary-aware. */
   readFile(file: ScopedPath): Promise<FileContent>;
+  /**
+   * Stream one file (already resolved) byte for byte — the download route's
+   * read, which is not `readFile`: no cap, no truncation and nothing buffered,
+   * because the point of it is to hand back the file exactly as it is on disk.
+   */
+  readStream(file: ScopedPath): Readable;
   /**
    * Validate a client-supplied relative path as a *write target* and mint the
    * only `WriteTarget` there is. `resolveWriteTarget` is the write door: it
@@ -161,6 +169,13 @@ export function createScopedFs(projectPath: string): ScopedFs {
     } finally {
       await handle.close();
     }
+  }
+
+  function readStream(file: ScopedPath): Readable {
+    // `resolve` returned a realpath, so every segment including the last has
+    // already been followed and checked: there is no symlink left at this path
+    // for the stream to escape through.
+    return createReadStream(file);
   }
 
   async function resolveWriteTarget(rel: string): Promise<WriteTargetResult> {
@@ -247,7 +262,18 @@ export function createScopedFs(projectPath: string): ScopedFs {
     return { status: 'ok' };
   }
 
-  return { resolve, listDir, readFile, resolveWriteTarget, createFile, createDirectory, overwriteFile, rename, remove };
+  return {
+    resolve,
+    listDir,
+    readFile,
+    readStream,
+    resolveWriteTarget,
+    createFile,
+    createDirectory,
+    overwriteFile,
+    rename,
+    remove,
+  };
 }
 
 /**

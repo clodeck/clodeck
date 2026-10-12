@@ -65,6 +65,13 @@ export type { FileViewer, PreviewState } from './reducer';
 export interface FileViewerActions {
   /** Expand/collapse a folder in place (lazy-loads its listing on first open). */
   toggle(path: string): void;
+  /**
+   * Show a folder: make it the active one and load its listing, leaving it
+   * expanded rather than toggling it. The flat list's folder rows use this, and
+   * so does its breadcrumb — neither has an "expanded" state to flip, and a
+   * folder that was already open must not close on the click that enters it.
+   */
+  openDir(path: string): void;
   /** Read a file into the preview. */
   preview(path: string): void;
   /** Re-list the root and every expanded folder. */
@@ -165,15 +172,31 @@ export function useFiles(project: Project): FileViewerController {
     );
   }, [project.id]);
 
-  const toggle = useCallback(
+  /** Fetch a folder's listing unless it is already loaded (a re-expand reuses it). */
+  const ensureLoaded = useCallback(
     (path: string): void => {
       const current = treeRef.current;
-      const willExpand = !(current.status === 'ready' && current.expanded[path] === true);
-      setTree((t) => withActive(withExpanded(t, path, willExpand), path));
-      // Lazy-load on first expand; a collapse + re-expand reuses the cached listing.
-      if (willExpand && !(current.status === 'ready' && path in current.dirs)) void loadDir(path);
+      if (current.status === 'ready' && path in current.dirs) return;
+      void loadDir(path);
     },
     [loadDir],
+  );
+
+  const toggle = useCallback(
+    (path: string): void => {
+      const willExpand = !(treeRef.current.status === 'ready' && treeRef.current.expanded[path] === true);
+      setTree((t) => withActive(withExpanded(t, path, willExpand), path));
+      if (willExpand) ensureLoaded(path);
+    },
+    [ensureLoaded],
+  );
+
+  const openDir = useCallback(
+    (path: string): void => {
+      setTree((t) => withActive(withExpanded(t, path, true), path));
+      ensureLoaded(path);
+    },
+    [ensureLoaded],
   );
 
   const refresh = useCallback((): void => {
@@ -320,7 +343,7 @@ export function useFiles(project: Project): FileViewerController {
 
   return {
     viewer,
-    actions: { toggle, preview, refresh, create, rename, remove, upload, edit, editValue, save, cancel, dismiss },
+    actions: { toggle, openDir, preview, refresh, create, rename, remove, upload, edit, editValue, save, cancel, dismiss },
   };
 }
 

@@ -104,6 +104,7 @@ export type ResolveResult =
   - `directory` → `{ type:'directory', name }`
   - symlink → `resolve`-e child; inside-root va dir/file → hamun kind; escape/broken → `{ type:'symlink', name }` (non-navigable). Sort: directory-ha ghabl, ba'd name asc (ruh-e `compareEntries`).
 - **`readFile(file)`**: `stat` baray-e size; `read`-e avvalin `MAX_TEXT_BYTES` (256 KiB). Binary: NUL dar window ya `TextDecoder('utf-8', { fatal: true })` fail → `{ kind:'binary', size }`. Vagarna `{ kind:'text', content, truncated: size > MAX_TEXT_BYTES, size }`. Hich file-i kamel load nemishe.
+- **`readStream(file)`** (ticket **42**): `createReadStream` roye hamun `ScopedPath`-e resolve-shode — byte-ha-ye kamel, bedune cap va bedune buffer-e kamel dar memory. In `readFile` nist: download route be in niyaz darad, chon window-e truncated-e text ya `binary`-e bedune-content baraye save-kardan-e file-e dorost kafi nist. Chon `resolve` realpath karde, hich symlink-i dar in path namoonde ke stream azash farar kone.
 
 ### The writer — write half (same module)
 
@@ -174,7 +175,7 @@ export type FileContent =
 ### Web client
 
 - Hich dependency-e jadid-e web lazem nist (tree/preview + prompt/confirm ba React + Tailwind-e mojood). Upload = `<input type="file">` (picker) + drag-drop roye drawer; `fetch` ba body-e raw.
-- `FilePanel` be ja-ye `Stub title="Files"` dar `App.tsx` (hamoon cell; **keyed by project id**). Toolbar: New File, New Folder, Upload, Refresh. Har row ye ⋯ menu: Rename, Delete (confirm modal; folder-delete warning). Directory click = descend; file click = preview.
+- `FilePanel` be ja-ye `Stub title="Files"` dar `App.tsx` (hamoon cell; **keyed by project id**). Toolbar: New File, New Folder, Upload, Refresh, **`List ⇄ Tree`** (ticket **41**: flat list-e *hamin folder*, na kol-e project — har request yek directory ast va recursive route nist; toggle faghat render ast, pas file-e baz va folder-e jari mimoonand). Har row ye ⋯ menu: Rename, Delete (confirm modal; folder-delete warning). File click = preview; folder click dar tree = expand, dar flat list = vared shodan (`openDir`). Code head: path + **Download** (42, anchor be route-e download) + **`Preview ⇄ Source`** baraye markdown (43, pane state, az source shoroo mishavad) + read-only⇄writable.
 - `useFiles(project): { viewer: FileViewer; actions: FileViewerActions }` — seam-e data, be shekl-e `useChat`/`useTerminal`. State union-e discriminated (view) + ye record-e actions (mutations):
 
 ```ts
@@ -204,6 +205,7 @@ export interface FileViewerActions {
 
 - `path` **relative** string ast ('' = root); na absolute path client negah midarad, na decode-e id. Har mutation dar akhar **re-list** mikone (refresh-e jari), va failure ro be surface-e error map mikone (409/413/400).
 - **Renderer exhaustive:** `switch (entry.type)` va `switch (preview.kind)` ba `default: never`. File content faghat be shekl-e `<pre>{content}</pre>` (React text node) render mishe — **hich** `innerHTML`/`dangerouslySetInnerHTML` (bytes-e file untrusted ast). Symlink-e escape disabled (non-navigable). No pagination (lazy per-directory).
+- **Be-rooz-e 2026-10-12:** block-e `FileViewer`/`PreviewState`/`FileViewerActions` bala nemune-ye **avalie**-ye ticket 20 ast va az ticket 36 be in taraf digar daghigh nist: tree jay-e `open`/`up` (breadcrumb-e descend/ascend) ra gereft — alan `dirs`/`expanded`/`active` ba `toggle(path)` va `openDir(path)` (ticket **41**: flat list ke folder ra *vared* mishavad, na expand) —, `upload` yek batch-e kamel ast (39), `edit`/`editValue`/`save`/`cancel`/`dismiss` (22) ezafe shodand, va markdown `Preview ⇄ Source` (ticket **43**) **panel state**-e, na action-e in seam. **Manba-e haghighat `web/src/files/useFiles.ts` ast**, na block-e bala.
 
 ## Testing Decisions
 

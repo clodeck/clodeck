@@ -30,6 +30,16 @@ export function saveUrl(projectId: string, path: string): string {
   return `${BASE}/${encodeURIComponent(projectId)}/files/save?path=${encodeURIComponent(path)}`;
 }
 
+/**
+ * `GET /files/download` — the file's bytes as they are on disk. There is no
+ * `fetch` wrapper beside it on purpose: the download is an `<a download>` the
+ * browser follows itself, so the response never passes through this process (and
+ * a large file is not held in memory twice).
+ */
+export function downloadUrl(projectId: string, path: string): string {
+  return `${BASE}/${encodeURIComponent(projectId)}/files/download?path=${encodeURIComponent(path)}`;
+}
+
 /** `GET /files` — one directory's entries. */
 export async function fetchEntries(projectId: string, path: string, signal?: AbortSignal): Promise<FileEntry[]> {
   const response = await fetch(filesUrl(projectId, path), { signal, headers: { accept: 'application/json' } });
