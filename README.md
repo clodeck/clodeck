@@ -1,9 +1,9 @@
 # Clodeck
 
 Remote browser access to Claude Code across multiple project directories: a chat UI over the
-[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), one session per project, with
-a terminal and a file drawer alongside. One user, one dedicated server that also hosts the project
-folders.
+[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), one session per project — the
+chat takes the stage, and the shell and the file viewer share one bottom drawer summoned from the
+rail. One user, one dedicated server that also hosts the project folders.
 
 **Status: the MVP's four surfaces are built.** Project discovery, `GET /api/projects` and the project
 switcher work end to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at
