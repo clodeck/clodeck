@@ -145,7 +145,10 @@ export type WriteResult =
   - `POST /api/projects/:id/files?path=<rel>` body `{ kind: 'file' | 'directory' }` → create (empty file / folder). `resolveWriteTarget` → map; `createFile(target, empty)` / `createDirectory(target)` → `WriteResult`. `ok` → `201`, `exists` → `409`, `symlink` → `400`.
   - `POST /api/projects/:id/files/rename?path=<rel>` body `{ to: string }` → `name(to)` null → `400`; `rename(target, newName)` → `200` / `404` (`not_found`).
   - `DELETE /api/projects/:id/files?path=<rel>` → `remove(target)` → `200` / `404`. (No body; confirmation client-side ast.)
-  - `PUT /api/projects/:id/files/content?path=<rel>` raw body (octet-stream) → `createFile(target, body)` → `201` / `409` / `400`. Body cap `MAX_UPLOAD_BYTES = 200 MiB` (decision 03 default) via route `bodyLimit` → Fastify `413`. Upload = create, na overwrite (overwrite ba'd az editable-toggle miad).
+  - `PUT /api/projects/:id/files/content?path=<rel>` raw body (octet-stream) → `createFile(target, body)` → `201` / `409` / `400`. Body cap `MAX_UPLOAD_BYTES = 200 MiB` (decision 03 default) via route `bodyLimit` → Fastify `413`. Upload = create, na overwrite (the deliberate overwrite is the save route's, `POST /files/save` — ticket **22**).
+- **The two routes the promoted scope adds** — decision **D3** (2026-10-12) brought the rest of decision 03's file actions into MVP; these two need server routes, so they are named here for the inventory and pinned by their own tickets. Neither touches the `buildApp` seam or `protocol.ts`.
+  - `GET /api/projects/:id/files/download?path=<rel>` — streams the file's raw bytes with an attachment disposition (`filename` escaped so a non-ASCII name survives). Guards are the read side's exactly: the same syntax check, the same `realpath` containment, an escaping symlink not served, a directory or the root refused. No truncation and no upload cap — a download is not an upload. Ticket **42**.
+  - `POST /api/projects/:id/files/move?path=<rel>` body `{ to: <destination directory, relative> }` — cross-directory move; `rename` keeps its same-directory job. Both ends re-validated by containment, the destination an existing directory inside the root, no symlink in either final segment, neither end the project root, and no overwrite at the destination (the save route stays the one deliberate overwrite). Ticket **44**.
 - **`relPath` (boundary-e syntax, ghabl az reader)**: hame-ye route-ha — read va write — `path` ro az in check rad mikonan: bayad relative bashad (na absolute, na drive-letter), hich segment-e `.`/`..`/empty/NUL nadare. Baray-e writes `resolveWriteTarget` + `name()` ham dobare check mikonan (chon `path` split mishe va basename az `name()` rad mishe), amma digar tanha check-e write nistand. In check gheyre-tekfar ast — qavi-tarin check containment-e `realpath` ast; syntax-check 400-e zoodtar mide.
 - **Status-code discipline:** syntax/kind-e ghalat → `400`; unknown project / outside-root / not-found → `404` (leak nakon); exists → `409`; create → `201`; rename/delete → `200`. Error body = `{ error: string }` (ye envelope, mesl-e `sessions.ts`/`transport.ts`).
 
@@ -215,9 +218,17 @@ export interface FileViewerActions {
 
 ## Out of Scope
 
-- **Move (drag-move)** — decision 03 file op ast, amma dar in slice nist (REST `rename` hamun-directory ast; cross-directory move ba'd miad).
-- **Download** (Blob download), **Markdown preview** (Preview⇄Source), **Editable toggle** (read-only chip → textarea + save) — file-actions-e decision 03, ba'd az MVP. "Live file editing" hanooz out-of-MVP-e `AGENTS.md` ast; in slice file/dir **lifecycle** ast (create/rename/delete/upload), na content-editing.
-- **Tree⇄list toggle**, **metadata columns (permissions)** — drawer chrome-e decision 03, out of MVP. (`size`/`mtime`-e `FileEntry` hanooz hastand.)
+In section ghablan panj file-action-e decision 03 ro aghab mindakht. Decision **D3** (2026-10-12) hame-ye
+in panj ta ro be MVP bord, pas alan **in-scope**-and va inja faghat baraye sabt-e manba-e-haghighat
+miyan, na baraye defer: **Move (drag-move)** → ticket **44**, **Download** → **42**, **Markdown
+preview** ba `Preview ⇄ Source` toggle → **43**, **Tree⇄list toggle** → **41**, va **`size · modified`
+metadata** roye file row-ha → **40**. **Content editing — editable toggle + save — ham dar MVP ast va
+ship shode** (ticket **22**), pas khatt-e "ba'd az MVP"-e qabli digar inja nist.
+
+Non-goal-hayi ke baghi mimoonan:
+
+- **Permissions column** — server hich permission-i report nemikone va ye column-e permission baraye ye
+  drawer-e remote-e single-user noise ast. Metadata-e promoted faghat `size` · `modified` ast.
 - Auth (wayfinder 07) — in slice unauthenticated ast; route-ha zire `/api`-scope-and pas principal-aware hook-e ayande khodkar ghablashun miyafte. `HOST` loopback mimoonad.
 - Git explorer, plugins, browser-use, model picker — out-of-MVP-e `AGENTS.md`.
 - Pagination/lazy-deep-load baray-e dir-haye bozorg (MVP lazy per-directory); file watching (refresh dasti ast); configurable upload cap (constant-e `MAX_UPLOAD_BYTES` = 200 MiB, config ba'd).
@@ -226,7 +237,7 @@ export interface FileViewerActions {
 
 - In slice **faghat ye module + route** ezafe mikone — na dobare-tarhi, na `buildApp`-signature change, na seam-e jadid-e injected. `protocol.ts` frozen mimoonad; `files.ts`-e `shared` sibling-e `session.ts`-e.
 - Ticket-ha az **`15`** edame mikonand (01–14 estefade shode). Split-e tabi'i (baraye `/to-tickets`): (15) shared file types (`files.ts` + re-export); (16) `ScopedFs` read half (branded `ScopedPath`, `resolve`/`listDir`/`readFile`, binary/truncation) + unit tests; (17) REST read routes (`GET /files`, `/files/content`) + inject() tests; (18) `ScopedFs` write half (branded `FileName`, `WriteTarget`, create/rename/remove, symlink/root guards) + unit tests; (19) REST write routes (`POST`, `rename`, `DELETE`, `PUT content`) + inject() tests; (20) web `useFiles` + `FilePanel` (toolbar + tree + preview + ⋯ menu + confirm), ja-y-e `Files` stub.
-- `App.tsx`: `<Stub title="Files" note="The read-only file viewer lands in a later slice." />` dar cell-e paiin-e rast — hamoon ja ke `TerminalPanel` ghable shod. `FilePanel` bayad keyed by project bashe ta path/preview/expanded-e project-e ghabl be ba'd narenjad.
+- `App.tsx`: `FilePanel` dar hamin cell-i neshast ke `TerminalPanel` ghablash bood (ja-y-e `Stub`-e Files), keyed by project, ta path/preview/expanded-e project-e ghabl be ba'd narenjad. **Be-rooz-e 2026-10-12 (ticket 32):** in do panel digar column-e sabet-e rast nistand — ticket **35** (Variant A) hardo be yek bottom drawer-e summonable mibare, pas in jomle digar ja-gozin-e layout nist.
 - Symlink-resolution dar Windows elevation/junction mikhahad — test-e escape `skipIf(win32)`; reader dar production be `realpath`-e node tavakkol darad (junction ham resolve mishe), behavior consistent ast.
 - Upload cap = `MAX_UPLOAD_BYTES` (200 MiB, decision 03 default) dar module-e route (`bodyLimit`). Env/config-e poro-khod ba'd.
 
@@ -248,6 +259,6 @@ The slice was reviewed on the integration branch along two axes (Standards, Spec
 - **Sharing the `notFound` envelope with `sessions.ts`.** The terminal slice's review already declined this for the same reason: a per-module envelope, no cross-module coupling.
 - **A failed preview read collapsing the viewer into its `error` arm and dropping the listing** (`web/src/files/useFiles.ts`). The pinned `PreviewState` union has no error arm and the spec pins all four arms, so the viewer's `error` arm is the only place a preview failure can be surfaced; Refresh/Retry recovers and the current path is preserved. A fifth arm would change a spec-pinned wire shape without the spec's say-so.
 - **Dropping the client-side `sortEntries` re-sort.** The server already sorts, but user story 13 only pins "directories before files, sorted by name" and leaves a symlink's position unspecified, so the client's defensive re-sort (which groups symlinks with files) is not a contradiction — and the panel must not depend on the server's sort order.
-- **`AGENTS.md`'s MVP bullet said "read-only file viewer"** while this slice adds confirmed create/rename/delete/upload. **Resolved by the user on 2026-10-11:** `AGENTS.md` now reads "file drawer (scoped read + write: new file, new folder, rename, delete, upload)", spells out the root-scoping posture, and keeps *content* editing (the editable toggle, save, markdown preview) out of MVP — so the two documents agree.
+- **`AGENTS.md`'s MVP bullet said "read-only file viewer"** while this slice adds confirmed create/rename/delete/upload. **Resolved by the user on 2026-10-11:** `AGENTS.md` now reads "file drawer (scoped read + write: new file, new folder, rename, delete, upload)", spells out the root-scoping posture, and keeps *content* editing (the editable toggle, save, markdown preview) out of MVP — so the two documents agree. **Superseded 2026-10-12 (ticket 32):** the editable toggle shipped (ticket 22) and decision D3 promoted markdown preview with the rest of that list into MVP, so the last clause is no longer true; both documents now carry those items.
 
 The Spec axis found no scope creep, and the status codes match the spec route-by-route.
