@@ -35,6 +35,7 @@ import {
   createEntry,
   fetchContent,
   fetchEntries,
+  moveEntry,
   removeEntry,
   renameEntry,
   saveContent,
@@ -80,6 +81,13 @@ export interface FileViewerActions {
   create(kind: 'file' | 'directory', name: string): Promise<void>;
   /** Rename the entry at `path` to the bare name `to`. */
   rename(path: string, to: string): Promise<void>;
+  /**
+   * Move the entry at `path` into the directory `dest` (`''` is the root),
+   * keeping its name. Both directories involved are re-listed, and the
+   * destination is left open — dropping something into a folder is meant to show
+   * it arriving.
+   */
+  move(path: string, dest: string): Promise<void>;
   /** Delete the entry at `path` (the panel confirms first). */
   remove(path: string): Promise<void>;
   /**
@@ -311,6 +319,29 @@ export function useFiles(project: Project): FileViewerController {
     [project.id, runMutation],
   );
 
+  const move = useCallback(
+    async (path: string, dest: string): Promise<void> => {
+      await moveEntry(project.id, path, dest);
+      // Both ends changed: the folder it left loses a row, the one it landed in
+      // gains one — and that second folder is opened, because the point of
+      // dropping something into a folder is seeing it arrive.
+      void loadDir(parentPath(path));
+      settle(dest);
+
+      // The open file follows itself — the bytes did not change, only where they
+      // live — and so does a file inside a folder that just moved, because the
+      // whole subtree moved with it. A stale path would otherwise keep showing
+      // the file under a name that is no longer there.
+      const previewed = previewPath(previewRef.current);
+      if (previewed === path) {
+        preview(joinPath(dest, baseName(path)));
+      } else if (previewed !== null && previewed.startsWith(`${path}/`)) {
+        preview(joinPath(dest, previewed.slice(path.length + 1)));
+      }
+    },
+    [project.id, loadDir, settle, preview],
+  );
+
   const edit = useCallback((): void => {
     setPreview((current) => beginEdit(current));
   }, []);
@@ -343,7 +374,7 @@ export function useFiles(project: Project): FileViewerController {
 
   return {
     viewer,
-    actions: { toggle, openDir, preview, refresh, create, rename, remove, upload, edit, editValue, save, cancel, dismiss },
+    actions: { toggle, openDir, preview, refresh, create, rename, move, remove, upload, edit, editValue, save, cancel, dismiss },
   };
 }
 

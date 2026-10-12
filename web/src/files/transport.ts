@@ -30,6 +30,10 @@ export function saveUrl(projectId: string, path: string): string {
   return `${BASE}/${encodeURIComponent(projectId)}/files/save?path=${encodeURIComponent(path)}`;
 }
 
+export function moveUrl(projectId: string, path: string): string {
+  return `${BASE}/${encodeURIComponent(projectId)}/files/move?path=${encodeURIComponent(path)}`;
+}
+
 /**
  * `GET /files/download` — the file's bytes as they are on disk. There is no
  * `fetch` wrapper beside it on purpose: the download is an `<a download>` the
@@ -73,6 +77,20 @@ export async function createEntry(projectId: string, path: string, kind: 'file' 
 /** `POST /files/rename` — rename in place, `to` a bare new name. */
 export async function renameEntry(projectId: string, path: string, to: string): Promise<void> {
   const response = await fetch(renameUrl(projectId, path), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ to }),
+  });
+  if (!response.ok) throw new Error(await failureMessage(response));
+}
+
+/**
+ * `POST /files/move` — the entry at `path` into the directory `to` (`''` is the
+ * root), keeping its name. Unlike a rename's `to`, this one is a path: the
+ * server runs it through the same syntax check everything else's does.
+ */
+export async function moveEntry(projectId: string, path: string, to: string): Promise<void> {
+  const response = await fetch(moveUrl(projectId, path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ to }),

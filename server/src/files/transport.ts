@@ -3,13 +3,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
 
 import type { ProjectDiscovery } from '../discovery.js';
-import { createScopedFs, name, type ResolveResult, type ScopedFs, type ScopedPath, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
+import { createScopedFs, name, type MoveResult, type ResolveResult, type ScopedFs, type ScopedPath, type WriteResult, type WriteTargetResult } from './scoped-fs.js';
 
 /**
  * The file-drawer REST surface (spec-04 §"REST routes"): directory listing and
- * file content as read-only GETs, plus the write half — create, rename, delete,
- * a raw upload, and a save (the one deliberate overwrite of an existing file) —
- * registered into the app's own `/api` scope so they sit behind the same
+ * file content as read-only GETs, plus the write half — create, rename, move,
+ * delete, a raw upload, and a save (the one deliberate overwrite of an existing
+ * file) — registered into the app's own `/api` scope so they sit behind the same
  * (future) auth hook as sessions and terminal-size.
  *
  * One door opens every route. `:id` re-enters `resolveProject` (the only place
@@ -119,6 +119,36 @@ export function registerFileRoutes(
     },
   );
 
+  /**
+   * The cross-directory move (ticket 44). `rename` keeps its same-directory job:
+   * its `to` is a bare name, while this one's `to` is a *directory path*, so it
+   * passes the same relative-path syntax check `?path=` does rather than
+   * `name()`. The two ends go through the doors that own them — the source
+   * through the write door, the destination through the reader's, where an
+   * escaping symlink or a missing folder is the same 404 everything else gets.
+   */
+  api.post<{ Params: { id: string }; Body: unknown }>(
+    '/projects/:id/files/move',
+    async (request, reply) => {
+      const opened = await openProject(request, reply, options);
+      if (opened === null) return reply;
+      const { files, rel } = opened;
+
+      const to = readTo(request.body);
+      if (to === null || !isRelative(to)) {
+        return reply.code(400).send({ error: 'to must be a relative directory path' });
+      }
+
+      const source = await files.resolveWriteTarget(rel);
+      if (source.status !== 'ok') return targetFailed(reply, source.status);
+
+      const destination = await files.resolve(to);
+      if (destination.status !== 'ok') return missing(reply);
+
+      return moveOutcome(reply, await files.move(source.target, destination.scoped));
+    },
+  );
+
   api.delete<{ Params: { id: string } }>('/projects/:id/files', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
@@ -202,13 +232,9 @@ async function openProject(
 
 /**
  * The client-supplied relative path, or `null` when it is not a plain relative
- * path. This one check fronts *every* file route, read and write alike: omitted
- * and empty both mean the project root (`''`); separators are `/`; a `\`, a
- * `..`/`.`/empty segment, an absolute path, a drive letter, or a NUL is a
- * rejection — a 400 *before* the reader is consulted. A write still re-checks
- * its basename through `resolveWriteTarget` + `name`, but that is no longer its
- * only check. This is not the security boundary (that is realpath containment
- * in `ScopedFs.resolve`); it is a cheap early refusal.
+ * path. This one check fronts *every* file route, read and write alike, and the
+ * move's destination too — which is a path rather than a name. The syntax it
+ * enforces lives in {@link isRelative}.
  */
 function relPath(request: FastifyRequest): string | null {
   const query: unknown = request.query;
@@ -216,15 +242,23 @@ function relPath(request: FastifyRequest): string | null {
   const value = (query as Record<string, unknown>)['path'];
   if (value === undefined) return '';
   if (typeof value !== 'string') return null;
+  return isRelative(value) ? value : null;
+}
 
-  if (value === '') return '';
-  if (value.includes('\0')) return null;
-  if (path.isAbsolute(value)) return null;
-  if (/^[A-Za-z]:/.test(value)) return null;
-  if (!value.split(/[\\/]/).every((segment) => segment !== '' && segment !== '.' && segment !== '..')) {
-    return null;
-  }
-  return value;
+/**
+ * Whether a string is a plain relative path: empty means the project root, the
+ * separator is `/`, and a `\`, a `..`/`.`/empty segment, an absolute path, a
+ * drive letter, or a NUL is not one. A write still re-checks its basename
+ * through `resolveWriteTarget` + `name`, but that is no longer its only check.
+ * This is not the security boundary (that is realpath containment in
+ * `ScopedFs.resolve`); it is a cheap early refusal.
+ */
+function isRelative(value: string): boolean {
+  if (value === '') return true;
+  if (value.includes('\0')) return false;
+  if (path.isAbsolute(value)) return false;
+  if (/^[A-Za-z]:/.test(value)) return false;
+  return value.split(/[\\/]/).every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
 /**
@@ -331,6 +365,29 @@ function writeOutcome(reply: FastifyReply, result: WriteResult, okCode: 200 | 20
       return reply.code(400).send({ error: 'target is not a regular file' });
     case 'not_found':
       return missing(reply);
+  }
+}
+
+/**
+ * Map a `MoveResult` to a status code. The arms a move shares with every other
+ * write (`ok`/`exists`/`not_found`/`symlink`) keep their meaning and their codes;
+ * the three of its own are refusals about the destination — an entry already
+ * there or already-home is a 409 (the request conflicts with what is on disk),
+ * and a destination that is not a directory or is inside the source is a 400.
+ */
+function moveOutcome(reply: FastifyReply, result: MoveResult): FastifyReply {
+  switch (result.status) {
+    case 'same_directory':
+      return reply.code(409).send({ error: 'the entry is already in that directory' });
+    case 'into_own_descendant':
+      return reply.code(400).send({ error: 'a directory cannot be moved into itself' });
+    case 'not_a_directory':
+      return reply.code(400).send({ error: 'the destination is not a directory' });
+    case 'ok':
+    case 'exists':
+    case 'not_found':
+    case 'symlink':
+      return writeOutcome(reply, result, 200);
   }
 }
 

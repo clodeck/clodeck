@@ -72,6 +72,21 @@ export type WriteResult =
   | { status: 'symlink' } // create through a symlink in the final segment
   | { status: 'not_a_file' }; // overwrite onto something that is not a regular file
 
+/**
+ * The outcome of a {@link ScopedFs.move}. It is its own union rather than more
+ * arms on {@link WriteResult}: a move has two refusals no other write can
+ * produce — the entry is already there, and the destination is inside the entry
+ * — and every other write op would carry arms that can never fire for it.
+ */
+export type MoveResult =
+  | { status: 'ok' }
+  | { status: 'not_found' } // the source, or the destination directory, is gone
+  | { status: 'symlink' } // a symlink in the source's final segment
+  | { status: 'exists' } // a name is already at the destination — never overwritten
+  | { status: 'not_a_directory' } // the destination is a file
+  | { status: 'same_directory' } // the entry already lives there: a no-op, refused
+  | { status: 'into_own_descendant' }; // a folder into itself, or into its own subtree
+
 export interface ScopedFs {
   /**
    * Validate a client-supplied relative path against the project root and mint
@@ -108,6 +123,14 @@ export interface ScopedFs {
   overwriteFile(target: WriteTarget, content: Buffer): Promise<WriteResult>;
   /** Rename the target entry within its own directory (the entry itself, never a symlink's target). */
   rename(target: WriteTarget, newName: FileName): Promise<WriteResult>;
+  /**
+   * Move the target entry into another directory under its own name — the
+   * cross-directory half `rename` deliberately leaves alone. The destination
+   * arrives through `resolve` like any other path, so it is inside the root and
+   * real; its *kind* is re-checked here, because "resolved inside the root" says
+   * nothing about whether there is a directory to move into.
+   */
+  move(source: WriteTarget, destDir: ScopedPath): Promise<MoveResult>;
   /** Remove the target entry (a symlink is removed as the link, never followed). */
   remove(target: WriteTarget): Promise<WriteResult>;
 }
@@ -251,6 +274,38 @@ export function createScopedFs(projectPath: string): ScopedFs {
     return { status: 'ok' };
   }
 
+  async function move(source: WriteTarget, destDir: ScopedPath): Promise<MoveResult> {
+    const from = path.join(source.parent, source.name);
+    const entry = await lstatOrNull(from);
+    if (entry === null) return { status: 'not_found' };
+    if (entry.isSymbolicLink()) return { status: 'symlink' };
+
+    // The destination is `resolve`'s answer, so it exists and is inside the root;
+    // what is left to check is that it is a directory and not a file.
+    const destination = await kindOf(destDir);
+    if (destination === null) return { status: 'not_found' };
+    if (destination !== 'directory') return { status: 'not_a_directory' };
+
+    // Both sides are canonical by now (`resolve` realpath'd the destination, and
+    // `resolveWriteTarget` realpath'd the source's parent), so "the same folder"
+    // is a string comparison and "inside it" is the containment rule the root
+    // check already uses — no symlink can hide a subtree behind either test.
+    if (from === path.join(destDir, source.name)) return { status: 'same_directory' };
+    if (entry.isDirectory() && isInsideRoot(from, destDir)) return { status: 'into_own_descendant' };
+
+    const to = path.join(destDir, source.name);
+    // A move never overwrites — the same posture as `createFile` (the save route
+    // stays the app's one deliberate overwrite) — and an existing entry at the
+    // name is a refusal whether it is a file, a directory or a link.
+    if ((await lstatOrNull(to)) !== null) return { status: 'exists' };
+
+    // `rename(2)`, as `rename` uses it: both parents are realpath'd and the
+    // destination's final segment was just found empty, so this follows no link
+    // and clobbers nothing.
+    await renameFile(from, to);
+    return { status: 'ok' };
+  }
+
   async function remove(target: WriteTarget): Promise<WriteResult> {
     const full = path.join(target.parent, target.name);
     const existing = await lstatOrNull(full);
@@ -272,6 +327,7 @@ export function createScopedFs(projectPath: string): ScopedFs {
     createDirectory,
     overwriteFile,
     rename,
+    move,
     remove,
   };
 }
