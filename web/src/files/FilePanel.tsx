@@ -1,6 +1,7 @@
 import type { FileEntry, Project } from '@clodeck/shared';
 import { useRef, useState, type ChangeEvent, type DragEvent, type ReactElement, type ReactNode } from 'react';
 
+import { useToast } from '../toast/ToastProvider';
 import { assertNever, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
 
@@ -40,17 +41,29 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [menu, setMenu] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const toast = useToast();
 
+  // The folder create/upload land in, exactly as the hook computes it: `''` is
+  // the root, and the toast below names it rather than saying "in root".
+  const activeDir = viewer.status === 'ready' ? viewer.active : '';
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
   // The code column's state, which is `none` until a file is opened and whenever
   // the tree itself has nothing to show.
   const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
 
   const uploadFiles = (files: readonly File[]): void => {
+    // A single file is named; a batch's one honest summary is ticket 39's, and
+    // until it lands a batch reports nothing rather than a flurry of overwrites.
+    const single = files.length === 1;
     for (const file of files) {
-      void actions.upload(file).catch((error: unknown) => {
-        setNotice(messageOf(error));
-      });
+      void actions.upload(file).then(
+        () => {
+          if (single) toast(`uploaded ${file.name}`);
+        },
+        (error: unknown) => {
+          setNotice(messageOf(error));
+        },
+      );
     }
   };
 
@@ -69,8 +82,16 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const submitPrompt = async (name: string): Promise<void> => {
     if (prompt === null) return;
     try {
-      if (prompt.mode === 'rename') await actions.rename(prompt.path, name);
-      else await actions.create(prompt.mode === 'create-file' ? 'file' : 'directory', name);
+      if (prompt.mode === 'rename') {
+        await actions.rename(prompt.path, name);
+        toast(`renamed to ${name}`);
+      } else {
+        const kind = prompt.mode === 'create-file' ? 'file' : 'folder';
+        await actions.create(prompt.mode === 'create-file' ? 'file' : 'directory', name);
+        // The prototype's vocabulary, including its silence about the root: a
+        // bare `file x created` already says the whole of it.
+        toast(`${kind} ${name} created${activeDir === '' ? '' : ` in ${activeDir}`}`);
+      }
       setPrompt(null);
       setPromptError(null);
     } catch (error) {
@@ -82,6 +103,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     if (confirm === null) return;
     try {
       await actions.remove(confirm.path);
+      toast(`deleted ${confirm.name}`);
       setConfirm(null);
       setConfirmError(null);
     } catch (error) {
