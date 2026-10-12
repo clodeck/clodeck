@@ -19,13 +19,28 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 /** How long a message stays up (the prototype's 2200ms). */
 const TOAST_MS = 2200;
 
-/** Say that something took effect. The newest message wins. */
-export type Toast = (message: string) => void;
+/**
+ * Say that something took effect. The newest message wins.
+ *
+ * `detail` is the second line — why part of it did not, for the one caller that
+ * has a reason to give (an upload batch's first failure). It is part of the same
+ * message rather than a second surface, so nothing has to compete for the space
+ * and a reader who looks gets the reason instead of only the count.
+ */
+export type Toast = (message: string, detail?: string) => void;
+
+/** What the surface is showing: the last message, faded out but not unmounted. */
+interface Notice {
+  message: string | null;
+  detail: string | null;
+}
+
+const EMPTY: Notice = { message: null, detail: null };
 
 const ToastContext = createContext<Toast | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }): ReactElement {
-  const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(EMPTY);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -34,18 +49,18 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactEleme
     };
   }, []);
 
-  const toast = useCallback<Toast>((next) => {
-    setMessage(next);
+  const toast = useCallback<Toast>((message, detail) => {
+    setNotice({ message, detail: detail ?? null });
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      setMessage(null);
+      setNotice(EMPTY);
     }, TOAST_MS);
   }, []);
 
   return (
     <ToastContext.Provider value={toast}>
       {children}
-      <ToastSurface message={message} />
+      <ToastSurface notice={notice} />
     </ToastContext.Provider>
   );
 }
@@ -55,16 +70,19 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactEleme
  * so a screen reader is watching it before the message arrives; `role="status"`
  * is the polite half of that contract.
  */
-function ToastSurface({ message }: { message: string | null }): ReactElement {
+function ToastSurface({ notice }: { notice: Notice }): ReactElement {
   return (
     <div
       role="status"
       aria-live="polite"
-      className={`pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-ok/40 bg-panel px-3 py-1 font-mono text-[11px] text-ok shadow-lg transition-opacity duration-150 ${
-        message === null ? 'opacity-0' : 'opacity-100'
+      className={`pointer-events-none fixed bottom-4 left-1/2 z-50 flex max-w-[80vw] -translate-x-1/2 flex-col items-center rounded-lg border border-ok/40 bg-panel px-3 py-1 font-mono text-[11px] text-ok shadow-lg transition-opacity duration-150 ${
+        notice.message === null ? 'opacity-0' : 'opacity-100'
       }`}
     >
-      {message}
+      <span className="max-w-full truncate">{notice.message}</span>
+      {notice.detail !== null && (
+        <span className="max-w-full truncate text-[10px] text-ink-dim">{notice.detail}</span>
+      )}
     </div>
   );
 }

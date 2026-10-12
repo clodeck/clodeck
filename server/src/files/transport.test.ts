@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { FileContent, FileEntry } from '@clodeck/shared';
+import { MAX_UPLOAD_BYTES, type FileContent, type FileEntry } from '@clodeck/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -14,7 +14,6 @@ import {
   removeSandbox,
   type Sandbox,
 } from '../test-support.js';
-import { MAX_UPLOAD_BYTES } from './transport.js';
 
 const win32 = process.platform === 'win32';
 

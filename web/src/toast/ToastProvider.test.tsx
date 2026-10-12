@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +21,9 @@ function Sender(): ReactElement {
       </button>
       <button type="button" onClick={() => { toast('deleted notes.md'); }}>
         second
+      </button>
+      <button type="button" onClick={() => { toast('2 uploaded · 1 failed', '409 Conflict: already exists'); }}>
+        detailed
       </button>
     </>
   );
@@ -61,6 +64,21 @@ describe('the toast surface', () => {
     expect(region.textContent).toBe('deleted notes.md');
     // One surface, not a stack of them.
     expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('carries a detail under the message, and drops it with the next one', async () => {
+    const region = renderProvider();
+
+    fireEvent.click(screen.getByRole('button', { name: 'detailed' }));
+    // Both halves are the message: the count is what happened, the reason is why
+    // part of it did not. Say them together or the reason is swallowed.
+    expect(within(region).getByText('2 uploaded · 1 failed')).toBeTruthy();
+    expect(within(region).getByText('409 Conflict: already exists')).toBeTruthy();
+
+    // A message without a detail takes the last one away with it.
+    fireEvent.click(screen.getByRole('button', { name: 'first' }));
+    expect(within(region).queryByText('409 Conflict: already exists')).toBeNull();
+    expect(region.textContent).toBe('created notes.md');
   });
 
   it('takes the message away on its own after about two seconds', () => {

@@ -7,20 +7,26 @@ client before anything is sent.
 
 **Blocked by:** 36
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Dragging OS files over the file panel shows a drop overlay reading `Drop files to upload · max
+- [x] Dragging OS files over the file panel shows a drop overlay reading `Drop files to upload · max
       200 MB` with the target area highlighted; it clears on drag-leave and on drop. Dragging anything
       that is not an OS file (a tree row being dragged for a move) must not trigger it.
-- [ ] The 200 MiB cap gets **one** home shared by both sides: the constant moves into `@clodeck/shared`
+- [x] The 200 MiB cap gets **one** home shared by both sides: the constant moves into `@clodeck/shared`
       and is imported by the upload route's body limit and by the client's pre-check, so the overlay's
       number and the server's `413` cannot drift.
-- [ ] A file over the cap is rejected in the client without a request being made, and reported the way
+- [x] A file over the cap is rejected in the client without a request being made, and reported the way
       upload failures are reported today (ticket 37's surface is the natural home for it).
-- [ ] The server's `413` stays as the backstop for a request that bypasses the client check; this ticket
+- [x] The server's `413` stays as the backstop for a request that bypasses the client check; this ticket
       removes the round trip, not the guard.
-- [ ] Tests: an oversize file produces no request (transport-level assertion); the route test for `413`
+- [x] Tests: an oversize file produces no request (transport-level assertion); the route test for `413`
       still passes after the constant moves.
+
+**Landed as:** the overlay and the guards are in `web/src/files/FilePanel.tsx` (one drop target on the
+whole panel, `hasOsFiles` as the gate) and `web/src/files/upload.ts` (`exceedsUploadCap`); the constant
+is `MAX_UPLOAD_BYTES`/`MAX_UPLOAD_MB` in `shared/src/files.ts`, imported by `server/src/files/transport.ts`
+and by the client. Driven in a real browser on the installed Chrome: the overlay appears on an OS-file
+drag and clears on drag-leave (`.scratch/clodeck/evidence/38-drop-overlay.png`).
 
 ## Reference
 

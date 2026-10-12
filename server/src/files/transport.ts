@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_BYTES } from '@clodeck/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
 
@@ -18,10 +19,12 @@ import { createScopedFs, name, type ScopedFs, type WriteResult, type WriteTarget
  * still re-checks the basename, but it is no longer the only check a write
  * sees. Either way the real boundary is the reader's realpath containment,
  * which re-validates the joined path regardless.
+ *
+ * The upload cap ({@link MAX_UPLOAD_BYTES}) is imported rather than declared: the
+ * drawer refuses an oversize file before it sends anything, so the number the
+ * client checks and the number these two `bodyLimit`s enforce are one constant —
+ * a `413` here is the backstop for a request that skipped the client.
  */
-
-/** The upload cap (spec-04 §Writes): a raw-body PUT may be at most 200 MiB; larger is a 413. */
-export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export function registerFileRoutes(
   api: FastifyInstance,

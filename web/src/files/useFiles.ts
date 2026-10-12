@@ -40,6 +40,7 @@ import {
   saveContent,
   uploadEntry,
 } from './transport';
+import { exceedsUploadCap, OVER_LIMIT, type UploadOutcome } from './upload';
 
 /**
  * The file drawer's data seam, shaped like `useChat` / `useTerminal`: one
@@ -74,8 +75,16 @@ export interface FileViewerActions {
   rename(path: string, to: string): Promise<void>;
   /** Delete the entry at `path` (the panel confirms first). */
   remove(path: string): Promise<void>;
-  /** Upload `file` into the active folder. */
-  upload(file: File): Promise<void>;
+  /**
+   * Upload a batch into the active folder. The requests are independent — one
+   * bad file does not abort the rest — and the affected directory re-lists
+   * **once** for the whole batch, so a partial failure leaves the listing in its
+   * real state rather than an error state. A file over the cap never becomes a
+   * request: it settles as a failure here. It therefore never *rejects* — it
+   * resolves with one outcome per file, which is what the panel's single summary
+   * is built from.
+   */
+  upload(files: readonly File[]): Promise<UploadOutcome[]>;
   /** Read-only → writable (no-op unless the preview is a text file). */
   edit(): void;
   /** Live editor keystrokes. */
@@ -192,9 +201,11 @@ export function useFiles(project: Project): FileViewerController {
   );
 
   /**
-   * One place every mutation goes through. Success re-lists the affected
-   * directory so the tree reflects what just changed; a failure *rejects* so
-   * the panel can keep its dialog open and show the server's message.
+   * One place the single-shot mutations (create / rename / delete) go through.
+   * Success re-lists the affected directory so the tree reflects what just
+   * changed; a failure *rejects* so the panel can keep its dialog open and show
+   * the server's message. Upload is the exception, and is written out below: a
+   * batch re-lists once and never rejects.
    */
   const runMutation = useCallback(
     async (operation: () => Promise<void>, affectedDir: string): Promise<void> => {
@@ -221,12 +232,28 @@ export function useFiles(project: Project): FileViewerController {
   );
 
   const upload = useCallback(
-    async (file: File): Promise<void> => {
+    async (files: readonly File[]): Promise<UploadOutcome[]> => {
       const dir = activeDir();
-      await runMutation(() => uploadEntry(project.id, joinPath(dir, file.name), file), dir);
+      // Independent on purpose: each file's outcome is its own, so two that fail
+      // do not stop the third that would have worked. An oversize file is
+      // refused here rather than by the server's 413 — same cap, no round trip.
+      const outcomes = await Promise.all(
+        files.map(async (file): Promise<UploadOutcome> => {
+          if (exceedsUploadCap(file.size)) return { ok: false, name: file.name, reason: OVER_LIMIT };
+          try {
+            await uploadEntry(project.id, joinPath(dir, file.name), file);
+            return { ok: true, name: file.name };
+          } catch (error: unknown) {
+            return { ok: false, name: file.name, reason: messageOf(error) };
+          }
+        }),
+      );
+
+      void loadDir(dir);
       if (dir !== '') setTree((t) => withExpanded(t, dir, true));
+      return outcomes;
     },
-    [project.id, runMutation, activeDir],
+    [project.id, loadDir, activeDir],
   );
 
   const rename = useCallback(
