@@ -75,5 +75,5 @@ was resized to 1000×700.
 - **The rail stays enabled with no project selected.** Clicking Terminal then records a tab the drawer
   cannot show yet; picking a project afterwards opens it. Harmless, and the alternative (disabling the
   rail) is a decision this ticket was not asked to make.
-- **The Files tab still has ticket 36's stacked layout** at this commit; it fills the drawer, which is
-  all this ticket promised.
+- **The Files tab had a stacked layout at this ticket's own commit** — it filled the drawer, which was
+  all this ticket promised. Ticket 36 lays it out `300px tree | code` and landed on the same branch.

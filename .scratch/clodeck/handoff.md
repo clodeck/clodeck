@@ -1,12 +1,10 @@
 # Handoff — clodeck: the parity pass (tickets 32–45)
 
 **Updated:** 2026-10-12
-**Where the tree is:** HEAD is on **`clodeck/35-36-drawer-shell-and-file-columns`**, two commits —
-ticket **35** (the Variant A workspace: rail + one bottom drawer) and ticket **36** (the file panel as
-`300px tree | code` inside it) — **not yet merged**, and awaiting the user's word on merging. That is
-the whole of what is unlanded: `main` already carries **32** (the scope catch-up in `AGENTS.md` +
-`spec-04`) and **33** (the tool card's status badge). 35's commit carries 36's `flex-1`, so the tree is
-coherent at each commit. Nothing is pushed.
+**Where the tree is:** HEAD is on **`main`**, with tickets **32** (the scope catch-up in `AGENTS.md` +
+`spec-04`), **33** (the tool card's status badge), **35** (the Variant A workspace: rail + one bottom
+drawer) and **36** (the file panel as `300px tree | code` inside it) merged. The ticket branch is
+deleted; the next ticket has not been started. Nothing is pushed.
 
 ## What this phase is
 
@@ -39,7 +37,7 @@ rem -> http://localhost:5173    (or npm run dev:fake if there is no API key)
 
 ## Where the frontier is
 
-**Done:** 32 (merged), 33 (merged), 35 + 36 (on the branch above, awaiting a merge decision).
+**Done:** 32, 33, 35, 36 — all merged.
 
 **The drawer landed, so its dependents opened up.** Ready now, blocked by nothing: **34** (composer
 autogrow + the `Enter to send` hint), **37** (success toasts — 33's `ok` token and 36's panel are both
