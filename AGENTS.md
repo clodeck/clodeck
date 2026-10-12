@@ -2,7 +2,7 @@
 
 ## Language
 
-Respond to the user in **Finglish** (Romanized Persian). The user's own messages are usually Finglish or Persian. Keep technical terms in English.
+Respond to the user in **Finglish** = Persian written in Latin letters, never in Persian script — even when the user's own message is in Persian script. Keep technical terms in English.
 
 ## Project
 

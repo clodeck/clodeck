@@ -10,5 +10,8 @@
     "types": ["vite/client"],
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "vite.config.test.ts"]
+  // `e2e` and `playwright.config.ts` are here so the pre-commit `typecheck`
+  // covers the end-to-end suite too — otherwise it would be the one corner of
+  // the repo nothing compiles.
+  "include": ["src", "e2e", "vite.config.ts", "vite.config.test.ts", "playwright.config.ts"]
 }

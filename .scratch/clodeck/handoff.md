@@ -37,44 +37,52 @@ seam was wrong, not the panel. The replacement, `web/src/App.workspace.test.tsx`
 
 **Full write-up, mechanism and evidence:** `.scratch/clodeck/issues/31-terminal-accumulates-on-switch.md`.
 
-## How the loop was built (reusable)
+## How the loop was built (now permanent)
 
-`.scratch/clodeck/debug/` is a **throwaway debug harness**, deliberately outside `npm test`:
+The Playwright loop that found bug #1 is a real suite, not scratch:
 
-- `playwright.config.ts` — `channel: 'chrome'` with `headless: true` and `baseURL: http://localhost:5173`.
-  The Playwright **Chromium download fails on this network** (`Failed to download Chrome for Testing`),
-  so the harness drives the machine's installed Chrome instead. It needs the dev loop already up.
-- `terminal-switch.spec.ts` — logs in via `UI_PASSWORD` from the environment, then switches
+- `web/playwright.config.ts` — `testDir: './e2e'`, `channel: 'chrome'` with `headless: true` and
+  `baseURL: http://localhost:5173`. The Playwright **Chromium download fails on this network**
+  (`Failed to download Chrome for Testing`), so it drives the machine's installed Chrome instead. It
+  needs the dev loop already up.
+- `web/e2e/project-switch.spec.ts` — logs in via `UI_PASSWORD` from the environment, then switches
   demo → hello → demo → hello asserting exactly one `.xterm` throughout.
-- `after-fix.png` — the post-fix screenshot.
+- `.scratch/clodeck/evidence/31-terminal-switch-after-fix.png` — the post-fix screenshot, with the ticket.
 
 ```bash
-UI_PASSWORD=dev npx playwright test --config .scratch/clodeck/debug/playwright.config.ts
+UI_PASSWORD=dev npm run e2e      # needs `PORT=3300 npm run dev` up in another shell
 ```
 
-**Unresolved housekeeping:** `@playwright/test` is a `web` devDependency that no script uses. Keep the
-harness and it is a working tool; drop the harness and the dependency should go with it.
+## State of the tree
 
-## Working tree (uncommitted)
+The fix is **merged to `main`** (`79bd41c`, branch `clodeck/31-terminal-accumulates-on-switch`). It
+carries:
 
-- `web/src/App.tsx` — **the fix**: `key={`terminal:${project.id}`}` / `key={`files:${project.id}`}`;
-  `WorkspacePlaceholder` exported so its seam is testable.
-- `web/src/App.workspace.test.tsx` — **new**; the regression test.
-- `web/src/testing/xterm-jsdom.ts` — **new**; the jsdom/xterm stubs, shared by both terminal tests.
+- `web/src/App.tsx` — the fix, plus `WorkspacePlaceholder` exported so its seam is testable.
+- `web/src/App.workspace.test.tsx` — the regression test (grid, not panel).
+- `web/src/testing/xterm-jsdom.ts` — the jsdom/xterm stubs, shared by both terminal tests.
 - `web/src/terminal/TerminalPanel.test.tsx` — refactored onto the shared stub, scope documented.
 - `web/package.json` + `package-lock.json` — `@playwright/test`, `jsdom`, `@testing-library/react` and
   `@testing-library/dom` devDeps (the first rendered-test infrastructure for the React layer).
-- `.scratch/clodeck/debug/`, `.scratch/clodeck/issues/31-terminal-accumulates-on-switch.md`,
-  this file.
+- `.scratch/clodeck/issues/31-terminal-accumulates-on-switch.md`, this file, the evidence screenshot.
 
-Evidence at this point: `npm run typecheck` clean; `npm test` → shared 7, server 107 passed + 1 skipped,
-web 89 passed (9 files).
+Evidence at this point: `npm run typecheck` clean; `npm test` → shared 9, server 230 passed + 7 skipped,
+web 89 passed (9 files); `npm run e2e` green.
+
+## Guardrails added since (the `/retro` of this session)
+
+- **A pre-commit hook**, `.githooks/pre-commit`, run through `core.hooksPath` — wired by the root
+  `prepare` script on every `npm install`. It runs `npm run typecheck` and `npm test`. This repo has no
+  CI, and the reason it exists is concrete: a test file once sat in the working tree with
+  `npm run typecheck` failing, for a whole session, because nothing ran it.
+- **The browser loop is permanent**: `web/e2e/` + `npm run e2e`, documented in the README.
+- **`AGENTS.md`'s Finglish line now defines the term** — "Persian written in Latin letters, never in
+  Persian script" — after I answered in Persian script and the user had to correct it.
 
 ## Next
 
-1. **Commit the fix** (the tree has been uncommitted since the bug was found — it is settled now).
-2. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
+1. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
    one terminal exercise and that is what found this; `ChatPanel` and `FilePanel` have never been
    clicked through in a browser, and the same duplicate-key class of bug is worth watching for wherever
    keyed siblings are added.
-3. **`/retro`** on this session, while it is still in context.
+2. **`main` is ahead of `origin/main`** — the fix and the guardrails are unpushed.
