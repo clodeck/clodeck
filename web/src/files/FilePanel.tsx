@@ -49,7 +49,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
-  const [over, setOver] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
 
@@ -89,19 +89,19 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const onDragOver = (event: DragEvent<HTMLElement>): void => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
-    setOver(true);
+    setDragActive(true);
   };
 
   const onDragLeave = (event: DragEvent<HTMLElement>): void => {
     // Moving between the panel's own children is not leaving the panel.
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    setOver(false);
+    setDragActive(false);
   };
 
   const onDrop = (event: DragEvent<HTMLElement>): void => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
-    setOver(false);
+    setDragActive(false);
     uploadFiles(Array.from(event.dataTransfer.files));
   };
 
@@ -222,7 +222,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
         />
       )}
 
-      {over && <DropOverlay />}
+      {dragActive && <DropOverlay />}
     </section>
   );
 }
@@ -413,16 +413,20 @@ function EntryRow({
     // `relative`, so the row's own menu is placed against the row. Without it
     // the menu's containing block is the whole panel, `top-full` puts it below
     // the panel, and the tree's scroller clips it away — the `⋯` opens nothing.
+    // The row carries the file's modified time as its tooltip: a title on the
+    // size alone would be a hover on a few characters, and the name's own title
+    // (`Preview x`) still wins where it has one.
     <div
       className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
       style={{ paddingLeft: 8 + depth * 14 }}
+      title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
     >
       <EntryMain
         entry={entry}
         isExpanded={isExpanded}
         onClick={isDir ? () => actions.toggle(path) : () => actions.preview(path)}
       />
-      {entry.type === 'file' && <FileMeta entry={entry} />}
+      {entry.type === 'file' && <FileMeta size={entry.size} />}
       <button
         type="button"
         aria-label={`Actions for ${entry.name}`}
@@ -470,23 +474,18 @@ function EntryRow({
 }
 
 /**
- * A file row's metadata: its size, dim and at the row's right edge, and — in the
- * tooltip — when it last changed, the relative form over the server's exact
- * timestamp so the rounding costs nothing.
- *
- * Only a file gets one. A directory's row is passed no `size`/`mtime` by the
- * wire type, so it renders blank rather than a number nothing measured (the
- * prototype's directory numbers were a hash of the name).
+ * A file row's size, dim and at the row's right edge — the one thing the row
+ * shows about the bytes. Only a file gets one: a directory's row is passed no
+ * `size` by the wire type, so it renders blank rather than a number nothing
+ * measured (the prototype's directory numbers were a hash of the name).
  */
-function FileMeta({ entry }: { entry: Extract<FileEntry, { type: 'file' }> }): ReactElement {
-  return (
-    <span
-      className="shrink-0 font-mono text-[10px] text-ink-dim"
-      title={`modified ${formatModified(entry.mtime, Date.now())} · ${entry.mtime}`}
-    >
-      {formatSize(entry.size)}
-    </span>
-  );
+function FileMeta({ size }: { size: number }): ReactElement {
+  return <span className="shrink-0 font-mono text-[10px] text-ink-dim">{formatSize(size)}</span>;
+}
+
+/** When a file last changed: the relative form, then the server's exact timestamp. */
+function modifiedTitle(mtime: string): string {
+  return `modified ${formatModified(mtime, Date.now())} · ${mtime}`;
 }
 
 function EntryMain({

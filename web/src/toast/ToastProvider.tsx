@@ -1,7 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 /**
- * The app's one success surface: a mutation that worked says so.
+ * The app's one transient surface: a mutation that worked says so, and a batch
+ * that only partly worked says that too — `3 uploaded · 2 failed`, with the
+ * first failure's reason on the line beneath it.
+ *
+ * So it is a surface for an operation's outcome, not for successes alone, even
+ * though it wears ticket 37's `ok` accent: the accent is for the operation
+ * having reported at all, and a message that carries failures says so in words.
  *
  * It is a context rather than a `useState` per panel because there is exactly
  * one surface for the whole app — every file operation in the drawer reports

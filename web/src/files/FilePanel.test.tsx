@@ -355,12 +355,13 @@ describe('file rows carry their metadata', () => {
     const dirRow = screen.getByTitle('Expand folder').parentElement;
     if (fileRow === null || dirRow === null) throw new Error('a row has no element');
 
-    const size = within(fileRow).getByText('1.5 KB');
-    expect(size.getAttribute('title')).toBe(`modified 3h ago · ${mtime}`);
+    expect(within(fileRow).getByText('1.5 KB')).toBeTruthy();
+    // The row's tooltip: the relative form over the server's exact timestamp.
+    expect(fileRow.getAttribute('title')).toBe(`modified 3h ago · ${mtime}`);
 
     // A directory has no size or mtime on the wire, so its row is its name and
     // its menu, with nothing measured invented in between.
     expect(dirRow.textContent).toBe('▸ src/⋯');
-    expect(within(dirRow).queryByTitle(/^modified /)).toBeNull();
+    expect(dirRow.getAttribute('title')).toBeNull();
   });
 });

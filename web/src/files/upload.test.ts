@@ -1,7 +1,7 @@
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from '@clodeck/shared';
 import { describe, expect, it } from 'vitest';
 
-import { exceedsUploadCap, OVER_LIMIT, summarizeUploads, type UploadOutcome } from './upload';
+import { exceedsUploadCap, OVER_LIMIT_REASON, summarizeUploads, type UploadOutcome } from './upload';
 
 /**
  * The upload batch's two pure halves: the client-side cap check (the same
@@ -48,11 +48,11 @@ describe('summarizeUploads', () => {
   });
 
   it('reports a batch where nothing landed as the failures alone', () => {
-    expect(summarizeUploads([failed('big.bin', OVER_LIMIT), failed('huge.iso', OVER_LIMIT)])).toEqual({
+    expect(summarizeUploads([failed('big.bin', OVER_LIMIT_REASON), failed('huge.iso', OVER_LIMIT_REASON)])).toEqual({
       message: '2 failed',
-      detail: OVER_LIMIT,
+      detail: OVER_LIMIT_REASON,
     });
-    expect(summarizeUploads([failed('big.bin', OVER_LIMIT)])).toEqual({ message: '1 failed', detail: OVER_LIMIT });
+    expect(summarizeUploads([failed('big.bin', OVER_LIMIT_REASON)])).toEqual({ message: '1 failed', detail: OVER_LIMIT_REASON });
   });
 
   it('says nothing at all about a batch with no files in it', () => {
@@ -60,8 +60,8 @@ describe('summarizeUploads', () => {
   });
 });
 
-describe('OVER_LIMIT', () => {
+describe('OVER_LIMIT_REASON', () => {
   it('names the cap the overlay shows, from the one constant', () => {
-    expect(OVER_LIMIT).toBe(`over the ${String(MAX_UPLOAD_MB)} MB upload limit`);
+    expect(OVER_LIMIT_REASON).toBe(`over the ${String(MAX_UPLOAD_MB)} MB upload limit`);
   });
 });

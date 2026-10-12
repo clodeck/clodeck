@@ -18,7 +18,7 @@ export type UploadOutcome =
   | { ok: false; name: string; reason: string };
 
 /** The refusal an oversize file gets, in the words the overlay uses its number in. */
-export const OVER_LIMIT = `over the ${String(MAX_UPLOAD_MB)} MB upload limit`;
+export const OVER_LIMIT_REASON = `over the ${String(MAX_UPLOAD_MB)} MB upload limit`;
 
 /**
  * The client half of the cap, checked before anything is sent. The cap itself is
