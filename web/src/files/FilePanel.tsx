@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { useToast } from '../toast/ToastProvider';
+import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
 import { isMarkdown, renderMarkdown } from './markdown';
 import {
@@ -1243,11 +1244,15 @@ function PreviewBody({
       return <Hint>Loading…</Hint>;
     case 'text':
       // A file's bytes are untrusted: they are React text nodes either way —
-      // the source's one `<pre>`, or the elements `renderMarkdown` builds.
+      // the line-by-line elements `CodeView` and `renderMarkdown` build, and the
+      // gutter `CodeView` puts beside them. Nothing here sets markup.
+      //
+      // Preview is the rendered markdown, which has no line numbers to number:
+      // the gutter and the colouring are source mode's, and only its.
       return previewingMarkdown ? (
         <div className="p-2">{renderMarkdown(preview.content)}</div>
       ) : (
-        <pre className="p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>
+        <CodeView content={preview.content} name={preview.name} />
       );
     case 'binary':
       return (

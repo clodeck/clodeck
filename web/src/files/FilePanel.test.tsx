@@ -186,6 +186,23 @@ function column(panel: Element, index: number): HTMLElement {
   return child as HTMLElement;
 }
 
+/**
+ * The code view's lines: one row per line of the file, read out of the row's
+ * *second* cell — the first is the line's number, which is deliberately not part
+ * of the file's text (it is `select-none` and `aria-hidden`).
+ */
+function sourceLines(code: HTMLElement): string[] {
+  const rows = within(code).queryAllByRole('listitem');
+  return rows.map((row) => row.lastElementChild?.textContent ?? '');
+}
+
+/** The line-number cell of each row of the code view. */
+function gutterCells(code: HTMLElement): HTMLElement[] {
+  return within(code)
+    .queryAllByRole('listitem')
+    .map((row) => row.firstElementChild as HTMLElement);
+}
+
 describe('FilePanel in the drawer', () => {
   it('is a 300px tree column beside a code column, and opens a file into the code column', async () => {
     stubFiles();
@@ -433,7 +450,7 @@ describe('a markdown file can be read as markdown', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
     await waitFor(() => {
-      expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+      expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
@@ -445,7 +462,7 @@ describe('a markdown file can be read as markdown', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(toggle);
-    expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 
@@ -727,3 +744,42 @@ describe('dragging a file onto a folder', () => {
   });
 });
 
+describe('the code view', () => {
+  it('numbers every line of the file in a gutter that does not wrap', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+
+    const source = await within(code).findByRole('list', { name: 'Source' });
+    const rows = within(source).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    // The file's own lines, in order, with nothing of the gutter in them.
+    expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
+
+    // One number per row, right of the code's start and out of a selection; the
+    // source cell beside it keeps the file's own line breaking.
+    expect(gutterCells(code).map((cell) => cell.textContent)).toEqual(['1', '2', '3']);
+    expect(gutterCells(code)[0]?.className).toContain('select-none');
+    expect(rows[0]?.lastElementChild?.className).toContain('whitespace-pre');
+  });
+
+  it('colours a line by the file’s extension, and leaves an unknown one plain', async () => {
+    stubFiles();
+    renderPanel();
+
+    // `main.ts` is source mode with the code pass: the keyword and the number.
+    fireEvent.click(await screen.findByRole('button', { name: 'main.ts' }));
+    await screen.findByText('const');
+    expect(screen.getByText('const').className).toContain('text-code-kw');
+    expect(screen.getByText('42').className).toContain('text-code-num');
+    expect(screen.getByText(';').className).not.toContain('text-code-');
+
+    // A markdown file in source mode is coloured by markdown's own shapes.
+    fireEvent.click(screen.getByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(screen.getByText('# Guide').className).toContain('text-code-kw');
+    });
+  });
+});
