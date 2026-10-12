@@ -79,10 +79,19 @@ web 89 passed (9 files); `npm run e2e` green.
 - **`AGENTS.md`'s Finglish line now defines the term** — "Persian written in Latin letters, never in
   Persian script" — after I answered in Persian script and the user had to correct it.
 
+## Parked, deliberately
+
+- **Make the rendered tests fail on `console.error`.** React printed `Encountered two children with the
+  same key` to stderr *during* the jsdom run and the suite stayed green; asserting no `console.error`
+  in `web/src/testing/` would turn that class of React diagnostic into a failure. Not done yet — it is
+  a safety net for future bugs, not one that would have caught this one (the panel-alone test produced
+  no warning). Decided with the user to leave it until it earns its keep.
+
 ## Next
 
 1. **Carry on the manual pass.** Only the terminal was driven by hand. Ticket 14's known gap asked for
    one terminal exercise and that is what found this; `ChatPanel` and `FilePanel` have never been
    clicked through in a browser, and the same duplicate-key class of bug is worth watching for wherever
    keyed siblings are added.
-2. **`main` is ahead of `origin/main`** — the fix and the guardrails are unpushed.
+2. **`main` is ahead of `origin/main` by four commits** — the fix, its merge, the guardrails and their
+   merge are all unpushed.
