@@ -9,6 +9,7 @@
   --color-ink: #e7edf3;
   --color-ink-dim: #8b98a8;
   --color-accent: #c96442;
+  --color-ok: #4ea87a;
   --color-err: #d95f5f;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
