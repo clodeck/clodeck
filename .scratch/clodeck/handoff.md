@@ -1,10 +1,9 @@
 # Handoff — clodeck: the parity list is empty (tickets 44 and 45)
 
 **Updated:** 2026-10-12
-**Where the tree is:** HEAD is on the ticket branch **`clodeck/44-45-drag-move-code-gutter`**, with five
-commits — 44, 45, the docs, the browser specs, and the review fixes — plus this handoff, and **not
-merged**: `main` is still at the 41–43 merge (`444f0a2`). Nothing is pushed. When you land it: `git
-switch main && git merge --no-ff clodeck/44-45-drag-move-code-gutter`, then delete the branch.
+**Where the tree is:** HEAD is on **`main`**, with tickets **44** and **45** merged (`b924ec9`,
+`--no-ff`, so the six commits under it are readable as the change they were) and the ticket branch
+deleted. Nothing is pushed, and nothing is left on a branch: this was the last item on the list.
 
 ## What this phase is
 
@@ -48,8 +47,8 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 ## Where the frontier is
 
-**Done:** 32–45 — all merged except **44 and 45, which are on this branch**. Nothing is blocked and
-nothing is ready-but-unstarted: the parity list is empty.
+**Done:** 32–45 — **all merged**, 44 and 45 included. Nothing is blocked and nothing is
+ready-but-unstarted: the parity list is empty.
 
 **If you are asked for more:** the honest next steps are a bug hunt or a fresh gap list against the
 prototype, not more of this list. `prototype-parity.md` §"P2"/"P3" is where the consciously-skipped items
