@@ -39,31 +39,38 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
 }
 
 /** Where a tool call stands — derived from the entry, never stored on it. */
-export type ToolStatus = 'running' | 'done' | 'error';
+type ToolStatus = 'running' | 'done' | 'error';
 
-export function toolStatus(entry: ToolEntry): ToolStatus {
+/** The only place the entry's own shape is read as a status. */
+function toolStatus(entry: ToolEntry): ToolStatus {
   if (entry.result === null) return 'running';
   return entry.result.isError ? 'error' : 'done';
 }
 
+/** The card's disclosure chrome, shared so the two bodies cannot drift apart. */
+const DISCLOSURE = 'border-t border-line px-3 py-2';
+const DISCLOSURE_SUMMARY = 'cursor-pointer text-[10px] tracking-wider uppercase';
+
 function ToolCard({ entry }: { entry: ToolEntry }): ReactElement {
+  const status = toolStatus(entry);
+
   return (
     <div className="rounded border border-line bg-panel">
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="font-mono text-xs text-accent">{entry.name}</span>
         <span className="truncate font-mono text-[10px] text-ink-dim">{summarizeInput(entry.input)}</span>
-        <ToolStatusBadge status={toolStatus(entry)} />
+        <ToolStatusBadge status={status} />
       </div>
 
-      <details className="border-t border-line px-3 py-2">
-        <summary className="cursor-pointer text-[10px] tracking-wider text-ink-dim uppercase">Input</summary>
+      <details className={DISCLOSURE}>
+        <summary className={`${DISCLOSURE_SUMMARY} text-ink-dim`}>Input</summary>
         <pre className="mt-1 max-h-48 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-ink-dim">
           {formatInput(entry.input)}
         </pre>
       </details>
 
       {entry.result !== null && (
-        <ToolResultDisclosure toolUseId={entry.toolUseId} result={entry.result} />
+        <ToolResultDisclosure status={status} result={entry.result} toolUseId={entry.toolUseId} />
       )}
 
       {entry.children.length > 0 && (
@@ -90,13 +97,17 @@ function ToolCard({ entry }: { entry: ToolEntry }): ReactElement {
  */
 function ToolResultDisclosure({
   toolUseId,
+  status,
   result,
 }: {
   toolUseId: string;
+  /** Never `running`: this body only exists once the call has a result. */
+  status: ToolStatus;
   result: ToolResultView;
 }): ReactElement {
   const details = useRef<HTMLDetailsElement>(null);
   const openedFor = useRef<string | null>(null);
+  const failed = status === 'error';
 
   useEffect(() => {
     if (details.current === null || openedFor.current === toolUseId) return;
@@ -105,11 +116,9 @@ function ToolResultDisclosure({
   }, [toolUseId]);
 
   return (
-    <details ref={details} className="border-t border-line px-3 py-2">
-      <summary
-        className={`cursor-pointer text-[10px] tracking-wider uppercase ${result.isError ? 'text-err' : 'text-ink-dim'}`}
-      >
-        {result.isError ? 'Error' : 'Result'}
+    <details ref={details} className={DISCLOSURE}>
+      <summary className={`${DISCLOSURE_SUMMARY} ${failed ? 'text-err' : 'text-ink-dim'}`}>
+        {failed ? 'Error' : 'Result'}
       </summary>
       <pre className="mt-1 max-h-64 overflow-auto font-mono text-[11px] whitespace-pre-wrap text-ink-dim">
         {formatContent(result.content)}
@@ -118,11 +127,19 @@ function ToolResultDisclosure({
   );
 }
 
-/** The card's status word: in-progress, the new success token, or today's error red. */
+/**
+ * The card's status word. `running…` wears the prototype's chip so an unfinished
+ * call is legible at a glance; `done` and `error` are bare words in the palette
+ * tokens, `done`'s accent being the one ticket 37's toasts share.
+ */
 function ToolStatusBadge({ status }: { status: ToolStatus }): ReactElement {
   switch (status) {
     case 'running':
-      return <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-dim">running…</span>;
+      return (
+        <span className="ml-auto shrink-0 rounded-full bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-ink-dim">
+          running…
+        </span>
+      );
     case 'done':
       return <span className="ml-auto shrink-0 font-mono text-[10px] text-ok">done</span>;
     case 'error':
