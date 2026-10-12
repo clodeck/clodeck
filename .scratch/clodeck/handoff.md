@@ -1,9 +1,9 @@
 # Handoff — clodeck: the parity pass (tickets 32–45)
 
 **Updated:** 2026-10-12
-**Where the tree is:** HEAD is on **`clodeck/33-tool-card-status-badge-ok-token`**
-(`b6771ac` + `e9e27e5`), **not merged**. `main` is at `07ea473` — ticket **32** (the scope
-catch-up in `AGENTS.md` + `spec-04`) is merged there, and nothing is pushed.
+**Where the tree is:** HEAD is on **`main`**, with tickets **32** (the scope catch-up in `AGENTS.md` +
+`spec-04`) and **33** (the tool card's status badge) merged. The next ticket has not been started and
+no work is left on a side branch; nothing is pushed.
 
 ## What this phase is
 
@@ -36,7 +36,7 @@ rem -> http://localhost:5173    (or npm run dev:fake if there is no API key)
 
 ## Where the frontier is
 
-**Done:** 32 (merged), 33 (on its branch, reviewed, green).
+**Done:** 32 (merged), 33 (merged).
 
 **Ready, blocked by nothing:** **34** (composer autogrow + the `Enter to send` hint) and **35** (the
 drawer shell — rail ▸ sidebar ▸ chat stage, terminal + files in one summonable bottom drawer). Both
@@ -69,7 +69,8 @@ added.
   duplicate-key warning to stderr *during* a jsdom run and the suite stayed green. It would be a safety
   net for future bugs, not one that would have caught bug #1 (the panel-alone test produced no
   warning); left until it earns its keep.
-- **`main` is ahead of `origin/main` by 8 commits** (`origin/main` is `23d770f`). Nothing is pushed.
+- **`main` carries unpushed commits.** `origin/main` is still `23d770f`; everything since — tickets
+  31, 32 and 33, plus the parity docs — exists only locally.
 
 ## Working agreements worth re-reading
 
