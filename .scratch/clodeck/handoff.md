@@ -1,26 +1,30 @@
-# Handoff — clodeck: the parity pass continues (tickets 41–43)
+# Handoff — clodeck: the parity list is empty (tickets 44 and 45)
 
 **Updated:** 2026-10-12
-**Where the tree is:** HEAD is on **`main`**, with tickets **41** (the flat list beside the tree),
-**42** (download as the bytes on disk) and **43** (markdown `Preview ⇄ Source`) merged. The ticket
-branch is deleted and the next ticket has not been started. (Merged in `--no-ff`, so the five commits
-under it — 41, 42, 43, the browser spec + evidence, and the review fixes — are readable as the change
-they were.)
+**Where the tree is:** HEAD is on the ticket branch **`clodeck/44-45-drag-move-code-gutter`**, with five
+commits — 44, 45, the docs, the browser specs, and the review fixes — plus this handoff, and **not
+merged**: `main` is still at the 41–43 merge (`444f0a2`). Nothing is pushed. When you land it: `git
+switch main && git merge --no-ff clodeck/44-45-drag-move-code-gutter`, then delete the branch.
 
 ## What this phase is
 
-Unchanged: the build is complete (tickets 01–30), the prototype↔UI gap list is settled and ticketed
-(**issues 32–45**, from `prototype-parity.md` §"Tasmim-haye gerefte-shode"), and this phase works
-through it. Nothing in that list is an MVP gap — the MVP is built; it is all parity drift and polish.
-Ticket 31 (a real bug, fixed) lives in `issues/31-terminal-accumulates-on-switch.md`.
+The end of the list. The build was complete at tickets 01–30, and tickets **32–45** worked through the
+prototype↔UI gap list (`prototype-parity.md` §"Tasmim-haye gerefte-shode"). **44 was the last item of the
+five decision D3 promoted** into MVP, and **45 was the only `P2` item that decision selected** — so this
+phase closes both the D3 set and the selected P2 item. Nothing on that list is left; ticket 31 (a real
+bug, fixed) lives in `issues/31-terminal-accumulates-on-switch.md`, and the `P1`/`P2`/`P3` items nobody
+selected stay out of scope by decision.
 
 ## Dev loop (unchanged, still load-bearing)
 
-Port **3001 is unbindable on this machine** (Windows Hyper-V/WSL exclusion range). Run with `PORT=3300`:
+Port **3001 is unbindable on this machine** (Windows Hyper-V/WSL exclusion range). Run with `PORT=3300`,
+and **give `PROJECTS_ROOT` forward slashes**: Git Bash eats the backslashes in an env assignment, and the
+server then scans `<repo>\workclodeck-projects` and discovers nothing — an empty project list, with the
+reason only in its warn line.
 
 ```cmd
 set UI_PASSWORD=dev
-set PROJECTS_ROOT=D:\work\clodeck-projects
+set PROJECTS_ROOT=D:/work/clodeck-projects   rem  backslashes are mangled under Git Bash
 set PORT=3300
 npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there is no API key)
 ```
@@ -30,81 +34,110 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 - **The pre-commit hook** (`.githooks/pre-commit`, wired through `core.hooksPath` by `npm install`) runs
   `npm run typecheck` and `npm test`. There is no CI; the hook is why a red tree cannot be committed.
   `--no-verify` only if the user asks.
-- **The browser loop is real, and it is now three specs.** `web/e2e/project-switch.spec.ts` (the
-  accumulation bug), `web/e2e/file-upload.spec.ts` (38–40: a real `DataTransfer`, the overlay, a
-  one-file drop and a two-file drop that loses one), and now `web/e2e/file-download.spec.ts`, which
-  exists because **jsdom has no downloads**: clicking the `Download` anchor there is a
-  `Not implemented: navigation to another Document` line, not a save. The new spec uploads a file
-  named in Persian, follows the real link, and asserts the browser's own `suggestedFilename()` and the
-  saved bytes — the only place the RFC 5987 disposition is proved. It writes into `demo` and deletes
-  what it made through the row menu. All three need `PORT=3300 npm run dev` (or `dev:fake`) already up,
-  and `UI_PASSWORD` in the environment.
+- **The browser loop is real, and it is now five specs.** `web/e2e/project-switch.spec.ts` (the
+  accumulation bug), `file-upload.spec.ts` (a real `DataTransfer`, the overlay, a one-file and a
+  two-file drop), `file-download.spec.ts` (jsdom has no downloads, so only a browser can say which name
+  the disposition buys), and now `file-move.spec.ts` and `code-view.spec.ts` — the drag itself (jsdom has
+  no `DragEvent`) and the code column's geometry and colours (jsdom computes neither boxes nor styles).
+  All five need `PORT=3300 npm run dev` (or `dev:fake`) already up, `UI_PASSWORD`, and they drive the
+  `demo` project, cleaning up what they make. `npm run e2e` from the root. They share their opening —
+  the environment check, the login, the row cleanup — through `web/e2e/support.ts`, which is typechecked
+  too (the pre-commit hook covers `e2e/`). **A spec that fails mid-test leaves its files in `demo`**, and
+  the next run then fails on a `409` that has nothing to do with the code: clear `zz-*` out of
+  `D:/work/clodeck-projects/demo` before believing a red run.
 
 ## Where the frontier is
 
-**Done:** 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43 — all merged.
+**Done:** 32–45 — all merged except **44 and 45, which are on this branch**. Nothing is blocked and
+nothing is ready-but-unstarted: the parity list is empty.
 
-**Ready now, blocked by nothing:** **44** (drag-move — `spec-04` already pins
-`POST /files/move?path=&to=`; the server has no cross-directory move yet, and the row drag it needs is
-exactly what 38's `hasOsFiles` gate keeps apart from an upload, so a row drag must keep carrying
-`text/plain` and nothing else) and **45** (the code view's line-number gutter and syntax highlight —
-source mode only, which is why 43's fenced blocks render as a plain `<pre>`).
+**If you are asked for more:** the honest next steps are a bug hunt or a fresh gap list against the
+prototype, not more of this list. `prototype-parity.md` §"P2"/"P3" is where the consciously-skipped items
+live if a decision to revisit them is ever taken.
 
 ## Behaviour that changed under this phase (read before touching these surfaces)
 
-- **The tree column has two listings now, and the flat one is one folder.** The toolbar's
-  `List ⇄ Tree` button swaps the tree for a flat list of **the active folder** — this product lists one
-  directory per request and has no recursive route, so the whole-project flatten of the prototype was
-  not ported. "The folder you are in" is the drawer's existing *active* folder, which a **collapse**
-  also sets (ticket 36's rule, untouched): collapse `src`, hit `List`, and you are inside `src`.
-- **The flat list navigates where the tree expands.** A folder row there calls the new `openDir`
-  (select + load + leave expanded), not `toggle`, and the breadcrumb — a plain `in <folder>` line in
-  tree mode — becomes a `root / … / here` trail of buttons, because the flat list has no other way up.
-  Both listings render the same loaded `dirs`, which is what keeps the open file and the current folder
-  across a flip; the choice is panel state, so it dies with the panel.
-- **The code column's head is now an action area with three controls.** `Download` appears for **any**
-  selected entry — it sits outside the per-kind switch, because whether there is a file to download does
-  not depend on what its bytes turned out to be, so a file whose *read* failed is still downloadable.
-  The markdown toggle appears only for markdown files (`.md`/`.markdown`), and a markdown file opens as
-  **source**, as the prototype's does — the toggle is the only way to the rendering, and each open
-  starts from source again.
-- **`/files`, `/files/content` and `/files/download` now share one door** (`openProject` → `resolveAs`).
-  Same statuses and same messages as before; the difference is that the guard exists once.
+- **A file row in the tree is draggable and a folder row is a drop target**, and so is the
+  **breadcrumb's root crumb**. The drag carries `text/plain` and nothing else — a drag advertising
+  `Files` would be read as an OS-file upload by the panel's own drop handler (38), and the two must
+  never collide. Dropping opens `Move "x" into "y"?` first; only confirming sends anything.
+- **The tree column's header is the breadcrumb now, in both listings.** Ticket 41 gave the trail to the
+  flat list and left the tree a plain `in <folder>` line; the root crumb is the only way home for a file
+  dragged out of a subfolder, so both listings show the same `root / … / here` trail, and the tree's
+  crumb buttons go through the same `openDir` the flat list's do. The `title` that said where create and
+  upload land moved onto the nav.
+- **The server has a cross-directory move.** `ScopedFs.move(source, destDir)` returns its own
+  `MoveResult` (the four `WriteResult` arms it shares plus `same_directory`, `into_own_descendant`,
+  `not_a_directory`), and `POST /files/move?path=` takes the destination **directory** in the body as a
+  *path* — so it passes `relPath`'s syntax check, not `name()`. `relPath` is now thin over a new
+  `isRelative`. `409` for a collision or a same-directory move, `400` for a destination that is not a
+  directory or a folder into its own subtree, `404` for either end missing (an escaping symlink included,
+  because the destination goes through the reader's door). **A link as the source is refused; a link as
+  the destination is followed** if it stays inside the root — the reader follows in-root links by design,
+  and every other write accepts one as its parent too, so refusing it here would make `move` the one
+  operation that rejects what `create` takes. `spec-04` and ticket 44 say this now.
+- **The code column's source mode is a numbered, coloured code view** (`web/src/files/code.tsx`): one
+  `<ol>` row per line, the number in a fixed-width `select-none`/`aria-hidden` gutter, the line beside it
+  in `whitespace-pre` so it scrolls instead of wrapping. The five colours are palette tokens added to
+  `index.css`. Preview is still `renderMarkdown`, with no gutter — the gutter and the colouring are
+  source mode's only. `highlightLine(line, language) → Segment[]` is pure and the segments are React text
+  nodes: nothing here sets `innerHTML`, which is what `spec-04` pins.
 
 ## Known loose ends
 
+- **The move has no keyboard path.** A file is relocated by dragging its row; there is no command for it
+  in the row's `⋯` menu, where rename and delete live. The prototype had none either, and the ticket
+  asked for the drag — but it is the one row action you cannot reach without a mouse.
+- **The client refuses a same-directory drop after the confirmation, not before it.** Ticket 44 said
+  "dropping opens the prototype's confirmation", so it is taken literally: the dialog appears, and
+  confirming it says `already in <folder>` rather than performing a no-op. A drop that opens a dialog
+  whose only outcome is that sentence is a small wart, and moving the check to the drop would be a
+  one-line change.
+- **The highlighter is line-based**, as the prototype's was: a `/* … */` block or a multi-line template
+  literal is coloured line by line, not as one run. Deliberate ("a deliberately rough pass, not a
+  parser"), and the fix if it ever matters is a second pass over the joined line.
+- **`.markdown` is treated as markdown alongside `.md`**, and an extension the map does not list renders
+  plain (the prototype fell back to TypeScript). Both are deliberate departures, recorded on ticket 45.
+- **`fireEvent.dragLeave` cannot carry `relatedTarget`** in this stack (React's synthetic event arrives
+  without it), and jsdom has no `DragEvent` at all. The panel test's `dragLeaves` helper therefore
+  dispatches a bubbling `MouseEvent` inside `act` — the only way to test "moving between a row and its
+  own children is not leaving the row". The same limit is why the upload spec's leave test uses
+  `relatedTarget: null`.
+- **A file row near the bottom of the tree opens its `⋯` menu off the scroller's edge** (ticket 36 put
+  the menu back on its row; the 42vh drawer leaves the last row or two no room below). Still not fixed:
+  the fix is to flip the menu upward for the lower half of the viewport, and ticket 37's toast —
+  bottom-centre, over the drawer — now shares that corner with it. Ticket 44 added dragging to those same
+  rows and changed nothing about the menu.
+- **The code-view spec restates the palette's three hexes as `rgb(…)`.** That is the point of it — the
+  check is that the token reaches the paint at all — but it does mean re-colouring the code view is a
+  two-file change, and it will be asked about once.
+- **`split(line, pattern, kinds, base)` keeps its four arguments.** One review called `pattern` and
+  `kinds` a data clump, since they only ever travel together; left as-is because bundling them buys a
+  type for two call sites and a parameter that already reads fine. Everything else the two reviews raised
+  is fixed in the last commit.
 - **The download's toast is optimistic.** It fires on the click, because a page is told nothing about a
   download finishing: a file deleted on disk still toasts `downloaded x`, and the browser saves the 404
-  body under that name. Tightening it costs a request per download for a message that is still a guess,
-  so it is recorded on ticket 42 instead.
-- **A file's `href` is passed through as written** (ticket 43). No scheme check — the prototype had
-  none and the ticket asked for none. React neutralises `javascript:`, a `data:` link opens an opaque
-  new tab, and a *relative* link opens a new tab onto the app's own origin rather than resolving inside
-  the project.
-- **`.markdown` is treated as markdown alongside `.md`.** The prototype's gate was `lang === 'md'`;
-  the extra extension is deliberate and is the one place this ticket went past its reference.
+  body under that name. Recorded on ticket 42.
+- **A file's `href` is passed through as written** (ticket 43). No scheme check — the prototype had none
+  and the ticket asked for none.
 - **spec-04's `FileViewerActions` block is from ticket 20 and is stale** (it still shows `open`/`up`).
   It now carries a note saying `web/src/files/useFiles.ts` is the source of truth, rather than being
   rewritten here.
 - **Ticket 34's async detail is still untrue: nothing disables the textarea while connecting.** Only
   Send is disabled, so the box stays typeable until the socket is live. Unchanged by this phase; still
   needs a decision rather than a smuggled fix.
-- **A file row near the bottom of the tree opens its `⋯` menu off the scroller's edge** (ticket 36 put
-  the menu back on its row; the 42vh drawer leaves the last row or two no room below). Ticket 44 adds
-  row dragging to those same rows. The fix is still to flip the menu upward for the lower half of the
-  viewport, and ticket 37's toast — bottom-centre, over the drawer — now shares that corner with it.
 - **The rail stays enabled with no project selected.** Clicking Files then records a tab the drawer
   cannot show; choosing a project afterwards opens it. Left as-is by 35 rather than inventing a disabled
   state.
-- **The palette token has no test.** jsdom does not process the Tailwind stylesheet, so a test could
-  only assert the class name; `npm run build` emitting `--color-ok:#4ea87a` / `.text-ok` is the check.
-  It is now three surfaces on that token (33's badge, 37's toast, 39's summary).
+- **The palette token has no unit test.** jsdom does not process the Tailwind stylesheet, so a rendered
+  test could only assert the class name; `npm run build` emitting the token and its utility is the
+  check — and `code-view.spec.ts` now asserts the *resolved* colours of the five code tokens in a real
+  browser, which is the strongest form that check has taken.
 - **Parked, deliberately:** make the rendered tests fail on `console.error`. If that lands, the download
   test needs a whitelist entry first — it clicks a real anchor, and jsdom answers with
   `Not implemented: navigation to another Document`.
 - **`useFiles.upload` re-lists even when every file in the batch failed**, so a drop that lands nothing
-  still costs one listing request. Kept because the batch has one settle path; a failure count that
-  needs no re-list is not worth a second one.
+  still costs one listing request. Kept because the batch has one settle path.
 - **A non-ASCII file name renders as raw bidi in its row** (an LTR container around RTL text, with no
   `dir` attribute): the Persian file in `demo` reads backwards in the tree. The name itself is intact —
   download and rename both use it correctly — but a `dir="auto"` on the name cell is a small fix nobody
@@ -117,10 +150,10 @@ merge** unless asked (`git switch main && git merge --no-ff <branch>`), one comm
 and the standing decisions — the Variant A layout, the D3-promoted MVP scope, and file access scoped to
 the project root.
 
-**Evidence for this phase:** `npm run typecheck` clean; `npm test` → shared 9, server 235 passed +
-7 skipped, web 137 (16 files); `npm run e2e` green, **all three specs**, against the installed Chrome;
-`npm run build` green. Driven by hand/Playwright, against `dev:fake` and the `demo` project: the flat
-list with its three columns and a folder row carrying nothing (`evidence/41-flat-list.png`), and a
-markdown file previewed beside the `Source` toggle (`evidence/43-markdown-preview.png`). The review
-found no missing requirement; what it raised and this left alone is on the tickets (42's optimistic
-toast, 43's unchecked link schemes, 41's collapse-sets-active reading).
+**Evidence for this phase:** `npm run typecheck` clean; `npm test` → shared 9, server 257 passed +
+8 skipped, web 156 (17 files); `npm run e2e` green, **all five specs**, against the installed Chrome;
+`npm run build` green, emitting the five `--color-code-*` tokens and their `text-code-*` utilities.
+Driven by hand/Playwright, against `dev:fake` and the `demo` project: a file row held over the folder it
+would land in (`evidence/44-drag-target.png`), the confirmation that drop opens
+(`evidence/44-move-confirm.png`), and a `.ts` file read as source with its gutter and colours
+(`evidence/45-code-view.png`).

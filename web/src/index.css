@@ -11,6 +11,14 @@
   --color-accent: #c96442;
   --color-ok: #4ea87a;
   --color-err: #d95f5f;
+  /* The code view's palette (ticket 45), taken from the prototype's class set:
+     `.c-kw` / `.c-str` / `.c-com` / `.c-num` and the `.ln` gutter. Rough on
+     purpose — they colour tokens, not syntax. */
+  --color-code-kw: #c792ea;
+  --color-code-str: #9ecf8a;
+  --color-code-com: #5b6876;
+  --color-code-num: #e0a76b;
+  --color-code-ln: #404c5a;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
 }
 

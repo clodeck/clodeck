@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { login, removeRow } from './support';
 
 /**
  * Uploading through the file drawer, in a real browser.
@@ -14,27 +15,9 @@ import { expect, test, type Page } from '@playwright/test';
  * file it uploads is deleted through the row menu before the spec ends.
  */
 
-/** A required environment variable, or the suite stops before it drives anything. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`${name} must be set — the server under test reads the same value`);
-  }
-  return value;
-}
-
-const password = requireEnv('UI_PASSWORD');
-
 const KEPT = 'zz-e2e-upload.txt';
 const ALSO = 'zz-e2e-upload-two.txt';
 const OVERLAY = 'Drop files to upload · max 200 MB';
-
-async function login(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.fill('#password', password);
-  await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
-}
 
 /**
  * One drag over the file panel, carrying `files` as OS files — or, when `files`
@@ -53,14 +36,6 @@ async function drag(page: Page, kind: 'dragover' | 'dragleave' | 'drop', files: 
     },
     { type: kind, names: files },
   );
-}
-
-/** Delete one uploaded file through its row menu, so the project is left as found. */
-async function removeRow(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: `Actions for ${name}` }).click();
-  await page.getByRole('menuitem', { name: 'Delete' }).click();
-  await page.getByRole('dialog', { name: 'Confirm delete' }).getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
 }
 
 test('the drawer shows the drop target and reports a batch once', async ({ page }) => {

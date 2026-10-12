@@ -9,7 +9,9 @@ import {
   dirLoading,
   dirReady,
   idleTree,
+  insidePath,
   joinPath,
+  movedPath,
   noPreview,
   parentPath,
   previewError,
@@ -35,6 +37,7 @@ import {
   createEntry,
   fetchContent,
   fetchEntries,
+  moveEntry,
   removeEntry,
   renameEntry,
   saveContent,
@@ -80,6 +83,13 @@ export interface FileViewerActions {
   create(kind: 'file' | 'directory', name: string): Promise<void>;
   /** Rename the entry at `path` to the bare name `to`. */
   rename(path: string, to: string): Promise<void>;
+  /**
+   * Move the entry at `path` into the directory `dest` (`''` is the root),
+   * keeping its name. Both directories involved are re-listed, and the
+   * destination is left open — dropping something into a folder is meant to show
+   * it arriving.
+   */
+  move(path: string, dest: string): Promise<void>;
   /** Delete the entry at `path` (the panel confirms first). */
   remove(path: string): Promise<void>;
   /**
@@ -306,9 +316,28 @@ export function useFiles(project: Project): FileViewerController {
       await runMutation(() => removeEntry(project.id, path), parentPath(path));
       // A delete invalidates a preview of the removed entry (or anything under it).
       const previewed = previewPath(previewRef.current);
-      if (previewed !== null && (previewed === path || previewed.startsWith(`${path}/`))) setPreview(noPreview);
+      if (previewed !== null && insidePath(previewed, path)) setPreview(noPreview);
     },
     [project.id, runMutation],
+  );
+
+  const move = useCallback(
+    async (path: string, dest: string): Promise<void> => {
+      await moveEntry(project.id, path, dest);
+      // Both ends changed: the folder it left loses a row, the one it landed in
+      // gains one — and that second folder is opened, because the point of
+      // dropping something into a folder is seeing it arrive.
+      void loadDir(parentPath(path));
+      settle(dest);
+
+      // The open file follows itself — the bytes did not change, only where they
+      // live — and so does a file inside a folder that just moved, because the
+      // whole subtree moved with it. A stale path would otherwise keep showing
+      // the file under a name that is no longer there.
+      const previewed = previewPath(previewRef.current);
+      if (previewed !== null && insidePath(previewed, path)) preview(movedPath(previewed, path, dest));
+    },
+    [project.id, loadDir, settle, preview],
   );
 
   const edit = useCallback((): void => {
@@ -343,7 +372,7 @@ export function useFiles(project: Project): FileViewerController {
 
   return {
     viewer,
-    actions: { toggle, openDir, preview, refresh, create, rename, remove, upload, edit, editValue, save, cancel, dismiss },
+    actions: { toggle, openDir, preview, refresh, create, rename, move, remove, upload, edit, editValue, save, cancel, dismiss },
   };
 }
 

@@ -9,8 +9,10 @@ import {
   dirLoading,
   dirReady,
   idleTree,
+  insidePath,
   isValidName,
   joinPath,
+  movedPath,
   noPreview,
   parentPath,
   previewError,
@@ -81,6 +83,21 @@ describe('path handling', () => {
     expect(baseName('')).toBe('');
     expect(baseName('src')).toBe('src');
     expect(baseName('src/app.ts')).toBe('app.ts');
+  });
+
+  it('reads an entry and its subtree as one thing, and a name that merely starts the same as another', () => {
+    expect(insidePath('src/app.ts', 'src/app.ts')).toBe(true);
+    expect(insidePath('src/ui/button.tsx', 'src')).toBe(true);
+    expect(insidePath('src', 'src/app.ts')).toBe(false);
+    // Not by prefix: `src-notes` is not inside `src`.
+    expect(insidePath('src-notes/a.txt', 'src')).toBe(false);
+  });
+
+  it('lands a moved file — and anything that moved with it — under the destination', () => {
+    expect(movedPath('README.md', 'README.md', 'src')).toBe('src/README.md');
+    expect(movedPath('src/app.ts', 'src/app.ts', '')).toBe('app.ts');
+    expect(movedPath('box/inner/deep.txt', 'box', 'dest')).toBe('dest/inner/deep.txt');
+    expect(movedPath('box/inner/deep.txt', 'box', '')).toBe('inner/deep.txt');
   });
 
   it('accepts a plain name and refuses anything that is not a single clean segment', () => {

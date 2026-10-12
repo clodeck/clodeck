@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { MAX_UPLOAD_BYTES, type Project } from '@clodeck/shared';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ToastProvider } from '../toast/ToastProvider';
@@ -37,10 +37,26 @@ function threeHoursAgo(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
 }
 
-/** One request the panel made: how, and to which relative path. */
+/** One request the panel made: how, to which relative path, and a `to` if it carried one. */
 interface Call {
   method: string;
   path: string;
+  /** The `to` of a JSON body — a rename's new name, or a move's destination folder. */
+  to?: string;
+}
+
+/** A request body's `to`, when the body is JSON that carries one. */
+function toOf(init: RequestInit | undefined): string | undefined {
+  if (typeof init?.body !== 'string') return undefined;
+  try {
+    const parsed: unknown = JSON.parse(init.body);
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const to = (parsed as { to?: unknown }).to;
+    return typeof to === 'string' ? to : undefined;
+  } catch {
+    // A save sends raw content in the same shape of request; it has no `to`.
+    return undefined;
+  }
 }
 
 /** The server's error envelope, as the transport's mapping expects it. */
@@ -67,7 +83,7 @@ function stubFiles(options: { failMutations?: boolean; failUploads?: string[]; t
     const url = new URL(String(input), 'http://localhost');
     const method = init?.method ?? 'GET';
     const path = url.searchParams.get('path') ?? '';
-    calls.push({ method, path });
+    calls.push({ method, path, to: toOf(init) });
 
     if (method !== 'GET') {
       if (failMutations) return Promise.resolve(failure(500, 'Internal Server Error', 'disk is full'));
@@ -115,6 +131,33 @@ function osDrag(files: File[]): { dataTransfer: { types: string[]; files: File[]
   return { dataTransfer: { types: ['Files'], files } };
 }
 
+/**
+ * The drag a move is made of: pick a file row up and drop it on a folder row (or
+ * on the breadcrumb's root crumb). The transfer the browser hands a drag is
+ * stubbed the way the panel uses it — `setData` for the path it carries, and a
+ * writable `effectAllowed`.
+ */
+function moveRowOnto(row: HTMLElement, target: HTMLElement): void {
+  fireEvent.dragStart(row, { dataTransfer: { setData: () => undefined, effectAllowed: '' } });
+  fireEvent.dragOver(target, {});
+  fireEvent.drop(target, {});
+}
+
+/**
+ * A drag leaving `row` for whatever is under the pointer now. jsdom has no
+ * `DragEvent`, and `fireEvent.dragLeave` loses `relatedTarget` before React's
+ * synthetic event sees it — so the one case that needs it (a drag moving between
+ * a row and the row's own children) is dispatched as a bubbling `MouseEvent` of
+ * the same type, which React handles as the drag event it is.
+ */
+function dragLeaves(row: HTMLElement, related: EventTarget | null): void {
+  // In `act` because the raw `dispatchEvent` skips what `fireEvent` does around
+  // it, and clearing the highlight is a state change like any other.
+  act(() => {
+    row.dispatchEvent(new MouseEvent('dragleave', { bubbles: true, relatedTarget: related }));
+  });
+}
+
 /** A file that reports itself over the cap, without allocating 200 MiB to say so. */
 function oversize(name: string): File {
   const file = new File(['x'], name);
@@ -141,6 +184,23 @@ function column(panel: Element, index: number): HTMLElement {
   const child = panel.children[index];
   if (child === undefined) throw new Error(`the Files panel has no column ${String(index)}`);
   return child as HTMLElement;
+}
+
+/**
+ * The code view's lines: one row per line of the file, read out of the row's
+ * *second* cell — the first is the line's number, which is deliberately not part
+ * of the file's text (it is `select-none` and `aria-hidden`).
+ */
+function sourceLines(code: HTMLElement): string[] {
+  const rows = within(code).queryAllByRole('listitem');
+  return rows.map((row) => row.lastElementChild?.textContent ?? '');
+}
+
+/** The line-number cell of each row of the code view. */
+function gutterCells(code: HTMLElement): HTMLElement[] {
+  return within(code)
+    .queryAllByRole('listitem')
+    .map((row) => row.firstElementChild as HTMLElement);
 }
 
 describe('FilePanel in the drawer', () => {
@@ -390,7 +450,7 @@ describe('a markdown file can be read as markdown', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
     await waitFor(() => {
-      expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+      expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
@@ -402,7 +462,7 @@ describe('a markdown file can be read as markdown', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(toggle);
-    expect(code.querySelector('pre')?.textContent).toBe(MD_BODY);
+    expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 
@@ -554,5 +614,172 @@ describe('file rows carry their metadata', () => {
     // its menu, with nothing measured invented in between.
     expect(dirRow.textContent).toBe('▸ src/⋯');
     expect(dirRow.getAttribute('title')).toBeNull();
+  });
+});
+
+describe('dragging a file onto a folder', () => {
+  it('highlights the folder under the drag, and clears it when the drag leaves', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+    const folder = screen.getByTitle('Expand folder');
+    if (folder.parentElement === null) throw new Error('the folder row has no element');
+    const dirRow = folder.parentElement;
+
+    fireEvent.dragStart(rowOf(readme), { dataTransfer: { setData: () => undefined, effectAllowed: '' } });
+    // The target's own outline is the whole of the feedback.
+    expect(dirRow.className).not.toContain('outline-accent');
+
+    fireEvent.dragOver(dirRow, {});
+    expect(dirRow.className).toContain('outline-accent');
+
+    // Leaving it — and moving between the row's own children is not leaving it.
+    dragLeaves(dirRow, folder);
+    expect(dirRow.className).toContain('outline-accent');
+    dragLeaves(dirRow, null);
+    expect(dirRow.className).not.toContain('outline-accent');
+    expect(panel.contains(dirRow)).toBe(true);
+  });
+
+  it('confirms first, then moves the file and says where it went', async () => {
+    const { calls } = stubFiles();
+    const { notifications } = renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+    const folder = screen.getByTitle('Expand folder');
+
+    moveRowOnto(rowOf(readme), folder.parentElement as HTMLElement);
+
+    // The prototype's question, with the folder it would land in.
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    expect(within(dialog).getByText('Move "README.md" into "src"?')).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('moved README.md → src');
+    });
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([
+      { method: 'POST', path: 'README.md', to: 'src' },
+    ]);
+    // The destination is left open — dropping into a folder is meant to show the
+    // arrival — so its listing was fetched again.
+    await waitFor(() => {
+      expect(calls.filter((call) => call.path === 'src')).not.toHaveLength(0);
+    });
+  });
+
+  it('follows an open file to its new path, so the column is not left stale', async () => {
+    const { calls } = stubFiles();
+    const { panel } = renderPanel();
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'README.md' }));
+    await screen.findByText(FILE_BODY);
+    expect(within(code).getByText('README.md')).toBeTruthy();
+
+    moveRowOnto(rowOf(screen.getByRole('button', { name: 'README.md' })), screen.getByTitle('Expand folder').parentElement as HTMLElement);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Confirm move' })).getByRole('button', { name: 'Move' }));
+
+    // The same bytes, under the path they now live at.
+    await waitFor(() => {
+      expect(within(code).getByText('src/README.md')).toBeTruthy();
+    });
+    expect(calls.filter((call) => call.path === 'src/README.md').map((call) => call.method)).toEqual(['GET']);
+  });
+
+  it('cancels without a request, a toast, or a row left highlighted', async () => {
+    const { calls } = stubFiles();
+    const { notifications } = renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+    const folder = screen.getByTitle('Expand folder');
+
+    moveRowOnto(rowOf(readme), folder.parentElement as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Confirm move' })).toBeNull();
+    expect(notifications.textContent).toBe('');
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([]);
+    // The row the file was dragged from is still there, and nothing is outlined.
+    expect(screen.getByRole('button', { name: 'README.md' })).toBeTruthy();
+    expect((folder.parentElement as HTMLElement).className).not.toContain('outline-accent');
+  });
+
+  it('refuses a move into the folder the file already lives in, without asking the server', async () => {
+    const { calls } = stubFiles();
+    const { notifications } = renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+    const crumbs = screen.getByRole('navigation', { name: 'Folder' });
+
+    // The root crumb is the one drop target a file dragged out of a subfolder
+    // has to get home to — and it is also where `README.md` already is.
+    moveRowOnto(rowOf(readme), within(crumbs).getByText('root'));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    expect(within(dialog).getByText('Move "README.md" into "root"?')).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('already in root');
+    });
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([]);
+  });
+
+  it('keeps the server’s refusal in the dialog and changes nothing', async () => {
+    const { calls } = stubFiles({ failMutations: true });
+    const { notifications } = renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+
+    moveRowOnto(rowOf(readme), screen.getByTitle('Expand folder').parentElement as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    expect(await screen.findByText('500 Internal Server Error: disk is full')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Confirm move' })).toBeTruthy();
+    expect(notifications.textContent).toBe('');
+    // One attempt, and nothing else: a failed move re-lists nothing.
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([
+      { method: 'POST', path: 'README.md', to: 'src' },
+    ]);
+  });
+});
+
+describe('the code view', () => {
+  it('numbers every line of the file in a gutter that does not wrap', async () => {
+    stubFiles();
+    const { panel } = renderPanel();
+    const code = column(panel, 1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'GUIDE.md' }));
+
+    const source = await within(code).findByRole('list', { name: 'Source' });
+    const rows = within(source).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    // The file's own lines, in order, with nothing of the gutter in them.
+    expect(sourceLines(code)).toEqual(['# Guide', '', 'Read **this**, not that.']);
+
+    // One number per row, right of the code's start and out of a selection; the
+    // source cell beside it keeps the file's own line breaking.
+    expect(gutterCells(code).map((cell) => cell.textContent)).toEqual(['1', '2', '3']);
+    expect(gutterCells(code)[0]?.className).toContain('select-none');
+    expect(rows[0]?.lastElementChild?.className).toContain('whitespace-pre');
+  });
+
+  it('colours a line by the file’s extension, and leaves an unknown one plain', async () => {
+    stubFiles();
+    renderPanel();
+
+    // `main.ts` is source mode with the code pass: the keyword and the number.
+    fireEvent.click(await screen.findByRole('button', { name: 'main.ts' }));
+    await screen.findByText('const');
+    expect(screen.getByText('const').className).toContain('text-code-kw');
+    expect(screen.getByText('42').className).toContain('text-code-num');
+    expect(screen.getByText(';').className).not.toContain('text-code-');
+
+    // A markdown file in source mode is coloured by markdown's own shapes.
+    fireEvent.click(screen.getByRole('button', { name: 'GUIDE.md' }));
+    await waitFor(() => {
+      expect(screen.getByText('# Guide').className).toContain('text-code-kw');
+    });
   });
 });

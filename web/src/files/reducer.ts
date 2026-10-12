@@ -324,6 +324,25 @@ export function parentPath(path: string): string {
 }
 
 /**
+ * Whether `candidate` is the entry at `path`, or lives inside it. Both mutations
+ * that can invalidate a selection ask this — a delete drops it, a move re-reads
+ * it — because an entry carries its subtree with it either way.
+ */
+export function insidePath(candidate: string, path: string): boolean {
+  return candidate === path || candidate.startsWith(`${path}/`);
+}
+
+/**
+ * Where an open file's path goes when the entry at `path` is moved into `dest`:
+ * the file itself, or whatever part of its path followed the subtree. Call it
+ * only for a path {@link insidePath} says moved — it is the *new* path, not a
+ * test — which is why it has no case for one that stayed put.
+ */
+export function movedPath(open: string, path: string, dest: string): string {
+  return open === path ? joinPath(dest, baseName(open)) : joinPath(dest, open.slice(path.length + 1));
+}
+
+/**
  * Whether a name is safe to offer as a new file/folder/rename target: a single
  * non-empty segment, never `.`/`..`, no separator, no NUL. This is the panel's
  * cheap refusal; the server re-validates through its own `name()` brand.

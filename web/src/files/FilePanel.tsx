@@ -6,14 +6,25 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type HTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from 'react';
 
 import { useToast } from '../toast/ToastProvider';
+import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
 import { isMarkdown, renderMarkdown } from './markdown';
-import { assertNever, baseName, isValidName, joinPath, noPreview, previewPath, type DirListing } from './reducer';
+import {
+  assertNever,
+  baseName,
+  isValidName,
+  joinPath,
+  noPreview,
+  parentPath,
+  previewPath,
+  type DirListing,
+} from './reducer';
 import { downloadUrl } from './transport';
 import { summarizeUploads } from './upload';
 import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } from './useFiles';
@@ -89,8 +100,36 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  /**
+   * Ticket 44's drag-to-move state: the row in the air, and the destination under
+   * the pointer (`''` is the root). `dragging === null` is what tells every drop
+   * target that the drag it is seeing is not an internal move — an OS-file drag
+   * carries `Files` and belongs to the panel's own drop handler.
+   */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const [move, setMove] = useState<MoveRequest | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
+
+  const moveControl: MoveControl = {
+    dragging,
+    over,
+    onStart: setDragging,
+    onEnd: () => { setDragging(null); setOver(null); },
+    onHover: setOver,
+    onDrop: (dest) => {
+      if (dragging === null) return;
+      // The drop ends the drag whether or not the move then happens, so nothing
+      // is left highlighted behind a cancelled dialog.
+      setDragging(null);
+      setOver(null);
+      setMenu(null);
+      setMove({ path: dragging, name: baseName(dragging), dest });
+      setMoveError(null);
+    },
+  };
 
   // The folder create/upload land in, read off the view model: `''` is the root.
   const activeDir = viewer.status === 'ready' ? viewer.active : '';
@@ -187,6 +226,30 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     }
   };
 
+  /**
+   * The move the user just confirmed. A move into the folder the entry already
+   * lives in is a no-op the client can see for itself, and the prototype refuses
+   * it with a word rather than performing it — everything else goes to the
+   * server, whose refusal (a collision, a folder into its own subtree) is the
+   * dialog's to show.
+   */
+  const confirmMove = async (): Promise<void> => {
+    if (move === null) return;
+    if (parentPath(move.path) === move.dest) {
+      toast(`already in ${folderLabel(move.dest)}`);
+      setMove(null);
+      return;
+    }
+    try {
+      await actions.move(move.path, move.dest);
+      toast(`moved ${move.name} → ${folderLabel(move.dest)}`);
+      setMove(null);
+      setMoveError(null);
+    } catch (error) {
+      setMoveError(messageOf(error));
+    }
+  };
+
   return (
     <section
       className="relative flex min-h-0 flex-1"
@@ -202,19 +265,18 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             not fit across 300px, and a squeezed path is the one thing here the
             reader cannot do without (it is where new file/folder land). */}
         <header className="shrink-0 border-b border-line px-3 py-2">
-          {/* Where create and upload land, and — in the flat list, which has no
-              other navigator — the way back up out of a folder. */}
-          {view === 'list' ? (
-            <Breadcrumb active={activeDir} onOpen={actions.openDir} />
-          ) : (
-            activeLabel !== null && (
-              <p
-                className="truncate font-mono text-[11px] text-ink-dim"
-                title={`New file, new folder and upload land in: ${activeLabel}`}
-              >
-                in {activeLabel}
-              </p>
-            )
+          {/* The trail to the folder create and upload land in — and, in the flat
+              list, the way back up out of a folder. The tree reads the same trail
+              (`root / … / here`) rather than the `in <folder>` line ticket 41
+              left it: its root crumb is the one drop target a file dragged out
+              of a subfolder has to get home to (ticket 44). */}
+          {activeLabel !== null && (
+            <Breadcrumb
+              active={activeDir}
+              onOpen={actions.openDir}
+              move={moveControl}
+              label={`New file, new folder and upload land in: ${activeLabel}`}
+            />
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
@@ -245,6 +307,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             viewer={viewer}
             menu={menu}
             actions={actions}
+            moveControl={moveControl}
             onMenu={setMenu}
             onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); setPromptError(null); }}
             onDelete={(entry) => { setMenu(null); setConfirm(entry); setConfirmError(null); }}
@@ -289,6 +352,15 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
         />
       )}
 
+      {move !== null && (
+        <MoveDialog
+          request={move}
+          error={moveError}
+          onConfirm={confirmMove}
+          onCancel={() => { setMove(null); }}
+        />
+      )}
+
       {dragActive && <DropOverlay />}
     </section>
   );
@@ -318,6 +390,78 @@ function hasOsFiles(event: DragEvent<HTMLElement>): boolean {
 }
 
 /**
+ * A move the user has asked for and not yet confirmed. `dest` is a root-relative
+ * directory path (`''` is the root) — the folder the row was dropped on.
+ */
+interface MoveRequest {
+  path: string;
+  name: string;
+  dest: string;
+}
+
+/**
+ * The drag-a-file-onto-a-folder wiring (ticket 44), handed to every folder row
+ * and to the breadcrumb's root crumb. `dragging` is the row in the air and `over`
+ * the destination under the pointer; `dragging === null` is how a drop target
+ * tells an internal move from the OS-file drag the panel itself handles.
+ */
+interface MoveControl {
+  dragging: string | null;
+  over: string | null;
+  onStart(path: string): void;
+  onEnd(): void;
+  onHover(path: string | null): void;
+  onDrop(dest: string): void;
+}
+
+/**
+ * Pick a file row up. Only `text/plain` is set — the prototype's own choice, and
+ * load-bearing here: a drag advertising `Files` would read as an OS-file upload
+ * to the panel's drop handler (ticket 38), and the two must never collide.
+ */
+function startDrag(event: DragEvent<HTMLElement>, path: string, move: MoveControl): void {
+  event.dataTransfer.setData('text/plain', path);
+  event.dataTransfer.effectAllowed = 'move';
+  move.onStart(path);
+}
+
+/**
+ * A drop target's drag props: a folder row, or the breadcrumb's root crumb. A
+ * drag that is not an internal move is left alone entirely, so the panel's own
+ * drop handling — and the browser's default for a text drag — are untouched.
+ */
+function dropTarget(
+  move: MoveControl,
+  dest: string,
+): Pick<HTMLAttributes<HTMLElement>, 'onDragOver' | 'onDragLeave' | 'onDrop'> {
+  return {
+    onDragOver: (event) => {
+      if (move.dragging === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      move.onHover(dest);
+    },
+    onDragLeave: (event) => {
+      if (move.over !== dest) return;
+      // Moving between the target's own children is not leaving it.
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      move.onHover(null);
+    },
+    onDrop: (event) => {
+      if (move.dragging === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      move.onDrop(dest);
+    },
+  };
+}
+
+/** How a destination folder reads in a message: the root has a name of its own. */
+function folderLabel(dest: string): string {
+  return dest === '' ? 'root' : dest;
+}
+
+/**
  * The listing the tree column is showing. Not persisted, not per project — the
  * panel is re-mounted per project and this dies with it.
  */
@@ -339,6 +483,7 @@ function ViewerBody({
   viewer,
   menu,
   actions,
+  moveControl,
   onMenu,
   onRename,
   onDelete,
@@ -347,6 +492,7 @@ function ViewerBody({
   viewer: FileViewer;
   menu: string | null;
   actions: FileViewerActions;
+  moveControl: MoveControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -361,7 +507,8 @@ function ViewerBody({
     case 'ready':
       // The same loaded tree either way: the toggle changes the rendering, never
       // what has been fetched, which is what keeps the open file and the current
-      // folder across a flip.
+      // folder across a flip. Only the tree carries a move: its rows are the ones
+      // you can pick up and drop (the flat list is a listing, not a navigator).
       return view === 'list' ? (
         <FlatList
           dir={viewer.active}
@@ -381,6 +528,7 @@ function ViewerBody({
           active={viewer.active}
           menu={menu}
           actions={actions}
+          moveControl={moveControl}
           onMenu={onMenu}
           onRename={onRename}
           onDelete={onDelete}
@@ -547,32 +695,59 @@ function Cell({ children }: { children: ReactNode }): ReactElement {
 }
 
 /**
- * The flat list's breadcrumb: the folder being listed, from the root down, with
- * every folder above the current one a step back up to it. The tree does not
- * need this — a folder click there expands in place and the tree is its own
- * navigator — so the line is a plain `in <folder>` in tree mode.
+ * The trail to the folder on screen, from the root down, with every folder above
+ * the current one a step to it. It is shown in both listings: in the flat list
+ * it is the only way back up out of a folder (there is nothing to collapse), and
+ * in the tree it is where create and upload land — and the **root crumb is a
+ * drop target**, which is the one place a file dragged out of a subfolder has to
+ * get home to (ticket 44).
  */
-function Breadcrumb({ active, onOpen }: { active: string; onOpen: (path: string) => void }): ReactElement {
+function Breadcrumb({
+  active,
+  onOpen,
+  move,
+  label,
+}: {
+  active: string;
+  onOpen: (path: string) => void;
+  move: MoveControl;
+  label: string;
+}): ReactElement {
   return (
-    <nav aria-label="Folder" className="flex flex-wrap items-center gap-1 font-mono text-[11px]">
-      {crumbsOf(active).map((crumb, index) => (
-        <Fragment key={crumb}>
-          {index > 0 && <span className="text-ink-dim">/</span>}
-          {crumb === active ? (
-            <span className="truncate text-ink" aria-current="true">
-              {crumbLabel(crumb)}
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => { onOpen(crumb); }}
-              className="truncate text-ink-dim hover:text-accent"
-            >
-              {crumbLabel(crumb)}
-            </button>
-          )}
-        </Fragment>
-      ))}
+    <nav
+      aria-label="Folder"
+      title={label}
+      className="flex flex-wrap items-center gap-1 font-mono text-[11px]"
+    >
+      {crumbsOf(active).map((crumb, index) => {
+        // Only the root: an ancestor folder is a step *along* the trail, and a
+        // drop on one of those would be a drop on the wrong folder.
+        const drop = crumb === '' ? dropTarget(move, '') : {};
+        const hovering = crumb === '' && move.over === '';
+        return (
+          <Fragment key={crumb}>
+            {index > 0 && <span className="text-ink-dim">/</span>}
+            {crumb === active ? (
+              <span
+                className={`truncate rounded px-0.5 text-ink ${hovering ? 'bg-white/5 outline-1 outline-accent' : ''}`}
+                aria-current="true"
+                {...drop}
+              >
+                {crumbLabel(crumb)}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { onOpen(crumb); }}
+                className={`truncate rounded px-0.5 text-ink-dim hover:text-accent ${hovering ? 'bg-white/5 outline-1 outline-accent' : ''}`}
+                {...drop}
+              >
+                {crumbLabel(crumb)}
+              </button>
+            )}
+          </Fragment>
+        );
+      })}
     </nav>
   );
 }
@@ -600,6 +775,7 @@ function TreeLevel({
   active,
   menu,
   actions,
+  moveControl,
   onMenu,
   onRename,
   onDelete,
@@ -611,6 +787,7 @@ function TreeLevel({
   active: string;
   menu: string | null;
   actions: FileViewerActions;
+  moveControl: MoveControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -638,6 +815,7 @@ function TreeLevel({
                   isActive={isDir && active === childPath}
                   menuOpen={menu === childPath}
                   actions={actions}
+                  moveControl={moveControl}
                   onMenu={onMenu}
                   onRename={onRename}
                   onDelete={onDelete}
@@ -651,6 +829,7 @@ function TreeLevel({
                     active={active}
                     menu={menu}
                     actions={actions}
+                    moveControl={moveControl}
                     onMenu={onMenu}
                     onRename={onRename}
                     onDelete={onDelete}
@@ -677,6 +856,7 @@ function EntryRow({
   isActive,
   menuOpen,
   actions,
+  moveControl,
   onMenu,
   onRename,
   onDelete,
@@ -688,11 +868,17 @@ function EntryRow({
   isActive: boolean;
   menuOpen: boolean;
   actions: FileViewerActions;
+  moveControl: MoveControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
   const isDir = entry.type === 'directory';
+  const isFile = entry.type === 'file';
+  // The folder under a dragged row takes the prototype's outline. The row keeps
+  // its `relative` for the menu's sake (see below), so this is a second class
+  // rather than a wrapper.
+  const hovering = isDir && moveControl.over === path;
 
   return (
     // `relative`, so the row's own menu is placed against the row. Without it
@@ -701,10 +887,20 @@ function EntryRow({
     // The row carries the file's modified time as its tooltip: a title on the
     // size alone would be a hover on a few characters, and the name's own title
     // (`Preview x`) still wins where it has one.
+    //
+    // A **file** row is draggable and a **folder** row is a drop target (ticket
+    // 44). The drag carries `text/plain` and nothing else: a drag advertising
+    // `Files` would be read as an upload by the panel's own drop handler.
     <div
-      className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${isActive ? 'bg-white/5' : ''}`}
+      className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${
+        isActive ? 'bg-white/5' : ''
+      } ${hovering ? 'bg-white/5 outline-1 outline-accent' : ''}`}
       style={{ paddingLeft: 8 + depth * 14 }}
       title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
+      draggable={isFile ? true : undefined}
+      onDragStart={isFile ? (event) => { startDrag(event, path, moveControl); } : undefined}
+      onDragEnd={isFile ? () => { moveControl.onEnd(); } : undefined}
+      {...(isDir ? dropTarget(moveControl, path) : {})}
     >
       <EntryMain
         entry={entry}
@@ -1048,11 +1244,15 @@ function PreviewBody({
       return <Hint>Loading…</Hint>;
     case 'text':
       // A file's bytes are untrusted: they are React text nodes either way —
-      // the source's one `<pre>`, or the elements `renderMarkdown` builds.
+      // the line-by-line elements `CodeView` and `renderMarkdown` build, and the
+      // gutter `CodeView` puts beside them. Nothing here sets markup.
+      //
+      // Preview is the rendered markdown, which has no line numbers to number:
+      // the gutter and the colouring are source mode's, and only its.
       return previewingMarkdown ? (
         <div className="p-2">{renderMarkdown(preview.content)}</div>
       ) : (
-        <pre className="p-2 font-mono text-[11px] whitespace-pre text-ink">{preview.content}</pre>
+        <CodeView content={preview.content} name={preview.name} />
       );
     case 'binary':
       return (
@@ -1227,6 +1427,49 @@ function NameDialog({
           </button>
         </div>
       </form>
+    </Overlay>
+  );
+}
+
+/**
+ * The move confirmation — the prototype's `Move "x" into "y"?`
+ * (`common.js:625-628`), and the one dialog here that is not about destroying
+ * something: a refusal it cannot make itself (a collision, a folder into its own
+ * subtree) keeps the dialog open and says why, exactly as rename and delete do.
+ */
+function MoveDialog({
+  request,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  request: MoveRequest;
+  error: string | null;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}): ReactElement {
+  return (
+    <Overlay label="Confirm move">
+      <h3 className="text-sm font-semibold text-ink">
+        Move "{request.name}" into "{folderLabel(request.dest)}"?
+      </h3>
+      {error !== null && <p className="mt-2 font-mono text-[11px] break-words text-err">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-line px-3 py-1.5 text-sm text-ink hover:bg-white/5"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => { void onConfirm(); }}
+          className="rounded bg-accent px-3 py-1.5 text-sm font-semibold text-canvas hover:opacity-90"
+        >
+          Move
+        </button>
+      </div>
     </Overlay>
   );
 }

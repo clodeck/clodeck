@@ -332,6 +332,120 @@ describe('ScopedFs (write half)', () => {
     });
   });
 
+  /**
+   * A move takes a source entry and a *destination directory* — the
+   * cross-directory operation `rename` deliberately leaves alone. The two ends
+   * arrive from different doors (`resolveWriteTarget` for the entry, `resolve`
+   * for the directory), and every refusal below is one of those doors' answers or
+   * the move's own: an entry already there, and a folder into its own subtree.
+   */
+  describe('move', () => {
+    /** Reach a directory the way a route does — through the reader's door. */
+    async function destDir(rel: string): Promise<ScopedPath> {
+      const result = await fs().resolve(rel);
+      if (result.status !== 'ok') throw new Error(`resolve(${rel}) → ${result.status}`);
+      return result.scoped;
+    }
+
+    it('moves a file into another directory, keeping its name', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await writeFile(path.join(proj, 'a.txt'), 'data');
+      const source = await writeTarget('a.txt');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'src', 'a.txt'), 'utf8')).toBe('data');
+      await expect(lstat(path.join(proj, 'a.txt'))).rejects.toThrow();
+    });
+
+    it('moves a file back out to the root', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await writeFile(path.join(proj, 'src', 'a.txt'), 'data');
+      const source = await writeTarget('src/a.txt');
+
+      expect(await fs().move(source, await destDir(''))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('moves a directory with everything inside it', async () => {
+      await mkdir(path.join(proj, 'dest'));
+      await mkdir(path.join(proj, 'src'));
+      await mkdir(path.join(proj, 'src', 'inner'));
+      await writeFile(path.join(proj, 'src', 'inner', 'deep.txt'), 'data');
+      const source = await writeTarget('src');
+
+      expect(await fs().move(source, await destDir('dest'))).toEqual({ status: 'ok' });
+      expect(await readFile(path.join(proj, 'dest', 'src', 'inner', 'deep.txt'), 'utf8')).toBe('data');
+      await expect(lstat(path.join(proj, 'src'))).rejects.toThrow();
+    });
+
+    it('reports a missing source as not_found and leaves the destination empty', async () => {
+      await mkdir(path.join(proj, 'src'));
+      const source = await writeTarget('gone.txt');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'not_found' });
+      expect(await readdir(path.join(proj, 'src'))).toEqual([]);
+    });
+
+    it('reports a destination that is a file as not_a_directory', async () => {
+      await writeFile(path.join(proj, 'a.txt'), 'data');
+      await writeFile(path.join(proj, 'f.txt'), 'x');
+      const source = await writeTarget('a.txt');
+
+      expect(await fs().move(source, await destDir('f.txt'))).toEqual({ status: 'not_a_directory' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('refuses a move into the directory the entry already lives in', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await writeFile(path.join(proj, 'src', 'a.txt'), 'data');
+      const source = await writeTarget('src/a.txt');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'same_directory' });
+      expect(await readFile(path.join(proj, 'src', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('refuses a name collision rather than overwriting it', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await writeFile(path.join(proj, 'a.txt'), 'the source');
+      await writeFile(path.join(proj, 'src', 'a.txt'), 'the one already there');
+      const source = await writeTarget('a.txt');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'exists' });
+      expect(await readFile(path.join(proj, 'a.txt'), 'utf8')).toBe('the source');
+      expect(await readFile(path.join(proj, 'src', 'a.txt'), 'utf8')).toBe('the one already there');
+    });
+
+    it('refuses a folder into itself, or into its own subtree', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await mkdir(path.join(proj, 'src', 'nested'));
+      const source = await writeTarget('src');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'into_own_descendant' });
+      expect(await fs().move(source, await destDir('src/nested'))).toEqual({ status: 'into_own_descendant' });
+      expect((await lstat(path.join(proj, 'src', 'nested'))).isDirectory()).toBe(true);
+    });
+
+    it('never mints a destination behind a symlink that leaves the root', async () => {
+      // The destination's door, which is the reader's: a link out of the root is
+      // not a directory inside it, so no `ScopedPath` exists to move into.
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+
+      await expect(fs().resolve('link')).resolves.toEqual({ status: 'outside_root' });
+    });
+
+    it.skipIf(win32)('refuses a symlink as the source, and never moves what it points at', async () => {
+      await mkdir(path.join(proj, 'src'));
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(proj, 'link'), linkType);
+      const source = await writeTarget('link');
+
+      expect(await fs().move(source, await destDir('src'))).toEqual({ status: 'symlink' });
+      expect((await lstat(path.join(proj, 'link'))).isSymbolicLink()).toBe(true);
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+    });
+  });
+
   describe('remove', () => {
     it('removes a file', async () => {
       await writeFile(path.join(proj, 'gone.txt'), 'x');
@@ -368,6 +482,11 @@ describe('ScopedFs (write half)', () => {
   });
 
   describe('the root is unreachable', () => {
+    it('never mints a source for the empty path, so a move cannot take the project itself', async () => {
+      expect(await fs().resolveWriteTarget('')).toEqual({ status: 'is_root' });
+      expect((await lstat(proj)).isDirectory()).toBe(true);
+    });
+
     it('never mints a target for the empty path, so remove/rename cannot touch the root', async () => {
       // `resolveWriteTarget('')` is `is_root`, so no `WriteTarget` exists for the
       // root — and every write op joins `parent`/`name`, so it can only ever

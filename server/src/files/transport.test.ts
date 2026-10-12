@@ -496,6 +496,187 @@ describe('the file write routes', () => {
     });
   });
 
+  /**
+   * The move route (ticket 44): `?path=` names the entry, the body's `to` names
+   * the destination *directory*. The two ends come from different doors, so a
+   * bad source is a write refusal and a bad destination is a read one.
+   */
+  describe('POST files/move', () => {
+    it('moves a file into another directory with 200, and the bytes land there', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'data');
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=a.txt'),
+        payload: { to: 'src' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await readFile(path.join(root, 'proj', 'src', 'a.txt'), 'utf8')).toBe('data');
+      await expect(lstat(path.join(root, 'proj', 'a.txt'))).rejects.toThrow();
+    });
+
+    it('moves a file back out to the root, which the empty destination names', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await writeFile(path.join(root, 'proj', 'src', 'a.txt'), 'data');
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=src/a.txt'),
+        payload: { to: '' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('refuses a name collision with 409 and moves nothing', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'the source');
+      await writeFile(path.join(root, 'proj', 'src', 'a.txt'), 'the one already there');
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=a.txt'),
+        payload: { to: 'src' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('the source');
+      expect(await readFile(path.join(root, 'proj', 'src', 'a.txt'), 'utf8')).toBe('the one already there');
+    });
+
+    it('refuses the directory the file already lives in with 409', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await writeFile(path.join(root, 'proj', 'src', 'a.txt'), 'data');
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=src/a.txt'),
+        payload: { to: 'src' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(await readFile(path.join(root, 'proj', 'src', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('refuses a folder into its own subtree with 400', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await mkdir(path.join(root, 'proj', 'src', 'nested'));
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=src'),
+        payload: { to: 'src/nested' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect((await lstat(path.join(root, 'proj', 'src', 'nested'))).isDirectory()).toBe(true);
+    });
+
+    it('refuses a destination that is a file with 400', async () => {
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'data');
+      await writeFile(path.join(root, 'proj', 'f.txt'), 'x');
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=a.txt'),
+        payload: { to: 'f.txt' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('returns 404 for a missing source and for a missing destination', async () => {
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'data');
+      const app = makeApp();
+
+      const noSource = await authed(app, {
+        method: 'POST',
+        url: await filesUrl('/move?path=gone.txt'),
+        payload: { to: '' },
+      });
+      const noDest = await authed(app, {
+        method: 'POST',
+        url: await filesUrl('/move?path=a.txt'),
+        payload: { to: 'missing' },
+      });
+
+      expect(noSource.statusCode).toBe(404);
+      expect(noDest.statusCode).toBe(404);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('returns 400 when the project root is the source', async () => {
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move'),
+        payload: { to: '' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect((await lstat(path.join(root, 'proj'))).isDirectory()).toBe(true);
+    });
+
+    it('rejects a bad or missing to with 400 and moves nothing', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'data');
+      const app = makeApp();
+      const url = await filesUrl('/move?path=a.txt');
+
+      const noBody = await authed(app, { method: 'POST', url });
+      const notAString = await authed(app, { method: 'POST', url, payload: { to: 42 } });
+      const traversal = await authed(app, { method: 'POST', url, payload: { to: '../outside' } });
+      const absolute = await authed(app, { method: 'POST', url, payload: { to: '/etc' } });
+
+      expect(noBody.statusCode).toBe(400);
+      expect(notAString.statusCode).toBe(400);
+      expect(traversal.statusCode).toBe(400);
+      expect(absolute.statusCode).toBe(400);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('data');
+    });
+
+    it('rejects a bad source path with the same 400 as every other route', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl(`/move?path=${encodeURIComponent('../escape.txt')}`),
+        payload: { to: 'src' },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('returns 404 for an unknown project', async () => {
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: '/api/projects/not-a-project/files/move?path=a.txt',
+        payload: { to: '' },
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('never moves a file out of the root through an escaping symlink', async () => {
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await writeFile(path.join(root, 'proj', 'a.txt'), 'data');
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'escape'), linkType);
+
+      const response = await authed(makeApp(), {
+        method: 'POST',
+        url: await filesUrl('/move?path=a.txt'),
+        payload: { to: 'escape' },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(await readdir(path.join(sandbox.dir, 'outside'))).toEqual([]);
+      expect(await readFile(path.join(root, 'proj', 'a.txt'), 'utf8')).toBe('data');
+    });
+  });
+
   describe('DELETE files', () => {
     it('deletes a file with 200 and the bytes are gone', async () => {
       await writeFile(path.join(root, 'proj', 'gone.txt'), 'x');
