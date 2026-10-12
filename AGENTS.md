@@ -11,6 +11,16 @@ This repo hosts a **wayfinder** effort. Destination: a *spec* plus a *visual pro
 - **Issue tracker:** local markdown under `.scratch/<effort>/` — the local tracker is still the default now that the repo has a GitHub remote (`clodeck/clodeck`). Map = `.scratch/<effort>/map.md`; tickets = `.scratch/<effort>/issues/NN-<slug>.md`.
 - **Domain docs:** `GLOSSARY.md` / `docs/adr/` created lazily by the domain-modeling skill.
 
+## Git workflow
+
+**Never commit on `main`.** Every change — code, docs, tickets, handoff — goes on its own branch, and lands on `main` only by an explicit merge.
+
+1. **Branch first.** `git switch -c <effort>/<ticket>-<slug>` off `main` before the first commit (e.g. `clodeck/31-terminal-accumulates-on-switch`). No ticket? Use the effort name plus a short slug, and a `docs/` prefix for a docs-only change.
+2. **Commit on the branch**, one commit per coherent change, in the repo's own style (lowercase scope prefix, a sentence saying what and why). The pre-commit hook runs `npm run typecheck` and `npm test` — a red tree is never committed; `--no-verify` only if the user asks for it.
+3. **Stop at the merge.** Do not merge into `main`, do not push, and do not open a PR unless the user asks. When they do: `git switch main && git merge --no-ff <branch>`, then delete the branch.
+
+A docs-only or handoff-only change is **not** an exception.
+
 ## Standing decisions (this effort)
 
 - Destination = spec + prototype (not a full build yet).
