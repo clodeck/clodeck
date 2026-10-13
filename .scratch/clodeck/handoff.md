@@ -1,62 +1,67 @@
-# Handoff — clodeck: ticket 46 merged, and a project can be created from the UI
+# Handoff — clodeck: ticket 47 is on a branch, and the sidebar can create a project
 
 **Updated:** 2026-10-13
-**Where the tree is:** HEAD is on **`main`**, with ticket **46** merged (`--no-ff`) and the ticket branch
-`clodeck/46-47-create-project-from-ui` deleted. Nothing is pushed. Ticket **47** is written and
-`ready-for-agent` — it is the build half of 46's decision and it has **not** been started.
+**Where the tree is:** HEAD is on **`main`** at `af3d3f1` (ticket 46 merged). Ticket **47** is
+implemented on the branch **`clodeck/47-create-project-from-ui`**, committed and green, and **not
+merged** — nothing is pushed either. Merging is one command when the user asks for it:
+`git switch main && git merge --no-ff clodeck/47-create-project-from-ui`.
 
 ## What this phase is
 
-**Ticket 46 is docs only: no code, no test, no package changed.** It records a decision the user took on
-2026-10-13 — **a project can now be created from the UI** — and moves every document that said otherwise
-onto it *before* the code ticket (47) is written. It is ticket **32**'s pattern (decision first, features
-after), for the same reason: both documents are read at the start of every session, so a stale one is a
-re-derivation cost every time.
+**Ticket 47 is the build half of ticket 46's decision.** 46 said a project can be created from the UI
+and moved every document onto that; 47 is the code: one `mkdir` under the projects root, one gated
+route, and the sidebar button and dialog in front of it. The product rule it lands is unchanged —
+a project is still one immediate child directory of `PROJECTS_ROOT`, the root is still the allowlist,
+`id` is still `base64url(canonical path)`, and the list is still re-scanned per request. What is new is
+that the browser is now a door as well as the filesystem.
 
-What the decision reverses, and what it does not, is in `.scratch/clodeck/issues/46-project-creation-decision.md`.
-In one line: **the filesystem stays the mechanism, it stops being the only door** — a project is still one
-immediate child directory of `PROJECTS_ROOT`, the root is still the allowlist, `id` is still
-`base64url(canonical path)`, and the list is still re-scanned per request. What changed is that a create
-route (`POST /api/projects`, ticket 47) can now add that directory from the browser — otherwise a user
-behind the login with no shell cannot add a project at all, which is the product's whole point.
+What it looks like from outside: the sidebar's header carries `New project` beside Refresh; the button
+opens the app's one name dialog; `Create` POSTs `{ name }` to `/api/projects`; the dialog closes, the
+list reloads, the new project becomes the selected one, and a `created <name>` toast says so. The empty
+state carries the same button, so "no projects yet" is no longer a dead end for someone with no shell.
 
-### The documents that moved (read these before writing 47)
+Ticket 47's own file (`.scratch/clodeck/issues/47-create-project-from-ui.md`) is the spec, now
+`resolved`: its twelve bullets are checked, its **Landed as** block names every file, three build calls
+are recorded (the `projects.ts` module move, the widened `no_root`, the canonical `name`), and its
+**Code review** section lists the three fixes and the three declines. Read it before touching any of
+this — it is the shortest accurate description of what is there.
 
-| Document | What it now says |
+## What the branch changes
+
+| File | What it now does |
 |---|---|
-| `AGENTS.md` §"Standing decisions" | the project line records the second door; the MVP bullet names "creating a project from the sidebar" with its provenance (decision 2026-10-13, ticket 46; built by 47) |
-| `.scratch/clodeck/spec.md:19` | story 4 gains the browser door; the drop-a-folder sentence survives, uncut |
-| `README.md:141-142` | "Creating one from the sidebar is coming (ticket 47)" beside drop-and-refresh — the button is named as unbuilt, not as a present step |
-| `.scratch/web-claude-ui/issues/05-project-discovery.md` | a "Partly superseded — 2026-10-13" note: the scan holds, "drop a folder in is the only door" does not |
-| `.scratch/web-claude-ui/map.md:24` | the decision-05 line gains the same superseded clause inline — **the closed wayfinder map is not rewritten** |
-| `.scratch/clodeck/prototype-parity.md` §P3 | `add-project` is no longer a mock; search/settings/session-⋯/branch-chip stay mocked |
-| `.scratch/clodeck/issues/35-…md` | a dated aside on the rail bullet: the rail's three buttons stand, only its "out of MVP" clause for `add-project` is stale (the button goes in the **sidebar**, not the rail) |
+| `server/src/discovery.ts` | `createProject(name)` on the discovery seam: `name()` for the segment, discovery's leading-dot rule, an `lstat` pre-check, a non-recursive `mkdir`, then canonicalization — the id, path **and** name all come off the canonical path |
+| `server/src/projects.ts` | **new**: `registerProjectRoutes` — `GET /projects` moved here from `app.ts`, the new `POST /projects` beside it, and the `201`/`400`/`409`/`503` mapping |
+| `server/src/app.ts` | one line replaced: the two project routes are registered together on the gated scope |
+| `web/src/dialogs.tsx` | **new**: `NameDialog` + `Overlay`, extracted from `FilePanel` — the validity rule became a prop (a project name is a drawer name *and* non-dot) |
+| `web/src/files/FilePanel.tsx` | imports the two, passes `isValidName`; `FilePanel.test.tsx` never noticed, which was the extraction's test |
+| `web/src/useProjects.ts` | `create` on the hook, `createProject` (the POST) behind it, and `isValidProjectName` |
+| `web/src/ProjectSwitcher.tsx` | the `New project` button, the dialog, the toast, and the empty state's button |
+| `web/src/App.tsx` | `Shell` creates → selects the id → reloads; `Workspace` passes the create down |
+| `web/src/App.projects.test.tsx` | **new**: the flow through the real shell with `fetch` stubbed |
 
-Ticket 46 carries each edit's full detail; the table above is the short form so the next session reads it
-without opening the ticket. **No document claims the UI cannot add a project any more** — the one place
-that still reads that way is the sidebar's own empty state ("No projects yet. Drop a folder into your
-projects root and refresh.", `web/src/ProjectSwitcher.tsx:102`), which is ticket 47's to replace. If 47 is
-ever reverted, the seven documents above are the revert's other half — the decision outlives the code on
-purpose.
+**Evidence:** `npm run typecheck` clean; `npm test` → shared **9**, server **267** passed + 8 skipped,
+web **161** (18 files). Against the previous phase that is +10 server (4 discovery + 6 route) and +5
+web. No e2e spec was added, deliberately — the ticket says so twice, and the reason holds: a dialog, a
+fetch and a re-render are what jsdom *can* see, and the filesystem effect is pinned against real temp
+roots on the server side. `web/e2e/` is still the same five specs.
 
 ## Where the frontier is
 
-**Done:** 32–46, all merged. **Ready but not started:** ticket **47** (`issues/47-create-project-from-ui.md`)
-— blocked-by 46, which is now satisfied. It is a normal code ticket: the `createProject(name)` write on the
-discovery seam, the gated `POST /api/projects` route, the sidebar's `New project` button + dialog, and a
-`NameDialog` extraction out of `FilePanel.tsx`. Its own **Tests** section is the spec for what to write,
-and it deliberately asks for **no e2e spec** — do not "restore" one.
+**Done:** 32–47. **Nothing is ready-but-unstarted**: ticket 47 was the last ticket written, and the
+branch is waiting for a merge decision rather than for work.
 
-Ticket 46 recorded five calls in 47 that are worth re-reading before starting (a sidebar button not the
-rail; a name and nothing else; auto-select the new project; no rename/delete of a project from the UI; no
-registry or metadata). Each is reversible and each is stated so it can be argued with.
+If the merge happens, the next phase starts by re-reading `AGENTS.md`'s standing decisions and the
+"Known loose ends" below — there is no queued ticket, so the next session's first job is to pick one
+(§P-lists in `.scratch/clodeck/prototype-parity.md` are empty; the loose ends are where the real work
+is).
 
 ## Dev loop (unchanged, still load-bearing)
 
 Port **3001 is unbindable on this machine** (Windows Hyper-V/WSL exclusion range). Run with `PORT=3300`,
-and **give `PROJECTS_ROOT` forward slashes**: Git Bash eats the backslashes in an env assignment, and the
-server then scans `<repo>\workclodeck-projects` and discovers nothing — an empty project list, with the
-reason only in its warn line.
+and **give `PROJECTS_ROOT` forward slashes**: Git Bash eats the backslashes in an env assignment, and
+the server then scans `<repo>\workclodeck-projects` and discovers nothing — an empty project list, with
+the reason only in its warn line.
 
 ```cmd
 set UI_PASSWORD=dev
@@ -80,10 +85,33 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   check, the login, the row cleanup — through `web/e2e/support.ts`, which is typechecked too.
   **A spec that fails mid-test leaves its files in `demo`**, and the next run then fails on a `409` that
   has nothing to do with the code: clear `zz-*` out of `D:/work/clodeck-projects/demo` before believing a
-  red run. **Ticket 47 adds no sixth spec** — a dialog, a fetch and a re-render are none of what jsdom
-  cannot see.
+  red run. **Ticket 47 adds no sixth spec** — do not "restore" one.
 
-## Behaviour from the last code phase (44/45) — unchanged by 46, still current
+## Behaviour from the last code phase (47) — new, and load-bearing
+
+- **A project is created by `POST /api/projects { name }`**, `201 { project }`, on the same gated scope
+  as every other `/api` route. `400` for a name that is not one clean, non-dot segment; `409` when
+  something is already at the name (never overwritten, never followed — a symlink at the name is `409`
+  too, unlike the drawer's `400`, because nothing is written *through* anything here); `503` when there
+  is no usable projects root — unconfigured, absent, **or a plain file**, since `mkdir` says `ENOENT` on
+  Windows and `ENOTDIR` elsewhere for that last one. An unwritable root stays a `500`: that is a fault,
+  not an empty answer.
+- **The write is on the discovery seam, not `ScopedFs`** — it is the root-level sibling of both, and
+  `ScopedFs` refuses its own root by design. `discovery.ts` still is the only module that touches the
+  projects root.
+- **The created row's `name`, `path` and `id` all come off the canonical path** (`path.basename`,
+  `toProjectId`), exactly as `resolveProject` reads them: a project made by the route and one found by
+  a later rescan are byte-identical rows.
+- **One dialog, two callers.** `NameDialog` and its `Overlay` live in `web/src/dialogs.tsx`; the drawer
+  passes `isValidName`, the sidebar passes `isValidProjectName` (= `isValidName` + non-dot). The
+  overlay is `absolute`, so each caller mounts it inside a positioned ancestor — the drawer's panel,
+  and now the sidebar's `section` (`relative` for exactly that reason).
+- **Selection is by id only.** `Shell` sets `selectedId` from the create's answer and calls `reload()`;
+  the row itself arrives with the reload and `Workspace`'s derived `selected` resolves it. No second
+  copy of a project is held anywhere, which is why the toast names the project the user typed and not a
+  stored object.
+
+## Behaviour from the phase before (44/45) — still current, unchanged by 47
 
 - **A file row in the tree is draggable and a folder row is a drop target**, and so is the
   **breadcrumb's root crumb**. The drag carries `text/plain` and nothing else — a drag advertising
@@ -96,12 +124,10 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 - **The server has a cross-directory move.** `ScopedFs.move(source, destDir)` returns its own
   `MoveResult` (the four `WriteResult` arms it shares plus `same_directory`, `into_own_descendant`,
   `not_a_directory`), and `POST /files/move?path=` takes the destination **directory** in the body as a
-  *path* — so it passes `relPath`'s syntax check, not `name()`. `relPath` is now thin over a new
-  `isRelative`. `409` for a collision or a same-directory move, `400` for a destination that is not a
-  directory or a folder into its own subtree, `404` for either end missing. **A link as the source is
-  refused; a link as the destination is followed** if it stays inside the root. `spec-04` and ticket 44
-  say this now. **Ticket 47's create is the one write that lives beside this, not inside it** — it goes
-  on the discovery seam, one level above `ScopedFs`, which refuses its own root by design.
+  *path* — so it passes `relPath`'s syntax check, not `name()`. `409` for a collision or a same-directory
+  move, `400` for a destination that is not a directory or a folder into its own subtree, `404` for
+  either end missing. **A link as the source is refused; a link as the destination is followed** if it
+  stays inside the root. Ticket 47's create is the one write that lives *beside* this, not inside it.
 - **The code column's source mode is a numbered, coloured code view** (`web/src/files/code.tsx`): one
   `<ol>` row per line, the number in a fixed-width `select-none`/`aria-hidden` gutter, the line beside it
   in `whitespace-pre` so it scrolls instead of wrapping. The five colours are palette tokens added to
@@ -111,10 +137,17 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 ## Known loose ends
 
-- **Ticket 47 shares one dialog with the drawer.** `NameDialog` (`web/src/files/FilePanel.tsx:1376`) and
-  the `Overlay` it shares with the confirm/move dialogs (`:1517`) must move into their own module so both
-  the drawer and the new sidebar button use them; `FilePanel.test.tsx` must stay green through the move
-  (its queries are by role and label — if it is not, the extraction is wrong, not the test).
+- **The client's name rule has no byte cap.** `isValidName` (`web/src/files/reducer.ts`) refuses an
+  empty/`.`/`..`/separator/NUL name but not one over 255 bytes, while the server's `name()` does — so
+  the dialog enables a 256-character name the server then refuses with `400`. Pre-existing (the
+  drawer's own create has it too, since ticket 20), and the server's message does reach the dialog; the
+  fix belongs to `isValidName` itself, and there is no ticket for it. Ticket 47's review declined to
+  fix it there deliberately.
+- **`failureMessage` is now copied in four web transports** (`auth/transport.ts`,
+  `files/transport.ts`, `chat/useSessions.ts`, `useProjects.ts`) and `messageOf` in six callers;
+  `lstatOrNull`/`isErrno` are likewise per-module on the server. Each-module-owns-one is the established
+  pattern, and 47's review declined to refactor four untouched modules for it — but the count is now
+  high enough that one shared helper would pay for itself if a fifth caller appears.
 - **The move has no keyboard path.** A file is relocated by dragging its row; there is no command for it
   in the row's `⋯` menu, where rename and delete live. The prototype had none either, and the ticket
   asked for the drag — but it is the one row action you cannot reach without a mouse.
@@ -135,8 +168,8 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 - **A file row near the bottom of the tree opens its `⋯` menu off the scroller's edge** (ticket 36 put
   the menu back on its row; the 42vh drawer leaves the last row or two no room below). Still not fixed:
   the fix is to flip the menu upward for the lower half of the viewport, and ticket 37's toast —
-  bottom-centre, over the drawer — now shares that corner with it. Ticket 47's `New project` dialog is in
-  the sidebar, not the drawer, so it does not join them.
+  bottom-centre, over the drawer — shares that corner with it. The `New project` dialog is in the
+  sidebar, not the drawer, so it does not join them.
 - **The code-view spec restates the palette's three hexes as `rgb(…)`.** That is the point of it — the
   check is that the token reaches the paint at all — but it does mean re-colouring the code view is a
   two-file change, and it will be asked about once.
@@ -154,7 +187,7 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   than a smuggled fix.
 - **The rail stays enabled with no project selected.** Clicking Files then records a tab the drawer
   cannot show; choosing a project afterwards opens it. Left as-is by 35 rather than inventing a disabled
-  state.
+  state. (A create now lands *with* a selection, so this is the pre-create window only.)
 - **The palette token has no unit test.** jsdom does not process the Tailwind stylesheet, so a rendered
   test could only assert the class name; `npm run build` emitting the token and its utility is the
   check — and `code-view.spec.ts` asserts the *resolved* colours in a real browser.
@@ -166,16 +199,12 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 - **A non-ASCII file name renders as raw bidi in its row** (an LTR container around RTL text, with no
   `dir` attribute): the Persian file in `demo` reads backwards in the tree. The name itself is intact —
   download and rename both use it correctly — but a `dir="auto"` on the name cell is a small fix nobody
-  has ticketed.
+  has ticketed. **A project row has the same shape**: a project whose directory name is non-ASCII will
+  read backwards in the sidebar.
 
 ## Working agreements worth re-reading
 
 `AGENTS.md` carries them: Finglish-with-Latin-letters for the user, branch first and **stop at the
 merge** unless asked (`git switch main && git merge --no-ff <branch>`), one commit per coherent change,
 and the standing decisions — the Variant A layout, the D3-promoted MVP scope, file access scoped to the
-project root, and now (46) **a project can be created from the UI**.
-
-**Evidence for this phase:** `npm run typecheck` clean; `npm test` → shared 9, server 257 passed + 8
-skipped, web 156 (17 files) — unchanged, because ticket 46 is docs only and touched no package. The
-`README`/`AGENTS.md`/`spec.md`/`map.md`/`05-project-discovery.md`/`prototype-parity.md`/ticket 35 edits in
-the merged commit are the whole change.
+project root, and now (46/47) **a project can be created from the UI**, which is built, not pending.
