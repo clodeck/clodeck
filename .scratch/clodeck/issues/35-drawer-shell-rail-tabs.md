@@ -12,7 +12,10 @@ Their internals do not change in this ticket — only where they live and how th
 
 - [x] An icon rail (52px) sits at the far left, spanning the full height, with a brand mark at the top
       and exactly three buttons: **Chat**, **Terminal**, **Files**. No search, no settings, no
-      add-project — those prototype buttons were mocks and their features are out of MVP.
+      add-project — those prototype buttons were mocks and their features are out of MVP. *(The rail's
+      three buttons stand; only the "out of MVP" clause is stale for `add-project` — superseded
+      2026-10-13, ticket 46: a project is now created from the **sidebar**, not the rail, so this
+      ticket's rail shape is unchanged.)*
 - [x] Chat and Terminal and Files behave as one choice: picking Terminal or Files opens the drawer on
       that tab, picking Chat closes it, and the rail highlights whichever is active (Chat is active
       while the drawer is shut).

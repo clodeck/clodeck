@@ -135,6 +135,9 @@ Bedoone tasmim-e jadid, vali nabayad ba P1 ghati shan. Har item mitone yek ticke
 - **#1, #2 — Nav rail** (icon-haye chat/terminal/files/search/settings). Dar mahsul-e do-sotune
   hich kar-e vagei nemikone; search/settings/add-project/session-⋯/branch-chip hame mock-e
   prototype boodan va dar `AGENTS.md` "Out of MVP" hastan (git explorer, model picker, plugins).
+  **Superseded 2026-10-13:** `add-project` digar mock nist — project az sidebar sakhte mishe
+  (`issues/46-project-creation-decision.md`, ticket 47); search/settings/session-⋯/branch-chip hanuz
+  mock-and va out of MVP mimanan.
 - **#6 — chip-e git branch / `3 changed`** — git explorer out of MVP ast.
 - **#13, #5 (auth/footer)** — `LoginScreen` + Log out ja-ye footer-e mock-e prototype ra gerefte
   (`spec-05:130`); hich kari lazem nist.

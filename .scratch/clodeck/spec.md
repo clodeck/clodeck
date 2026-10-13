@@ -16,7 +16,7 @@ Stand up the monorepo and deliver the first vertical slice: the server discovers
 1. As a developer, I want one command at the repo root that installs and builds all three packages, so that I can start working without per-package setup.
 2. As a developer, I want one shared TypeScript package that both server and web import, so that the `Project` shape and the transport envelope are defined once and cannot drift between backend and frontend.
 3. As a developer, I want strict TypeScript turned on everywhere with no `any` leaking into the shared contracts, so that a contract change breaks compilation exactly where it matters.
-4. As the user, I want to drop a folder into my projects directory and see it appear in the switcher after a refresh, so that adding a project is a filesystem action, not a config edit.
+4. As the user, I want to drop a folder into my projects directory and see it appear in the switcher after a refresh — and, from a browser with no shell, to create one there instead — so that adding a project is a filesystem action, not a config edit, and not one I can only make on the server's disk.
 5. As the user, I want the switcher to list only the immediate child directories of my projects root, so that nested subfolders do not clutter the project list.
 6. As the user, I want dotfile directories and plain files inside the projects root to be ignored, so that `.git` and stray files never show up as projects.
 7. As the user, I want each project to have a stable identity, so that selecting it later routes to the same directory even after the server restarts.

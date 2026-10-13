@@ -139,7 +139,9 @@ Then open <http://localhost:5173>, sign in with `dev`, and the shell appears. Th
 proxies both `/api` and `/ws` to the backend on `127.0.0.1:3001`, so the client develops against the
 real endpoints with no CORS setup — and the session cookie rides both the REST calls and the
 WebSocket upgrades, because they are same-origin. Drop another directory into the projects root and
-press the switcher's refresh; select a project and the chat panel opens a session against it.
+press the switcher's refresh; select a project and the chat panel opens a session against it. Creating
+one from the sidebar is coming (ticket 47), so a browser with no shell will not have to touch the
+server's disk.
 
 `UI_PASSWORD` is not optional in practice: without it the server boots fail-closed and the login
 screen can never get past it. The cookie is `Secure`, which browsers allow on `http://localhost` —

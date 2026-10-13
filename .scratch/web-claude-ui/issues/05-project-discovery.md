@@ -4,6 +4,13 @@ Type: grilling
 Status: resolved
 Blocked by: 04
 
+> **Partly superseded — 2026-10-13.** Adding a project is no longer a filesystem-only action: the UI can
+> create one under the root. This reverses the "drop a folder in is the only door" reading of the answer
+> below; everything about *how discovery scans* still holds — one root, the root as the allowlist,
+> immediate child directories, `base64url(canonical path)`, dot-directories skipped, on-demand rescan.
+> See [46 — a project can be created from the UI](../../clodeck/issues/46-project-creation-decision.md);
+> built by ticket 47.
+
 ## Question
 
 How does the server discover the set of projects (directories) the user can switch between — env var vs config file vs filesystem scan of a root directory? How does a newly added directory show up (refresh on change, rescan interval, manual rescan)? And what is the security boundary for which directories are allowed (root allowlist)?
