@@ -725,6 +725,20 @@ describe('dragging a file onto a folder', () => {
     expect(calls.filter((call) => call.method === 'POST')).toEqual([]);
   });
 
+  it('treats the tree\'s own listing area as the root, so a drop out has somewhere to land', async () => {
+    stubFiles();
+    renderPanel();
+    const readme = await screen.findByRole('button', { name: 'README.md' });
+
+    // Not the crumb: the space between and below the rows, where a user who means
+    // "out to the root" actually aims. The rows stop their own drops, so this is
+    // the drag that missed every folder — and it means the root.
+    moveRowOnto(rowOf(readme), screen.getByRole('group', { name: 'Files tree' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    expect(within(dialog).getByText('Move "README.md" into "root"?')).toBeTruthy();
+  });
+
   it('keeps the server’s refusal in the dialog and changes nothing', async () => {
     const { calls } = stubFiles({ failMutations: true });
     const { notifications } = renderPanel();

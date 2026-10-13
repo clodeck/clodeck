@@ -1,5 +1,29 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { login, removeRow } from './support';
+
+/**
+ * A drop point in the tree's own listing area that is over no row — the empty
+ * space below the last one, which is where a user aims when they mean "out to
+ * the root" (ticket 48). Returned relative to the area's box, which is what
+ * `dragTo`'s `targetPosition` wants. Walks up from the bottom edge, because how
+ * much blank space a project leaves depends on how many rows it has.
+ */
+async function rootDropPoint(page: Page): Promise<{ x: number; y: number }> {
+  const box = await page.getByRole('group', { name: 'Files tree' }).boundingBox();
+  if (box === null) throw new Error('the tree listing area has no box');
+  const x = Math.round(box.width / 2);
+  for (let y = Math.round(box.height) - 3; y > 0; y -= 3) {
+    const blank = await page.evaluate(
+      (point) => {
+        const under = document.elementFromPoint(point.left, point.top);
+        return under !== null && under.closest('li') === null;
+      },
+      { left: box.x + x, top: box.y + y },
+    );
+    if (blank) return { x, y };
+  }
+  throw new Error('this tree has no empty space left to drop on');
+}
 
 /**
  * Moving a file by dragging its row onto a folder, in a real browser.
@@ -79,6 +103,24 @@ test('a file row dragged onto a folder row moves the file, and follows it back',
   // Home again: the head names the bare name once more, and one row carries it.
   await expect(page.getByTitle(FILE, { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: FILE, exact: true })).toHaveCount(1);
+
+  // And out once more, the way a user actually aims: a drop on the tree's own
+  // body — the empty space below the rows — means the root too (ticket 48). The
+  // crumb is still there; it is no longer the only way home.
+  await page
+    .getByRole('button', { name: FILE, exact: true })
+    .dragTo(page.getByRole('button', { name: `${FOLDER}/` }));
+  await page.getByRole('dialog', { name: 'Confirm move' }).getByRole('button', { name: 'Move' }).click();
+  await expect(page.getByRole('status')).toHaveText(`moved ${FILE} → ${FOLDER}`);
+
+  const area = page.getByRole('group', { name: 'Files tree' });
+  await page.getByRole('button', { name: FILE, exact: true }).dragTo(area, { targetPosition: await rootDropPoint(page) });
+  const home = page.getByRole('dialog', { name: 'Confirm move' });
+  await expect(home).toBeVisible();
+  await expect(home).toContainText(`Move "${FILE}" into "root"?`);
+  await home.getByRole('button', { name: 'Move' }).click();
+  await expect(page.getByRole('status')).toHaveText(`moved ${FILE} → root`);
+  await expect(page.getByTitle(FILE, { exact: true })).toBeVisible();
 
   // Clean up: the file, then the folder it visited.
   for (const name of [FILE, FOLDER]) {
