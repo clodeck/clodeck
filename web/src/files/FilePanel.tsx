@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { NameDialog, Overlay } from '../dialogs';
 import { useToast } from '../toast/ToastProvider';
 import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
@@ -338,6 +339,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           confirmLabel={prompt.mode === 'rename' ? 'Rename' : 'Create'}
           initial={prompt.mode === 'rename' ? prompt.initial : ''}
           error={promptError}
+          isValid={isValidName}
           onSubmit={submitPrompt}
           onCancel={() => { setPrompt(null); }}
         />
@@ -1372,65 +1374,6 @@ function DirError({ message, onRetry }: { message: string; onRetry: () => void }
 /* Modals                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** The inline name prompt for create / rename (spec-04 §"Web client"). */
-function NameDialog({
-  title,
-  confirmLabel,
-  initial,
-  error,
-  onSubmit,
-  onCancel,
-}: {
-  title: string;
-  confirmLabel: string;
-  initial: string;
-  error: string | null;
-  onSubmit: (name: string) => Promise<void>;
-  onCancel: () => void;
-}): ReactElement {
-  const [value, setValue] = useState(initial);
-  const name = value.trim();
-  const valid = isValidName(name);
-
-  return (
-    <Overlay label={title}>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSubmit(name);
-        }}
-      >
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        <input
-          autoFocus
-          value={value}
-          onChange={(event) => { setValue(event.target.value); }}
-          aria-label="Name"
-          placeholder="name"
-          className="mt-3 w-full rounded border border-line bg-canvas px-2 py-1 font-mono text-[12px] text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
-        />
-        {error !== null && <p className="mt-2 font-mono text-[11px] break-words text-err">{error}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-line px-3 py-1.5 text-sm text-ink hover:bg-white/5"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!valid}
-            className="rounded bg-accent px-3 py-1.5 text-sm font-semibold text-canvas hover:opacity-90 disabled:opacity-40"
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </form>
-    </Overlay>
-  );
-}
-
 /**
  * The move confirmation — the prototype's `Move "x" into "y"?`
  * (`common.js:625-628`), and the one dialog here that is not about destroying
@@ -1511,21 +1454,6 @@ function ConfirmDialog({
         </button>
       </div>
     </Overlay>
-  );
-}
-
-function Overlay({ label, children }: { label: string; children: ReactNode }): ReactElement {
-  return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-canvas/80 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        className="w-full max-w-sm rounded-lg border border-line bg-panel p-4"
-      >
-        {children}
-      </div>
-    </div>
   );
 }
 
