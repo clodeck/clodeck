@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import type { ProjectDiscovery } from './discovery.js';
 import { registerFileRoutes } from './files/transport.js';
+import { registerProjectRoutes } from './projects.js';
 import type { SdkProvider } from './sdk/provider.js';
 import { registerSessionRoutes } from './sessions.js';
 import { registerStaticClient } from './static.js';
@@ -87,7 +88,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       api.register(async (gated) => {
         gated.addHook('onRequest', createAuthGate(options.auth.sessions));
 
-        gated.get('/projects', async () => ({ projects: await options.projects.listProjects() }));
+        registerProjectRoutes(gated, { projects: options.projects });
         registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
         registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
         registerFileRoutes(gated, { projects: options.projects });

@@ -39,6 +39,7 @@ function workspace(selectedId: string | null): ReactElement {
       selectedId={selectedId}
       onSelect={noop}
       onRefresh={noop}
+      onCreate={() => Promise.resolve()}
       onLogout={() => Promise.resolve()}
     />
   );

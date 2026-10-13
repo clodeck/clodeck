@@ -1,10 +1,14 @@
-import type { Dirent } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
+import { lstat, mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Project } from '@clodeck/shared';
 
 import { createAllowlist } from './allowlist.js';
+// The drawer's `name()` — one clean segment — imported under the name this
+// module reads it by, so the seam's own parameter can keep the interface's
+// spelling without shadowing it.
+import { name as cleanSegment } from './files/scoped-fs.js';
 import { warnToConsole, type Warn } from './logging.js';
 
 /**
@@ -20,7 +24,30 @@ export interface ProjectDiscovery {
    * every caller re-enters through this door rather than trusting the decode.
    */
   resolveProject(id: string): Promise<Project | null>;
+  /**
+   * Create one project directory under the root and answer it (ticket 47).
+   *
+   * It lives here rather than on `ScopedFs` because it is the *root-level*
+   * sibling of both: it reads and writes the projects root itself, which is
+   * exactly what `ScopedFs` refuses to do by design (its own root is never a
+   * valid write target). Discovery is the only module that touches the root, and
+   * it stays that way.
+   */
+  createProject(name: string): Promise<CreateProjectResult>;
 }
+
+/**
+ * What a {@link ProjectDiscovery.createProject} came to. It is its own union
+ * rather than a `WriteResult`: there is no symlink to refuse (nothing is written
+ * *through* anything — an entry at the name is simply in the way) and no
+ * existing-file arm (the name is new or it is not), and the two refusals it does
+ * have are about the root and the name.
+ */
+export type CreateProjectResult =
+  | { status: 'ok'; project: Project }
+  | { status: 'invalid_name' } // not a single clean, non-dot segment
+  | { status: 'exists' } // something is already at the name — never overwritten
+  | { status: 'no_root' }; // unconfigured, absent, or not a directory at all
 
 export interface DiscoveryOptions {
   /** Where a misconfigured or unreadable root is reported (never a 500). */
@@ -113,6 +140,63 @@ export function createProjectDiscovery(
 
       return { id: toProjectId(canonical), name: path.basename(canonical), path: canonical };
     },
+
+    /**
+     * One `mkdir` at the root, and then the same allowlist every other answer
+     * goes through: the id is the canonical path (05 §3), so canonicalizing the
+     * new directory is what makes it the row a later rescan lists rather than a
+     * second spelling of it.
+     */
+    async createProject(name: string): Promise<CreateProjectResult> {
+      if (root === null || allowlist === null) return { status: 'no_root' };
+
+      // The drawer's own rule, re-used rather than copied: one clean segment.
+      const base = cleanSegment(name);
+      // …and discovery's, which is not `name()`'s business: a dot-directory is
+      // skipped by the scan, so a project created under one would be a
+      // directory the user could never see. The drawer lists `.env` as an
+      // ordinary file, so this rule is about *projects*, not names.
+      if (base === null || base.startsWith('.')) return { status: 'invalid_name' };
+
+      const target = path.join(root, base);
+      // The `lstat` pre-check plus the non-recursive `mkdir` below is the same
+      // never-overwrite pair `ScopedFs.createDirectory` uses. It is `lstat`
+      // because a symlink at the name is in the way like anything else — a link
+      // that resolves inside the root is a legitimate project already.
+      if ((await lstatOrNull(target)) !== null) return { status: 'exists' };
+
+      try {
+        await mkdir(target);
+      } catch (error) {
+        // The race the pre-check cannot close: `mkdir` refuses an existing name
+        // without writing over it.
+        if (isErrno(error, 'EEXIST')) return { status: 'exists' };
+        // A root that is not there — or is not a directory at all — is nowhere
+        // to create, and the honest answer is not a silent success (unlike
+        // `listProjects`, whose empty list is the truth about an empty root).
+        // `mkdir` reports the two differently by platform: ENOENT where the
+        // parent is missing, ENOTDIR where it is a plain file.
+        if (isErrno(error, 'ENOENT') || isErrno(error, 'ENOTDIR')) return { status: 'no_root' };
+        // A root we are not allowed to write to is a real fault, not an empty
+        // answer, so it stays the 500 it falls through to.
+        throw error;
+      }
+
+      // A root that cannot be canonicalized (gone between the `mkdir` and here,
+      // say) is the same unusable root — the directory now exists, but there is
+      // no id to name it by.
+      const canonical = await allowlist.canonicalizeInsideRoot(target);
+      if (canonical === null) return { status: 'no_root' };
+
+      // The name comes off the canonical path, exactly as `resolveProject`
+      // reads it, so the row this answers is the row an id resolves to — a
+      // filesystem that stores the segment differently than it was asked for
+      // (a trailing dot, a case rewrite) cannot make the two disagree.
+      return {
+        status: 'ok',
+        project: { id: toProjectId(canonical), name: path.basename(canonical), path: canonical },
+      };
+    },
   };
 }
 
@@ -134,4 +218,17 @@ async function isDirectory(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** `lstat` without following the final segment — `null` when the entry is absent. */
+async function lstatOrNull(target: string): Promise<Stats | null> {
+  try {
+    return await lstat(target);
+  } catch {
+    return null;
+  }
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return (error as NodeJS.ErrnoException).code === code;
 }

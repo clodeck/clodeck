@@ -1,5 +1,5 @@
 import type { Project } from '@clodeck/shared';
-import { useState, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement } from 'react';
 
 import { LoginScreen } from './auth/LoginScreen';
 import { useAuth } from './auth/useAuth';
@@ -41,8 +41,23 @@ export type DrawerTab = 'terminal' | 'files' | null;
 
 /** The hooks, and the layout they feed — see {@link Workspace} for the split. */
 function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
-  const { state, reload } = useProjects();
+  const { state, reload, create } = useProjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  /**
+   * Create a project and land in it. The selection is set by **id alone**: the
+   * row itself comes from the reloaded list, so no second copy of the project is
+   * held anywhere — `Workspace`'s derived `selected` resolves the id as soon as
+   * the list carries it. A refusal propagates to the dialog that asked.
+   */
+  const createProject = useCallback(
+    async (name: string): Promise<void> => {
+      const project = await create(name);
+      setSelectedId(project.id);
+      reload();
+    },
+    [create, reload],
+  );
 
   return (
     <Workspace
@@ -52,6 +67,7 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
         setSelectedId(project.id);
       }}
       onRefresh={reload}
+      onCreate={createProject}
       onLogout={onLogout}
     />
   );
@@ -62,6 +78,8 @@ interface WorkspaceProps {
   selectedId: string | null;
   onSelect: (project: Project) => void;
   onRefresh: () => void;
+  /** Create a project by name; the shell selects it and reloads the list. */
+  onCreate: (name: string) => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -84,6 +102,7 @@ export function Workspace({
   selectedId,
   onSelect,
   onRefresh,
+  onCreate,
   onLogout,
 }: WorkspaceProps): ReactElement {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(null);
@@ -117,6 +136,7 @@ export function Workspace({
             selectedId={selectedId}
             onSelect={onSelect}
             onRefresh={onRefresh}
+            onCreate={onCreate}
           />
         </aside>
 

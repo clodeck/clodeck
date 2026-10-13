@@ -5,8 +5,8 @@ Remote browser access to Claude Code across multiple project directories: a chat
 chat takes the stage, and the shell and the file viewer share one bottom drawer summoned from the
 rail. One user, one dedicated server that also hosts the project folders.
 
-**Status: the MVP's four surfaces are built.** Project discovery, `GET /api/projects` and the project
-switcher work end to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at
+**Status: the MVP's four surfaces are built.** Project discovery, the project switcher, and creating
+a project from the sidebar (`POST /api/projects`) work end to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at
 `/ws`, tool cards, the approval modal, and session history / resume over REST. So does the terminal: a
 per-project shell (node-pty behind a facade) streamed as raw bytes over `/ws/terminal` into an
 xterm.js panel, resized over REST. So does the file drawer: a tree that expands in place, with
@@ -139,9 +139,9 @@ Then open <http://localhost:5173>, sign in with `dev`, and the shell appears. Th
 proxies both `/api` and `/ws` to the backend on `127.0.0.1:3001`, so the client develops against the
 real endpoints with no CORS setup — and the session cookie rides both the REST calls and the
 WebSocket upgrades, because they are same-origin. Drop another directory into the projects root and
-press the switcher's refresh; select a project and the chat panel opens a session against it. Creating
-one from the sidebar is coming (ticket 47), so a browser with no shell will not have to touch the
-server's disk.
+press the switcher's refresh, or create one from the sidebar's `New project` button — the browser can
+now add a project itself, so no shell on the server is needed for it. Select a project and the chat
+panel opens a session against it.
 
 `UI_PASSWORD` is not optional in practice: without it the server boots fail-closed and the login
 screen can never get past it. The cookie is `Secure`, which browsers allow on `http://localhost` —
