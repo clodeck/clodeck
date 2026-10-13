@@ -132,6 +132,25 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     },
   };
 
+  /**
+   * Ticket 48: the tree's own listing area is a drop target for the root, not
+   * just the breadcrumb's crumb. Ticket 44 left the root reachable through that
+   * crumb alone — four characters, in a header the drag has to travel to, and
+   * not where anyone aims: a row dropped on the empty tree below the last one
+   * means "out to the root", and it landed on nothing. The rows stop their own
+   * drops, so what reaches this element is exactly the drag that missed every
+   * folder. **Tree only:** the flat list shows one folder rather than the root,
+   * where the space between rows would have to mean that folder instead.
+   *
+   * It is a labelled `group` for a screen reader's sake and the tests' — an
+   * `aria-label` on a bare `div` would be ignored, and an unlabelled area is not
+   * something a drop can be aimed at by name.
+   */
+  const rootDropArea = view === 'tree'
+    ? { role: 'group' as const, 'aria-label': 'Files tree', ...dropTarget(moveControl, '') }
+    : {};
+  const rootDropOver = view === 'tree' && over === '';
+
   // The folder create/upload land in, read off the view model: `''` is the root.
   const activeDir = viewer.status === 'ready' ? viewer.active : '';
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
@@ -302,7 +321,12 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           aria-label="Choose files to upload"
         />
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto px-2 py-1 ${
+            rootDropOver ? 'bg-white/5 outline-1 outline-accent' : ''
+          }`}
+          {...rootDropArea}
+        >
           <ViewerBody
             view={view}
             viewer={viewer}
