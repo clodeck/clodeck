@@ -6,14 +6,17 @@ chat takes the stage, and the shell and the file viewer share one bottom drawer 
 rail. One user, one dedicated server that also hosts the project folders.
 
 **Status: the MVP's four surfaces are built.** Project discovery, the project switcher, and creating
-a project from the sidebar (`POST /api/projects`) work end to end. So does the chat surface: streaming Agent SDK turns over a WebSocket bus at
-`/ws`, tool cards, the approval modal, and session history / resume over REST. So does the terminal: a
-per-project shell (node-pty behind a facade) streamed as raw bytes over `/ws/terminal` into an
-xterm.js panel, resized over REST. So does the file drawer: a tree that expands in place, with
+a project from the sidebar (`POST /api/projects`) work end to end. So does the chat surface: streaming
+Agent SDK turns over a WebSocket bus at `/ws`, tool cards, the approval modal, and session history /
+resume over REST. So does the terminal: a per-project shell (node-pty behind a facade) streamed as raw
+bytes over `/ws/terminal` into an xterm.js panel, resized over REST. So does the file drawer: a tree that expands in place, with
 create / rename / delete / upload and an editable preview that saves back to disk, all scoped to the
 project root. Auth fronts all of it — single password, httpOnly session cookie, and everything except
 `/healthz` and the login routes behind a gate. It deploys: the server serves the built client itself, so
 `docker compose up -d` brings the whole product up behind a TLS-terminating proxy (see [Deploy](#deploy)).
+
+**Starting from a clean clone?** [Bring it up](#bring-it-up) is the path from `npm install` to a
+signed-in browser, step by step and per shell. Something already went wrong? [Troubleshooting](#troubleshooting).
 
 ## Layout
 
@@ -27,7 +30,169 @@ Three npm workspaces, scoped `@clodeck/*`:
 
 ## Requirements
 
-Node ≥ 22.12 (npm workspaces). Nothing else — no database, no global tooling.
+| What | Why | Check / install |
+|---|---|---|
+| **Node ≥ 22.12** | npm workspaces; the server runs under `tsx` in dev and plain `node` in production. npm comes with it. | `node --version` |
+| **A directory to hold your projects** | The app keeps no database: the folders in it *are* the projects. Any path you can write to. | — |
+| `python3`, `make`, `g++` — **Linux only** | `npm install` compiles one native module (`node-pty`, the terminal's pty). macOS and Windows get a prebuilt binary. | `apt-get install -y python3 make g++` |
+| **An Anthropic API key** — one feature only | The **chat answer** comes from the Claude Agent SDK, which reads `ANTHROPIC_API_KEY` from the server's environment. Login, the terminal, the file drawer and session history all work without one, and `npm run dev:fake` stands in for offline UI work. | — |
+
+Nothing else: no database, no global tooling.
+
+## Bring it up
+
+Two processes, one browser tab. The **server** (Fastify, `127.0.0.1:3001` by default) owns the
+filesystem, the terminal and the Agent SDK; the **client** (Vite, `localhost:5173`) is the UI.
+`npm run dev` starts both, and Vite proxies `/api` and `/ws` to the server — so the browser only ever
+talks to port 5173, there is no CORS to configure, and the session cookie rides the API calls and the
+WebSocket upgrades alike, because they are same-origin.
+
+Two environment variables decide everything else:
+
+| Variable | What it is |
+|---|---|
+| `PROJECTS_ROOT` | The directory whose **immediate child directories** are your projects. This is the app's entire registry — there is no config file listing them. |
+| `UI_PASSWORD` | The one password you sign in with. |
+
+### 1. Install
+
+```sh
+git clone <this repo> clodeck      # if you have not already
+cd clodeck
+npm install
+```
+
+That installs all three workspaces (`shared`, `server`, `web`) and wires the repo's pre-commit hook.
+On Linux it also compiles `node-pty` — see [Requirements](#requirements) for the toolchain it needs.
+
+### 2. Make a projects root
+
+Each immediate child directory of this path is one project; the app never looks deeper. Create the
+root and one project to look at:
+
+```sh
+mkdir -p ~/clodeck-projects/hello            # macOS, Linux, Git Bash
+```
+```powershell
+mkdir $HOME\clodeck-projects\hello           # Windows PowerShell
+```
+```cmd
+mkdir "%USERPROFILE%\clodeck-projects\hello"  rem  Windows CMD
+```
+
+The root itself has to exist: a missing root is not an error, but it is an empty list — and the
+sidebar's create button has nowhere to write. (You do not have to make `hello` by hand; step 5 creates
+projects from the app.)
+
+### 3. Start it
+
+The variables are read by the **server**, so they go in front of `npm run dev`, whose environment is
+passed on. Pick your shell:
+
+```sh
+# macOS / Linux (bash, zsh)
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm run dev
+```
+```powershell
+# Windows PowerShell
+$env:UI_PASSWORD = "dev"; $env:PROJECTS_ROOT = "$HOME\clodeck-projects"; npm run dev
+```
+```cmd
+rem  Windows CMD
+set UI_PASSWORD=dev
+set PROJECTS_ROOT=%USERPROFILE%\clodeck-projects
+npm run dev
+```
+```sh
+# Git Bash on Windows — forward slashes: backslashes are eaten on the way in
+UI_PASSWORD=dev PROJECTS_ROOT=/c/Users/<you>/clodeck-projects npm run dev
+```
+
+- **`UI_PASSWORD=dev`** is exactly that: a dev password. Anything non-empty works, and it is what you
+  type at the login screen. Leaving it out is not a soft failure — the server boots **fail-closed**,
+  warns `UI_PASSWORD is not set: every /api route and both websockets will answer 401`, and no login
+  can succeed. A server with no credential must not be an open one.
+- **`PROJECTS_ROOT=…`** is the folder from step 2. Leaving it out starts the app anyway, with an empty
+  project list and the warning `no projects root configured — set PROJECTS_ROOT or projectsRoot in
+  clodeck.config.json`. Both warnings name the fix, so read the server's first lines.
+- **Add `PORT=3300`** in front of any block above to move the server's port; the Vite proxy reads the
+  same variable, so the two halves move together. On Windows, 3001 is often reserved by the OS before
+  anything starts — see [Troubleshooting](#troubleshooting).
+
+### 4. Open it, and sign in
+
+Two lines tell you both halves came up — the server's, then the client's:
+
+```
+clodeck server listening on http://127.0.0.1:3001
+```
+
+…and, from Vite, a `Local: http://localhost:5173/` line. Open <http://localhost:5173>, type the
+password you set, and the workspace appears:
+
+```text
+┌─────┬─────────────────┬────────────────────────────────────┐
+│Chat │ Projects        │  the selected project: its name,   │
+│Term │  hello          │  its path on disk, and its chat —  │
+│Files│  demo           │  transcript above, composer below  │
+│     │  New project    │                                    │
+│rail │  Refresh        │                                    │
+│     │                 ├────────────────────────────────────┤
+│     │                 │  the drawer: Terminal ⇄ Files —    │
+│     │                 │  or nothing, while the chat has    │
+│     │                 │  the stage                         │
+└─────┴─────────────────┴────────────────────────────────────┘
+```
+
+The rail's three buttons are one choice: `Chat` gives the stage back, `Terminal` and `Files` open the
+one drawer below it, for the selected project. Nothing shows until a project is selected. Port 3001 is
+the API in this mode, not a page — the client at 5173 is the only thing to open.
+
+### 5. What to do first
+
+- **The sidebar lists your projects.** `hello` from step 2 is there; selecting it opens its chat stage,
+  whose header shows the project's name and where it lives on disk.
+- **`New project`** (in the sidebar header, and again in the empty state) creates a project for real:
+  one `mkdir` under `PROJECTS_ROOT`, no template, no `git init`, nothing else. The list reloads, the
+  new project is selected, and a `created <name>` toast says so.
+- **Chat** is the one surface that needs the API key (step 7): type in the composer and the turn
+  streams back from the Agent SDK, with tool cards and an approval modal when the agent asks.
+- **The rail's `Terminal` and `Files`** open one bottom drawer for the selected project: a real shell
+  whose working directory is that project's folder, and that project's file tree — preview (markdown
+  rendered, code with a numbered gutter), edit and save, create, rename, delete, upload, download, and
+  drag a file onto a folder to move it. Both are scoped to the project root and cannot reach outside.
+- **What the app does is what the disk shows.** `ls ~/clodeck-projects` is the sidebar; a file created
+  in the drawer is a file on disk, and the agent's edits show up on the next refresh.
+
+Stop everything with `Ctrl-C` in that shell — both processes go down together.
+
+### 6. Without Vite: the server serving the built client
+
+The same app, one process, no dev server. `WEB_ROOT` is what turns the server into a static host for
+the client it just built:
+
+```sh
+npm run build
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects WEB_ROOT="$PWD/web/dist" \
+  npm start --workspace @clodeck/server
+```
+
+Then <http://127.0.0.1:3001> *is* the app — login screen, shell, everything. `/healthz` and the whole
+`/api` and `/ws` surface behave exactly as they do under Vite; only the client's origin changed.
+`WEB_ROOT` resolves against the working directory, which is `server/` when a workspace script runs it,
+so pass an absolute path when in doubt. (This is also how the [Docker image](#the-app-image-on-its-own)
+runs, with the image's own paths.)
+
+### 7. Without an API key
+
+```sh
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm run dev:fake
+```
+
+The server then answers from a scripted fake Agent SDK provider: the whole chat surface — streaming,
+tool cards, the approval modal, history and resume — is exercisable offline, and every other surface is
+the real one. It still needs `UI_PASSWORD`: the gate is installed exactly the same way. Use it for UI
+work, and for a first look at the app before wiring a key.
 
 ## Commands
 
@@ -100,7 +265,9 @@ when the root scripts run it, because npm runs a workspace script there:
 { "projectsRoot": "/srv/projects" }
 ```
 
-### When the dev server answers 502
+## Troubleshooting
+
+### The client answers 502 for everything
 
 A 502 from the client is the **proxy** failing, not the app: Vite could not reach the backend, and
 the backend's own log says nothing at all — because it never started. On Windows the usual cause is
@@ -127,48 +294,35 @@ net stop winnat && net start winnat
 Nothing about the app is wrong in either case: no code change, no config change, and no amount of
 reading the server's log will show it.
 
-## Try it
+### The sidebar is empty, though the folder has directories in it
 
-```sh
-npm install
-mkdir -p ~/clodeck-projects/hello
-UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm run dev
-```
+`PROJECTS_ROOT` did not reach the server as the path you meant — and that failure is quiet by design,
+because the server's answer to a root it cannot use is an empty list, never an error. The tell is its
+warn line, and it says which of the two happened: `no projects root configured — …` when nothing
+arrived at all, and `could not read projects root <path>: …` when something arrived that is not a
+readable directory. Two traps:
 
-Then open <http://localhost:5173>, sign in with `dev`, and the shell appears. The Vite dev server
-proxies both `/api` and `/ws` to the backend on `127.0.0.1:3001`, so the client develops against the
-real endpoints with no CORS setup — and the session cookie rides both the REST calls and the
-WebSocket upgrades, because they are same-origin. Drop another directory into the projects root and
-press the switcher's refresh, or create one from the sidebar's `New project` button — the browser can
-now add a project itself, so no shell on the server is needed for it. Select a project and the chat
-panel opens a session against it.
+- **Git Bash on Windows eats the backslashes** in `PROJECTS_ROOT=D:\work\projects`: the server then
+  scans `D:workprojects` and finds nothing. Use forward slashes (`/d/work/projects`).
+- **Only immediate child directories are projects.** One level deeper is not listed; a plain file or a
+  dot-directory (`.git`, `.cache`) is not either. A symlink counts, but only if what it points at is
+  inside the root.
 
-`UI_PASSWORD` is not optional in practice: without it the server boots fail-closed and the login
-screen can never get past it. The cookie is `Secure`, which browsers allow on `http://localhost` —
-production is HTTPS behind the proxy.
+### The login screen refuses the password I set
 
-Without an API key, run `npm run dev:fake` instead — the server then answers from a scripted fake
-provider, so the whole chat surface (streaming, tool cards, the approval modal, history and resume)
-is exercisable offline.
+`UI_PASSWORD` was unset or blank — a blank value counts as unset — so the server is fail-closed and the
+boot warning says which (`UI_PASSWORD is not set: …`). Two more things that look like a wrong password:
+`UI_PASSWORD_FILE` is read **only** when `UI_PASSWORD` is unset, and the password is hashed once at
+boot, so changing it needs a restart — which also drops every session, since sessions live in the
+server's memory. Five failures from one address lock it out for fifteen minutes (a `429`); the login
+route answers that even for the correct password.
 
-On Windows PowerShell:
+### Everything works except the chat's answer
 
-```powershell
-$env:UI_PASSWORD = "dev"; $env:PROJECTS_ROOT = "$HOME\clodeck-projects"; npm run dev
-```
-
-To run the backend on its own, serving the client it just built — no Vite at all:
-
-```sh
-npm run build
-UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects WEB_ROOT="$PWD/web/dist" \
-  npm start --workspace @clodeck/server
-```
-
-`WEB_ROOT` resolves like `PROJECTS_ROOT` does — against the working directory, which is `server/`
-when a workspace script runs it — so pass an absolute path when in doubt. Then
-<http://127.0.0.1:3001> is the app: the login screen, the shell, everything. `/healthz` and the whole
-`/api` and `/ws` surface work exactly as under Vite; only the client's origin changed.
+The chat turn is the one thing that needs `ANTHROPIC_API_KEY` in the server's environment — the server
+never reads it, the Agent SDK does. Without a key the login, the terminal, the file drawer and history
+all work and the turn fails; `npm run dev:fake` (step 7) is the offline stand-in, and a *wrong* key
+fails at the first turn with the SDK's own error in the chat.
 
 ## Auth
 
