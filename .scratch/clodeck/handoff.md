@@ -1,10 +1,17 @@
-# Handoff — clodeck: ticket 47 is on a branch, and the sidebar can create a project
+# Handoff — clodeck: ticket 47 is merged, and the README has a first-run path
 
 **Updated:** 2026-10-13
-**Where the tree is:** HEAD is on **`main`** at `af3d3f1` (ticket 46 merged). Ticket **47** is
-implemented on the branch **`clodeck/47-create-project-from-ui`**, committed and green, and **not
-merged** — nothing is pushed either. Merging is one command when the user asks for it:
-`git switch main && git merge --no-ff clodeck/47-create-project-from-ui`.
+**Where the tree is:** **`main` has ticket 47 merged** (`50eb99a`, `--no-ff`, and the branch
+`clodeck/47-create-project-from-ui` deleted), and this session's last change is a docs branch —
+**`docs/readme-first-run`** — which rewrites the README's first-run path and corrects this file. That
+branch is committed and green, and **not merged**; nothing is pushed. Merging it is one command:
+
+```sh
+git switch main && git merge --no-ff docs/readme-first-run
+```
+
+The correction this file needed: the previous version was written before the merge and said 47 was
+still on a branch.
 
 ## What this phase is
 
@@ -26,7 +33,7 @@ are recorded (the `projects.ts` module move, the widened `no_root`, the canonica
 **Code review** section lists the three fixes and the three declines. Read it before touching any of
 this — it is the shortest accurate description of what is there.
 
-## What the branch changes
+## What the merged branch changes
 
 | File | What it now does |
 |---|---|
@@ -46,15 +53,26 @@ web. No e2e spec was added, deliberately — the ticket says so twice, and the r
 fetch and a re-render are what jsdom *can* see, and the filesystem effect is pinned against real temp
 roots on the server side. `web/e2e/` is still the same five specs.
 
+## What `docs/readme-first-run` changes
+
+Docs only — `README.md`, and this file. The README's `Try it` (three bash-only lines that explained
+nothing) became **Bring it up**: seven numbered steps that walk a person on any OS from `npm install`
+to a signed-in browser — install, make a projects root, start it (bash/PowerShell/CMD/Git Bash), open
+it and sign in (with the layout drawn out and the boot lines to expect), what to do first, the no-Vite
+variant, and the fake provider — each step saying *why* it exists. `## Requirements` became a table
+worth checking off, and the 502 passage became `## Troubleshooting`: the reserved port, the sidebar
+that stays empty, the password that will not log in, and the chat turn that needs the API key. **A
+new session should read [Bring it up](../../README.md#bring-it-up) instead of reconstructing the dev
+loop from this file** — the two agree; the README is the one a human follows.
+
 ## Where the frontier is
 
-**Done:** 32–47. **Nothing is ready-but-unstarted**: ticket 47 was the last ticket written, and the
-branch is waiting for a merge decision rather than for work.
+**Done:** 32–47, the last of them merged. **Nothing is ready-but-unstarted**: there is no queued
+ticket.
 
-If the merge happens, the next phase starts by re-reading `AGENTS.md`'s standing decisions and the
-"Known loose ends" below — there is no queued ticket, so the next session's first job is to pick one
-(§P-lists in `.scratch/clodeck/prototype-parity.md` are empty; the loose ends are where the real work
-is).
+The next phase starts by re-reading `AGENTS.md`'s standing decisions and the "Known loose ends" below
+— with no ticket waiting, its first job is to pick one (§P-lists in
+`.scratch/clodeck/prototype-parity.md` are empty; the loose ends are where the real work is).
 
 ## Dev loop (unchanged, still load-bearing)
 
