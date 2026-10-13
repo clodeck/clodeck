@@ -1,6 +1,6 @@
 # The public surface (spec-06 §29): one domain, TLS terminated here, and this
 # is the only service with published ports. `{$CLODECK_DOMAIN}` comes from the
-# compose file's environment — see README §Deploy.
+# compose file's environment — see README §"Docker Compose with a domain".
 #
 # Automatic HTTPS is the reason this file is four lines and not a dozen cert
 # paths: with a reachable domain and ports 80/443 open, Caddy obtains and renews

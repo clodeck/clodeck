@@ -1,7 +1,7 @@
 # The deployment (spec-06 §29): the app, plus Caddy terminating TLS in front of
 # it. `CLODECK_DOMAIN`, `ANTHROPIC_API_KEY`, `PROJECTS_ROOT` and `UI_PASSWORD_FILE`
 # come from the environment — or from a `.env` file next to this one, which
-# compose reads automatically. README §Deploy is the contract.
+# compose reads automatically. README §"Docker Compose with a domain" is the contract.
 
 services:
   app:
