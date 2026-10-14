@@ -37,7 +37,9 @@ This repo's own style, from its log:
     web(50): the chat reads as one centred column
     tickets: publish 49-57 — the rejected P2 items promoted, and four loose ends
 
-So: `<scope>(<ticket>): <what changed, and why>` — a lowercase scope, then one sentence. Use `web`, `server`, `shared`, `tickets` or `docs` depending on what you touched.
+So: `<scope>(<ticket>): <what changed, and why>` — a lowercase scope, then one sentence, then the body if the change needs one. Use `web`, `server`, `shared`, `tickets` or `docs` depending on what you touched. End the message with the trailer the rest of the log carries:
+
+    Co-Authored-By: Claude Code <noreply@anthropic.com>
 
 ## Rules
 

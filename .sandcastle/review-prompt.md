@@ -47,7 +47,7 @@ If you find improvements to make:
 
 1. Make them directly on this branch.
 2. Run `npm run typecheck` and `npm test`. Green, or your change comes out again.
-3. Commit, in this repo's style: `<scope>(<ticket>): <what and why>`.
+3. Commit, in this repo's style: `<scope>(<ticket>): <what and why>`, ending with the `Co-Authored-By: Claude Code <noreply@anthropic.com>` trailer the rest of the log carries.
 
 If the ticket was satisfied and the code is already clean, change nothing — that is a legitimate outcome, and better than churn. Either way, do not touch the ticket's status line.
 

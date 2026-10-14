@@ -29,6 +29,63 @@ const MAX_TICKETS = 3;
 // one under `.scratch/`.
 const BRANCH_PREFIX = "clodeck";
 
+// ---------------------------------------------------------------------------
+// Git, inside the sandbox
+// ---------------------------------------------------------------------------
+
+// `git config` on this machine, or "" when the key is unset. The sandbox has to
+// be told what the host takes for granted, and reading it here rather than
+// writing it into a file means the two cannot drift.
+const hostGit = (key: string): string => {
+  try {
+    return execFileSync("git", ["config", key], { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+};
+
+const authorName = hostGit("user.name");
+const authorEmail = hostGit("user.email");
+
+if (!authorName || !authorEmail) {
+  throw new Error(
+    "git has no user.name/user.email on this machine, so the sandbox could not commit anything.",
+  );
+}
+
+// Three settings the container does not inherit, each of which stops the loop
+// dead on its own:
+//
+//   - `core.autocrlf` is set by Git for Windows' *system* config, which a Linux
+//     container has no equivalent of. Without it the container compares the
+//     worktree's CRLF files against an LF index and reports every text file in
+//     the repo as modified — and a `git add` would write those CRLF bytes into
+//     the repository for good.
+//   - `safe.directory`: a Windows bind mount hands the worktree over owned by
+//     root while the container runs as `agent`, and git then refuses to touch a
+//     repository it does not own. Allowing it is safe here: the container's only
+//     repository is the throwaway worktree it was given.
+//   - The author and committer identity. The image ships no gitconfig, so
+//     `git commit` otherwise dies with "Author identity unknown" no matter how
+//     well the agent did its job.
+const gitConfigKeys: [key: string, value: string][] = [["safe.directory", "*"]];
+const autocrlf = hostGit("core.autocrlf");
+if (autocrlf !== "") gitConfigKeys.push(["core.autocrlf", autocrlf]);
+
+const gitEnv = {
+  ...Object.fromEntries(
+    gitConfigKeys.flatMap(([key, value], index) => [
+      [`GIT_CONFIG_KEY_${index}`, key],
+      [`GIT_CONFIG_VALUE_${index}`, value],
+    ]),
+  ),
+  GIT_CONFIG_COUNT: String(gitConfigKeys.length),
+  GIT_AUTHOR_NAME: authorName,
+  GIT_AUTHOR_EMAIL: authorEmail,
+  GIT_COMMITTER_NAME: authorName,
+  GIT_COMMITTER_EMAIL: authorEmail,
+};
+
 // Passed straight to `claude --model`, so it has to name a model the provider at
 // ANTHROPIC_BASE_URL actually serves. Taken from the host's environment so the
 // loop and a hand-driven `npm run dev` talk to the same provider.
@@ -111,7 +168,7 @@ for (let pass = 1; pass <= MAX_TICKETS; pass++) {
 
   const sandbox = await sandcastle.createSandbox({
     branch,
-    sandbox: docker(),
+    sandbox: docker({ env: gitEnv }),
     hooks,
   });
 
