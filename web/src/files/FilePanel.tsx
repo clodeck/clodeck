@@ -1214,21 +1214,32 @@ function CodeActions({
     case 'text':
       return (
         <>
-          <Note>{preview.truncated ? 'truncated' : 'read-only'}</Note>
+          {/* Truncation is a caveat about the bytes, not the write state — so it
+              takes its own inert element rather than the state's slot, and the
+              chip beside the toggle keeps saying `read-only`. */}
+          {preview.truncated && <Note>truncated</Note>}
           {/* Markdown gets a second way to read the same bytes; every other
               file type has only the source, so it gets no such control. */}
           {isMarkdown(preview.name) && (
             <MarkdownToggle previewing={previewingMarkdown} onToggle={onToggleMarkdown} />
           )}
           {/* A truncated file holds only the 256 KiB prefix; editing it would
-              clobber the rest, so the writable toggle is withheld. */}
-          {preview.truncated ? null : <EditToggle onClick={actions.edit} />}
+              clobber the rest, so the chip states the state without switching
+              it, and its `title` says why. */}
+          {preview.truncated ? (
+            <WriteStateChip
+              state="read-only"
+              title="Only the first 256 KiB is here — saving would clobber the rest, so this file can't be edited."
+            />
+          ) : (
+            <WriteStateChip state="read-only" title="Switch to writable" onClick={actions.edit} />
+          )}
         </>
       );
     case 'editing':
       return (
         <>
-          <Note tone="accent">writable</Note>
+          <WriteStateChip state="writable" />
           <button
             type="button"
             onClick={actions.cancel}
@@ -1337,26 +1348,83 @@ function MarkdownToggle({ previewing, onToggle }: { previewing: boolean; onToggl
   );
 }
 
-/** The read-only ⇄ writable switch: an "Edit" pill, shown only when editable. */
-function EditToggle({ onClick }: { onClick: () => void }): ReactElement {
+/**
+ * The file's write state, as one chip: it names the state the file is **in**
+ * (`read-only` ⇄ `writable`), carries the prototype's mark — a lock, a pencil
+ * (`variant-a.js:98-103`) — and, when the state can be switched, *is* the switch.
+ * The word is the state, not the action, and `aria-pressed` carries it for
+ * assistive tech, so the control says what is true rather than what a click will
+ * do. The tone is the level scale's: the resting chip is a surface a step above
+ * the head, the writable one the prototype's translucent accent (`styles.css:70-77`).
+ *
+ * Where there is nothing to switch the chip is a plain element, the same word
+ * with no button: a truncated file, whose 256 KiB prefix cannot be saved over the
+ * rest, and a file already being edited, where `Cancel`/`Save` are the write.
+ */
+function WriteStateChip({
+  state,
+  title,
+  onClick,
+}: {
+  state: 'read-only' | 'writable';
+  title?: string;
+  onClick?: () => void;
+}): ReactElement {
+  const writable = state === 'writable';
+  const surface = `inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+    writable ? 'bg-accent/15 text-accent' : 'bg-bg-3 text-ink-dim'
+  }`;
+  const body = (
+    <>
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-3 w-3"
+      >
+        {writable ? (
+          <>
+            <path d="M4.5 19.5h4l10.5-10.5a2 2 0 0 0 0-2.8l-1.2-1.2a2 2 0 0 0-2.8 0L4.5 15.5z" />
+            <path d="m13.5 6.5 3 3" />
+          </>
+        ) : (
+          <>
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+            <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+          </>
+        )}
+      </svg>
+      {state}
+    </>
+  );
+
+  if (onClick === undefined) {
+    return (
+      <span className={surface} title={title}>
+        {body}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
       onClick={onClick}
-      title="Edit this file"
-      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+      aria-pressed={false}
+      title={title}
+      className={`${surface} hover:opacity-90`}
     >
-      Edit
+      {body}
     </button>
   );
 }
 
-function Note({ tone, children }: { tone?: 'accent'; children: ReactNode }): ReactElement {
-  return (
-    <span className={`text-[10px] tracking-wider uppercase ${tone === 'accent' ? 'text-accent' : 'text-ink-dim'}`}>
-      {children}
-    </span>
-  );
+/** An inert micro-label — a caveat that is not a control. */
+function Note({ children }: { children: ReactNode }): ReactElement {
+  return <span className="text-[10px] tracking-wider uppercase text-ink-dim">{children}</span>;
 }
 
 /* -------------------------------------------------------------------------- */

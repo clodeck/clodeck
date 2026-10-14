@@ -8,7 +8,7 @@ a pencil) and was itself the switch. Give the head that one control.
 
 **Blocked by:** 49 (the chip is a surface, and the level scale is where its tone comes from)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The open file's write state is one chip in the code head: it names the state the file is **in**
       (`read-only` ⇄ `writable`), carries the prototype's mark, and is the control that switches it — one

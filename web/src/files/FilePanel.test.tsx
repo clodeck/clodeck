@@ -484,6 +484,44 @@ describe('a markdown file can be read as markdown', () => {
   });
 });
 
+describe("the open file's write state is one chip", () => {
+  it('names read-only and is the switch into editing, where it reads writable', async () => {
+    stubFiles();
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'main.ts' }));
+
+    // One control states the state the file is in — and is how it is switched.
+    const chip = await screen.findByRole('button', { name: 'read-only' });
+    expect(chip.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(chip);
+    // Editing names the new state, beside the write and its undo.
+    expect(screen.getByText('writable')).toBeTruthy();
+    expect(screen.getByRole('textbox')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByText('read-only')).toBeTruthy();
+  });
+
+  it('gives a truncated file both facts, and no switch', async () => {
+    stubFiles({ truncated: true });
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'main.ts' }));
+
+    // Two facts, two elements: the caveat is inert, and the state keeps its word.
+    expect(await screen.findByText('truncated')).toBeTruthy();
+    const chip = screen.getByText('read-only');
+    // The reason it cannot be edited lives on the chip, not in a word that hides it…
+    expect(chip.getAttribute('title')).toContain('256 KiB');
+    // …and there is no switch: only the 256 KiB prefix is here.
+    expect(screen.queryByRole('button', { name: 'read-only' })).toBeNull();
+  });
+});
+
 describe('downloading the open file', () => {
   it('offers the selected entry as a link to its own bytes, and says it was handed over', async () => {
     stubFiles();
