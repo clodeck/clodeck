@@ -15,14 +15,15 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-// How many tickets one run may drain. Each pass is a container, an `npm install`
-// and two agents, so this is the dial that decides what a run costs. Raise it
-// once you have reviewed a branch or two and trust the loop.
+// How many tickets one run may drain. Each pass is a container, an `npm ci` and
+// two agents, so this is the dial that decides what a run costs. Raise it once
+// you have reviewed a branch or two and trust the loop.
 const MAX_TICKETS = 3;
 
 // AGENTS.md's branch naming, `<effort>/<ticket>-<slug>`, where the effort is the
@@ -53,9 +54,24 @@ if (!authorName || !authorEmail) {
   );
 }
 
-// Three settings the container does not inherit, each of which stops the loop
+// Where the container keeps its own copy of the repo's git hooks, and where the
+// docker provider mounts the worktree. Both are hard-coded because the docker
+// provider's mount is fixed and the hook directory must sit outside it.
+const SANDBOX_HOOKS_DIR = "/home/agent/hooks";
+const SANDBOX_REPO_DIR = "/home/agent/workspace";
+
+// Four settings the container does not inherit, each of which stops the loop
 // dead on its own:
 //
+//   - `core.hooksPath` points at the container's own copy of the hooks rather
+//     than the worktree's. The worktree's copy cannot be run at all: Windows
+//     checked it out with CRLF, so its shebang reads `#!/bin/sh\r` and the
+//     kernel goes looking for an interpreter called `sh\r` — `git commit` dies
+//     with "cannot run .githooks/pre-commit: No such file or directory" for a
+//     file sitting right there, executable. Stripping the carriage returns in
+//     place is no good either: a file that is LF where the checkout would be
+//     CRLF reads as modified to git, so every pass would end with a dirty
+//     worktree. A copy outside the worktree is both runnable and invisible.
 //   - `core.autocrlf` is set by Git for Windows' *system* config, which a Linux
 //     container has no equivalent of. Without it the container compares the
 //     worktree's CRLF files against an LF index and reports every text file in
@@ -68,7 +84,10 @@ if (!authorName || !authorEmail) {
 //   - The author and committer identity. The image ships no gitconfig, so
 //     `git commit` otherwise dies with "Author identity unknown" no matter how
 //     well the agent did its job.
-const gitConfigKeys: [key: string, value: string][] = [["safe.directory", "*"]];
+const gitConfigKeys: [key: string, value: string][] = [
+  ["core.hooksPath", SANDBOX_HOOKS_DIR],
+  ["safe.directory", "*"],
+];
 const autocrlf = hostGit("core.autocrlf");
 if (autocrlf !== "") gitConfigKeys.push(["core.autocrlf", autocrlf]);
 
@@ -84,12 +103,26 @@ const gitEnv = {
   GIT_AUTHOR_EMAIL: authorEmail,
   GIT_COMMITTER_NAME: authorName,
   GIT_COMMITTER_EMAIL: authorEmail,
+  // Read by `.githooks/pre-push`, which refuses to push. Nothing here pushes and
+  // the container has no credentials anyway, but an agent deciding to "finish
+  // the job" is the one mistake in this setup that could not be undone locally.
+  CLODECK_SANDBOX: "1",
 };
 
 // Passed straight to `claude --model`, so it has to name a model the provider at
-// ANTHROPIC_BASE_URL actually serves. Taken from the host's environment so the
-// loop and a hand-driven `npm run dev` talk to the same provider.
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+// ANTHROPIC_BASE_URL actually serves. Read from `.sandcastle/.env` first,
+// because that is the file the sandbox is handed and the two must not disagree
+// about which model is being asked for; the host's environment is the fallback,
+// and the default is for someone pointing the loop at Anthropic directly.
+const modelFromEnvFile = ((): string => {
+  try {
+    return readFileSync(".sandcastle/.env", "utf8").match(/^ANTHROPIC_MODEL=(.+)$/m)?.[1].trim() ?? "";
+  } catch {
+    return "";
+  }
+})();
+
+const MODEL = modelFromEnvFile || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 // The repo's pre-commit hook runs `npm run typecheck` and `npm test` on every
 // commit, so the sandbox needs a working install before the agent's first commit
@@ -105,7 +138,16 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 // lockfile and never writes it.
 const hooks = {
   sandbox: {
-    onSandboxReady: [{ command: "npm ci", timeoutMs: 600_000 }],
+    onSandboxReady: [
+      // The repo's hooks, copied into the container's own filesystem and
+      // stripped of the carriage returns Windows put on them, because a hook the
+      // kernel cannot exec is a hook that aborts every commit. See the
+      // `core.hooksPath` note above for why they cannot be fixed in place.
+      {
+        command: `mkdir -p ${SANDBOX_HOOKS_DIR} && for hook in .githooks/*; do sed 's/\\r$//' "$hook" > "${SANDBOX_HOOKS_DIR}/\${hook##*/}"; done && chmod +x ${SANDBOX_HOOKS_DIR}/*`,
+      },
+      { command: "npm ci", timeoutMs: 600_000 },
+    ],
   },
 };
 
@@ -130,6 +172,38 @@ const tracker = (...args: string[]): string =>
 
 const branchExists = (branch: string): boolean =>
   execFileSync("git", ["branch", "--list", branch], { encoding: "utf8" }).trim() !== "";
+
+/**
+ * Delete a worktree `close()` could not.
+ *
+ * Sandcastle removes a clean worktree, and an empty one goes quietly. A worktree
+ * with a `node_modules` in it does not: npm's workspace symlinks are created by
+ * Linux inside the container, and deleting them back through the Windows bind
+ * mount defeats it, leaving 276 MB of checkout behind per pass — at a path that
+ * is then occupied if that branch is ever run again. The same delete works from
+ * here, so this is the whole fix.
+ */
+async function reapWorktree(path: string): Promise<void> {
+  // Docker Desktop goes on holding the bind mount for a few seconds after the
+  // container is gone, and the error Windows hands back for that ("The file
+  // cannot be accessed by the system") arrives with no code Node recognises — so
+  // `rmSync`'s own retries never fire. Wait it out by hand instead.
+  for (let attempt = 1; attempt <= 15; attempt++) {
+    if (!existsSync(path)) return;
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 15) {
+        console.warn(
+          `could not remove ${path} — delete it by hand.\n  ${error instanceof Error ? error.message : error}`,
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+}
 
 /**
  * The ticket this pass works on, or undefined when the queue is empty.
@@ -203,7 +277,11 @@ for (let pass = 1; pass <= MAX_TICKETS; pass++) {
       },
     });
   } finally {
-    await sandbox.close();
+    const worktreePath = sandbox.worktreePath;
+    const closed = await sandbox.close();
+    // A preserved worktree was preserved on purpose — uncommitted changes are
+    // the one thing worth going back to look at — so it stays.
+    if (closed.preservedWorktreePath === undefined) await reapWorktree(worktreePath);
   }
 }
 
