@@ -155,6 +155,9 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   // The folder create/upload land in, read off the view model: `''` is the root.
   const activeDir = viewer.status === 'ready' ? viewer.active : '';
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
+  // The create tooltips' `… in <folder>`, said once: the folder a create lands
+  // in, and nothing while the listing is not ready to name one.
+  const createIn = activeLabel === null ? '' : ` in ${activeLabel}`;
   // The code column's state, which is `none` until a file is opened and whenever
   // the tree itself has nothing to show.
   const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
@@ -302,18 +305,20 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           {/* Five icons on one line: the labels live in each button's name and
               tooltip, and the tooltip is where the context the old text buttons
               carried — the folder a create lands in, the upload cap, the view
-              the toggle switches to — is said. */}
+              the toggle switches to — is said. The row is a labelled `group`,
+              as the tree's drop area is, so the five actions are announced as
+              one set rather than five loose buttons. */}
           <div role="group" aria-label="File actions" className="mt-1.5 flex items-center gap-1">
             <ToolbarButton
               icon="filePlus"
               label="New File"
-              title={`New file${activeLabel === null ? '' : ` in ${activeLabel}`}`}
+              title={`New file${createIn}`}
               onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}
             />
             <ToolbarButton
               icon="folderPlus"
               label="New Folder"
-              title={`New folder${activeLabel === null ? '' : ` in ${activeLabel}`}`}
+              title={`New folder${createIn}`}
               onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}
             />
             <ToolbarButton
