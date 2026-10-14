@@ -41,6 +41,22 @@ flat-list recursiv nist (listing lazy ast → 41 faghat hamun directory).
 
 ---
 
+## Pass-e dovom (2026-10-14)
+
+`P1`, `D3` va `P2`-e entekhab-shode hame land shodan (32…48). In session:
+
+- Panj item-e `P2`-e rad-shode **promote** shodan: **49** (#10 — level-haye background), **50** (#7 —
+  transcript-e centered), **51** (#8 — avatar), **52** (#9 — toolbar-e iconi), **53** (#26 — chip-e
+  read-only ⇄ editable).
+- Chahar item az "Known loose ends"-e `handoff.md` ticket gereftan: **54** (byte-cap-e name dar client),
+  **55** (menu-ye `⋯` ke az drawer mizane birun), **56** (name-e non-ASCII bedoone `dir`), **57** (rail
+  ba hich project-e entekhab-shode).
+- Do item-e digar-e hamun list **bi-ticket** mimoonan be tasmim: textarea dar vaght-e connect (yek
+  soal-e yes/no mikhahad, na yek fix) va ham-pushani-e toast-e 37 ba menu-ye `⋯` (hamun fix-e **55** ast).
+- `P3` be hamin-tor rad ast.
+
+---
+
 ## P0 — tasmim-e ghabl az ticket
 
 In chahar ta **structure va scope** ro avaz mikonan, pas ticket-haye ba'di-ro gheyde-mand mikonan.
