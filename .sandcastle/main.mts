@@ -176,32 +176,20 @@ const branchExists = (branch: string): boolean =>
 /**
  * Delete a worktree `close()` could not.
  *
- * Sandcastle removes a clean worktree, and an empty one goes quietly. A worktree
- * with a `node_modules` in it does not: npm's workspace symlinks are created by
- * Linux inside the container, and deleting them back through the Windows bind
- * mount defeats it, leaving 276 MB of checkout behind per pass — at a path that
- * is then occupied if that branch is ever run again. The same delete works from
- * here, so this is the whole fix.
+ * With `node_modules` cleared inside the container first — see the loop's
+ * `finally` — this is an ordinary directory and the delete is unremarkable. It
+ * stays as the one place a failure is reported rather than passed over, because
+ * a worktree nobody can remove occupies the path the next run for that branch
+ * needs.
  */
-async function reapWorktree(path: string): Promise<void> {
-  // Docker Desktop goes on holding the bind mount for a few seconds after the
-  // container is gone, and the error Windows hands back for that ("The file
-  // cannot be accessed by the system") arrives with no code Node recognises — so
-  // `rmSync`'s own retries never fire. Wait it out by hand instead.
-  for (let attempt = 1; attempt <= 15; attempt++) {
-    if (!existsSync(path)) return;
-    try {
-      rmSync(path, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      if (attempt === 15) {
-        console.warn(
-          `could not remove ${path} — delete it by hand.\n  ${error instanceof Error ? error.message : error}`,
-        );
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
+function reapWorktree(path: string): void {
+  if (!existsSync(path)) return;
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(
+      `could not remove ${path} — delete it by hand.\n  ${error instanceof Error ? error.message : error}`,
+    );
   }
 }
 
@@ -277,11 +265,25 @@ for (let pass = 1; pass <= MAX_TICKETS; pass++) {
       },
     });
   } finally {
+    // npm's workspace symlinks are made by Linux, and Windows cannot delete them
+    // back through the bind mount: a worktree holding a `node_modules` survives
+    // `close()`, leaving ~276 MB behind per pass at a path the next run for that
+    // branch would find occupied. Deleting them from inside the container, with
+    // the same `rm` that created them, turns the worktree back into an ordinary
+    // directory — which is all `close()` needed.
+    try {
+      await sandbox.exec("rm -rf node_modules */node_modules");
+    } catch (error) {
+      console.warn(
+        `could not clear node_modules before closing: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+
     const worktreePath = sandbox.worktreePath;
     const closed = await sandbox.close();
     // A preserved worktree was preserved on purpose — uncommitted changes are
     // the one thing worth going back to look at — so it stays.
-    if (closed.preservedWorktreePath === undefined) await reapWorktree(worktreePath);
+    if (closed.preservedWorktreePath === undefined) reapWorktree(worktreePath);
   }
 }
 
