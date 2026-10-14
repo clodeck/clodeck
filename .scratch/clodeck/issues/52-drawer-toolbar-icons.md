@@ -7,7 +7,7 @@ shared with the rail.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The five actions are icon buttons in a single row that does not wrap at the drawer's 300px column,
       each with a hit area no smaller than today's button.
