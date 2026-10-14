@@ -39,9 +39,16 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 // or the agent cannot commit at all. The long timeout is for the bind mount: on
 // Docker Desktop the worktree is the Windows filesystem, and an install over it
 // is not fast.
+//
+// `npm ci`, not `npm install`: the container's npm is older than the host's, and
+// `npm install` rewrites package-lock.json down to its own idea of the file — it
+// drops the `libc` fields npm 11 writes. That leaves every pass with a dirty
+// worktree, which Sandcastle preserves rather than cleans, and hands the agent a
+// lockfile churn it has no business committing. `npm ci` installs exactly the
+// lockfile and never writes it.
 const hooks = {
   sandbox: {
-    onSandboxReady: [{ command: "npm install", timeoutMs: 600_000 }],
+    onSandboxReady: [{ command: "npm ci", timeoutMs: 600_000 }],
   },
 };
 
