@@ -27,6 +27,36 @@ function toolEntry(overrides: Partial<ToolEntry> = {}): ToolEntry {
   };
 }
 
+/**
+ * The shell's surface scale (ticket 49). jsdom does not process the stylesheet,
+ * so a rendered test can only name the utility; whether the resulting tone reads
+ * as a step up from the one below it is the browser's to say.
+ */
+describe('the tool card surfaces', () => {
+  it('sits on the scale, its head a step above its body', () => {
+    const { container } = render(<EntryView entry={toolEntry({ result: okResult })} />);
+
+    const card = container.firstElementChild;
+    const head = card?.firstElementChild;
+    if (!(card instanceof HTMLElement) || !(head instanceof HTMLElement)) {
+      throw new Error('expected a card with a head');
+    }
+
+    expect(card.className).toContain('bg-bg-1');
+    expect(head.className).toContain('bg-bg-2');
+    // The card is no longer the sidebar's own surface — that was the flatness.
+    expect(card.className).not.toContain('bg-panel');
+  });
+
+  it('gives a user bubble a level rather than a white wash', () => {
+    const { container } = render(<EntryView entry={{ kind: 'user', text: 'hello' }} />);
+
+    const bubble = getByText(container, 'hello');
+    expect(bubble.className).toContain('bg-bg-3');
+    expect(bubble.className).not.toContain('bg-white/10');
+  });
+});
+
 describe('the tool card status badge', () => {
   it('reads as in progress while the tool has no result', () => {
     const { container } = render(<EntryView entry={toolEntry()} />);

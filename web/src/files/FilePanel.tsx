@@ -690,7 +690,7 @@ function FlatRow({
     // `relative` for the same reason the tree row has it: the menu is placed
     // against its own row, not against the panel.
     <div
-      className={`${LIST_GRID} relative rounded hover:bg-white/5`}
+      className={`${LIST_GRID} relative rounded hover:bg-bg-2`}
       title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
     >
       <EntryMain
@@ -905,6 +905,17 @@ function EntryRow({
   // its `relative` for the menu's sake (see below), so this is a second class
   // rather than a wrapper.
   const hovering = isDir && moveControl.over === path;
+  /**
+   * The row's tone, on the shell's surface scale (ticket 49). One source for it
+   * rather than three classes stacked: a drop target is `bg-2` (the prototype's
+   * `.tree-row.drop-target`), the open/active row is `bg-3` (`.on`), and a plain
+   * row steps up to `bg-2` on hover. An active row therefore keeps its tone
+   * under the cursor — `hover:bg-2` would win on specificity and make the row
+   * look *less* current the moment the pointer reached it, which is the
+   * prototype's own ordering (`.tree-row:hover` at `styles.css:199`, `.on` at
+   * `:200`).
+   */
+  const tone = hovering ? 'bg-bg-2 outline-1 outline-accent' : isActive ? 'bg-bg-3' : 'hover:bg-bg-2';
 
   return (
     // `relative`, so the row's own menu is placed against the row. Without it
@@ -918,9 +929,7 @@ function EntryRow({
     // 44). The drag carries `text/plain` and nothing else: a drag advertising
     // `Files` would be read as an upload by the panel's own drop handler.
     <div
-      className={`relative flex items-center gap-1 rounded hover:bg-white/5 ${
-        isActive ? 'bg-white/5' : ''
-      } ${hovering ? 'bg-white/5 outline-1 outline-accent' : ''}`}
+      className={`relative flex items-center gap-1 rounded ${tone}`}
       style={{ paddingLeft: 8 + depth * 14 }}
       title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
       draggable={isFile ? true : undefined}

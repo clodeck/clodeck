@@ -55,6 +55,9 @@ export function Composer({
       className="flex flex-col gap-1"
     >
       <div className="flex items-end gap-2">
+        {/* Ticket 49: the box is the chat's one input, so it takes the level the
+            prototype gives it (`.composer-box`, `styles.css:156-160`) and reads
+            as a raised field rather than a rectangle drawn on the page. */}
         <textarea
           ref={box}
           value={value}
@@ -71,7 +74,7 @@ export function Composer({
           rows={2}
           placeholder={disabled ? 'Connecting…' : 'Ask Claude…'}
           aria-label="Message"
-          className="min-h-0 max-h-40 flex-1 resize-none rounded border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
+          className="min-h-0 max-h-40 flex-1 resize-none rounded border border-line bg-bg-2 px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
         />
         <button
           type="submit"

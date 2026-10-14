@@ -5,6 +5,19 @@
 @theme {
   --color-canvas: #0b0d10;
   --color-panel: #12161c;
+  /* The prototype's surface scale (ticket 49, `prototype/styles.css:4-9`): the
+     page, then the four steps above it, so a surface can be *placed* instead of
+     told apart by a translucent wash. `--bg` is the page and is the same tone as
+     `canvas` — it is here so the scale reads as one ladder. `panel` is not a rung
+     of it: the sidebar and the drawer sit on it, and they keep the tone they had.
+     Usage is deliberate, one surface at a time — a card's body is `bg-1` and its
+     head `bg-2`, a user's bubble `bg-3`, a rail button's pressed tone `bg-4` —
+     not a rule that every nested box steps up. */
+  --color-bg: #0b0d10;
+  --color-bg-1: #101318;
+  --color-bg-2: #151a21;
+  --color-bg-3: #1b2129;
+  --color-bg-4: #222a34;
   --color-line: #232b35;
   --color-ink: #e7edf3;
   --color-ink-dim: #8b98a8;

@@ -195,6 +195,15 @@ function ChatStage({
 /* -------------------------------------------------------------------------- */
 
 /**
+ * The two tones a piece of the shell's chrome wears (ticket 49) — the
+ * prototype's `.icon-btn` (`styles.css:58-59`): resting, a step up on hover, and
+ * two steps up when it is the current one. The rail's buttons and the drawer's
+ * tabs are that same control there, so they wear the same two levels here and
+ * differ only in the text colour, which stays each caller's own.
+ */
+const CHROME_TONE = { current: 'bg-bg-4', resting: 'text-ink-dim hover:bg-bg-3 hover:text-ink' } as const;
+
+/**
  * The far-left icon rail: the product's three surfaces, one at a time. Chat is
  * active while the drawer is shut, so exactly one button always reads as pressed.
  */
@@ -242,7 +251,7 @@ function RailButton({
       aria-pressed={active}
       title={label}
       className={`flex h-9 w-9 items-center justify-center rounded ${
-        active ? 'bg-white/10 text-accent' : 'text-ink-dim hover:bg-white/5 hover:text-ink'
+        active ? `${CHROME_TONE.current} text-accent` : CHROME_TONE.resting
       }`}
     >
       <RailIcon name={icon} />
@@ -309,7 +318,10 @@ function Drawer({
       aria-label="Drawer"
       className="flex h-[42vh] min-h-0 shrink-0 flex-col border-t border-line bg-panel"
     >
-      <div role="tablist" aria-label="Drawer panel" className="flex items-center gap-1 border-b border-line px-2 py-1">
+      {/* Ticket 49: the drawer's own chrome is a surface of its own — the tab
+          strip on the scale's second step (the prototype's `.panel-head`,
+          `styles.css:61-66`). */}
+      <div role="tablist" aria-label="Drawer panel" className="flex items-center gap-1 border-b border-line bg-bg-2 px-2 py-1">
         {DRAWER_TABS.map(({ tab: id, label }) => (
           <button
             key={id}
@@ -318,7 +330,7 @@ function Drawer({
             aria-selected={tab === id}
             onClick={() => { onTab(id); }}
             className={`rounded px-2 py-1 text-[11px] ${
-              tab === id ? 'bg-white/10 text-ink' : 'text-ink-dim hover:bg-white/5 hover:text-ink'
+              tab === id ? `${CHROME_TONE.current} text-ink` : CHROME_TONE.resting
             }`}
           >
             {label}

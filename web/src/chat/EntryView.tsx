@@ -16,7 +16,7 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
       return (
         <div className="flex flex-col items-end gap-1">
           <span className="text-[10px] tracking-wider text-ink-dim uppercase">You</span>
-          <p className="max-w-[85%] rounded-lg bg-white/10 px-3 py-2 text-sm whitespace-pre-wrap text-ink">
+          <p className="max-w-[85%] rounded-lg bg-bg-3 px-3 py-2 text-sm whitespace-pre-wrap text-ink">
             {entry.text}
           </p>
         </div>
@@ -54,9 +54,12 @@ const DISCLOSURE_SUMMARY = 'cursor-pointer text-[10px] tracking-wider uppercase'
 function ToolCard({ entry }: { entry: ToolEntry }): ReactElement {
   const status = toolStatus(entry);
 
+  // Ticket 49: the card is a surface of its own, not the sidebar's — its body on
+  // the first step of the scale and its head on the next, which is what makes a
+  // finished call read as one object instead of a hairline box.
   return (
-    <div className="rounded border border-line bg-panel">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div className="rounded border border-line bg-bg-1">
+      <div className="flex items-center gap-2 bg-bg-2 px-3 py-2">
         <span className="font-mono text-xs text-accent">{entry.name}</span>
         <span className="truncate font-mono text-[10px] text-ink-dim">{summarizeInput(entry.input)}</span>
         <ToolStatusBadge status={status} />

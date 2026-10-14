@@ -1,6 +1,7 @@
 import type { ResumePayload, SessionMessage, SessionSummary } from '@clodeck/shared';
 import { useMemo, type ReactElement } from 'react';
 
+import { ChatColumn } from './ChatColumn';
 import { EntryView } from './EntryView';
 import { fromSessionMessages } from './reducer';
 import type { SessionsState, TranscriptState } from './useSessions';
@@ -31,82 +32,86 @@ export function SessionBrowser({
   onResume: (target: ResumePayload) => void;
   onClose: () => void;
 }): ReactElement {
+  // The browser's own rule and wash are full-bleed — it is a surface of the
+  // chat, not of the column — and the list it draws is in the chat's band.
   return (
-    <div className="border-b border-line bg-panel/60 px-4 py-2" aria-label="Session history">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Past sessions</h3>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onReload}
-            disabled={state.status === 'loading'}
-            className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink disabled:opacity-40"
-          >
-            {state.status === 'loading' ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close session history"
-            className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
-          >
-            Close
-          </button>
+    <div className="border-b border-line bg-panel/60 py-2" aria-label="Session history">
+      <ChatColumn>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Past sessions</h3>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onReload}
+              disabled={state.status === 'loading'}
+              className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink disabled:opacity-40"
+            >
+              {state.status === 'loading' ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close session history"
+              className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
+            >
+              Close
+            </button>
+          </div>
         </div>
-      </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          onResume({ mode: 'continue' });
-        }}
-        className="mt-2 w-full rounded border border-line px-2 py-1.5 text-left text-sm text-ink hover:bg-white/5"
-      >
-        Continue latest
-        <span className="block text-[10px] text-ink-dim">Resume the most recent session — no id needed.</span>
-      </button>
+        <button
+          type="button"
+          onClick={() => {
+            onResume({ mode: 'continue' });
+          }}
+          className="mt-2 w-full rounded border border-line px-2 py-1.5 text-left text-sm text-ink hover:bg-white/5"
+        >
+          Continue latest
+          <span className="block text-[10px] text-ink-dim">Resume the most recent session — no id needed.</span>
+        </button>
 
-      {state.status === 'loading' && (
-        <p className="mt-2 text-xs text-ink-dim" role="status">
-          Loading sessions…
-        </p>
-      )}
-      {state.status === 'error' && (
-        <p className="mt-2 text-xs text-err" role="alert">
-          Could not load sessions: {state.message}
-        </p>
-      )}
-      {state.status === 'ready' && state.sessions.length === 0 && (
-        <p className="mt-2 text-xs text-ink-dim">No past sessions yet.</p>
-      )}
-      {state.status === 'ready' && state.sessions.length > 0 && (
-        <ul className="mt-2 max-h-48 overflow-y-auto">
-          {state.sessions.map((session) => (
-            <li key={session.id} className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onOpen(session.id);
-                }}
-                title={session.id}
-                className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-ink-dim hover:bg-white/5 hover:text-ink"
-              >
-                {session.title}
-                {session.id === currentSessionId && <span className="ml-1.5 text-[10px] text-accent">current</span>}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onResume({ sessionId: session.id });
-                }}
-                className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
-              >
-                Resume
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+        {state.status === 'loading' && (
+          <p className="mt-2 text-xs text-ink-dim" role="status">
+            Loading sessions…
+          </p>
+        )}
+        {state.status === 'error' && (
+          <p className="mt-2 text-xs text-err" role="alert">
+            Could not load sessions: {state.message}
+          </p>
+        )}
+        {state.status === 'ready' && state.sessions.length === 0 && (
+          <p className="mt-2 text-xs text-ink-dim">No past sessions yet.</p>
+        )}
+        {state.status === 'ready' && state.sessions.length > 0 && (
+          <ul className="mt-2 max-h-48 overflow-y-auto">
+            {state.sessions.map((session) => (
+              <li key={session.id} className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpen(session.id);
+                  }}
+                  title={session.id}
+                  className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-ink-dim hover:bg-white/5 hover:text-ink"
+                >
+                  {session.title}
+                  {session.id === currentSessionId && <span className="ml-1.5 text-[10px] text-accent">current</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onResume({ sessionId: session.id });
+                  }}
+                  className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+                >
+                  Resume
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ChatColumn>
     </div>
   );
 }
