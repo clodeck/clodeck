@@ -1,8 +1,9 @@
 import type { ApprovalRequestPayload, ApprovalResponsePayload, Project, ResumePayload } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
-import { EntryView, formatInput } from './EntryView';
+import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
+import { EntryView, formatInput } from './EntryView';
 import type { ChatView, TurnResult } from './reducer';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
@@ -85,46 +86,57 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
         />
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {viewingHistory ? (
-          <TranscriptPanel
-            state={sessions.transcript}
-            onResume={(target) => {
-              resume(target);
-              sessions.close();
-            }}
-            onClose={sessions.close}
-          />
-        ) : (
-          <LiveTranscript view={view} />
-        )}
+      {/* The scroller is the full-bleed stage — the chat's background runs to
+          its edges — and the band inside it is what is centred. */}
+      <div className="min-h-0 flex-1 overflow-y-auto py-3">
+        <ChatColumn>
+          {viewingHistory ? (
+            <TranscriptPanel
+              state={sessions.transcript}
+              onResume={(target) => {
+                resume(target);
+                sessions.close();
+              }}
+              onClose={sessions.close}
+            />
+          ) : (
+            <LiveTranscript view={view} />
+          )}
+        </ChatColumn>
       </div>
 
-      <footer className="flex flex-col gap-2 border-t border-line px-4 py-2">
-        {view.resumeTarget !== null && (
-          <ResumeBanner target={view.resumeTarget} sessionTitle={resumeTargetTitle(sessions.sessions, view.resumeTarget)} />
-        )}
-        <LiveIndicators view={view} />
-        {view.lastResult !== null && (
-          <ResultLine
-            result={view.lastResult}
-            onResume={
-              view.lastResult.canResume
-                ? () => {
-                    // Arms the next send to continue this session — or the latest
-                    // one when the run never named a session. Like every resume it
-                    // sends no prompt itself; the resumed turn starts on the send
-                    // that follows (ticket 11).
-                    resume(view.sessionId !== null ? { sessionId: view.sessionId } : { mode: 'continue' });
-                  }
-                : null
-            }
-          />
-        )}
-        {view.lastError !== null && (
-          <ErrorBanner code={view.lastError.code} message={view.lastError.message} onDismiss={dismissError} />
-        )}
-        <Composer onSend={sendPrompt} disabled={connection !== 'live'} />
+      {/* The rule is the footer's and stays full-bleed; what the footer *says* —
+          the resume banner, the live indicators, the result line, the error
+          banner and the composer — is the same column the transcript is in. */}
+      <footer className="shrink-0 border-t border-line py-2">
+        <ChatColumn>
+          <div className="flex flex-col gap-2">
+            {view.resumeTarget !== null && (
+              <ResumeBanner target={view.resumeTarget} sessionTitle={resumeTargetTitle(sessions.sessions, view.resumeTarget)} />
+            )}
+            <LiveIndicators view={view} />
+            {view.lastResult !== null && (
+              <ResultLine
+                result={view.lastResult}
+                onResume={
+                  view.lastResult.canResume
+                    ? () => {
+                        // Arms the next send to continue this session — or the latest
+                        // one when the run never named a session. Like every resume it
+                        // sends no prompt itself; the resumed turn starts on the send
+                        // that follows (ticket 11).
+                        resume(view.sessionId !== null ? { sessionId: view.sessionId } : { mode: 'continue' });
+                      }
+                    : null
+                }
+              />
+            )}
+            {view.lastError !== null && (
+              <ErrorBanner code={view.lastError.code} message={view.lastError.message} onDismiss={dismissError} />
+            )}
+            <Composer onSend={sendPrompt} disabled={connection !== 'live'} />
+          </div>
+        </ChatColumn>
       </footer>
 
       {approval !== undefined && <ApprovalDialog request={approval} onRespond={respond} />}
