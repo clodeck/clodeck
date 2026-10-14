@@ -1413,7 +1413,7 @@ function WriteStateChip({
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={false}
+      aria-pressed={writable}
       title={title}
       className={`${surface} hover:opacity-90`}
     >
