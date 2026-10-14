@@ -49,6 +49,12 @@ If you find improvements to make:
 2. Run `npm run typecheck` and `npm test`. Green, or your change comes out again.
 3. Commit, in this repo's style: `<scope>(<ticket>): <what and why>`, ending with the `Co-Authored-By: Claude Code <noreply@anthropic.com>` trailer the rest of the log carries.
 
-If the ticket was satisfied and the code is already clean, change nothing — that is a legitimate outcome, and better than churn. Either way, do not touch the ticket's status line.
+If the ticket was satisfied and the code is already clean, change nothing — that is a legitimate outcome, and better than churn.
+
+# RULES
+
+- Do not touch the ticket's status line, in either direction.
+- Do not merge, do not push, do not open a pull request. `{{BRANCH}}` is the deliverable and merging it is the user's.
+- Do not use `git commit --no-verify`: the pre-commit hook is the gate, and a red suite is your problem to fix, not to step around.
 
 Once complete, output <promise>COMPLETE</promise>.
