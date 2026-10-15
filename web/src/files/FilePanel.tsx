@@ -1026,7 +1026,8 @@ function EntryActions({
     if (panel === null) return;
     const row = panel.parentElement;
     if (row === null) return;
-    setPlacement(menuPlacement(spanOf(row), clipOf(row), panel.getBoundingClientRect().height, MENU_GAP));
+    const menuHeight = panel.getBoundingClientRect().height;
+    setPlacement(menuPlacement(spanOf(row), clipOf(row), menuHeight, MENU_GAP));
   }, [menuOpen]);
 
   /** The edge it hangs from, with the same 4px clearance at the row either way. */
