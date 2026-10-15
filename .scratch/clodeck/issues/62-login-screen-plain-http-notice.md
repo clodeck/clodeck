@@ -12,7 +12,7 @@ is derived client-side. No API change, no new endpoint, no server round trip.
 **Blocked by:** 59 (without it the direct route does not actually work, and a notice about a route that
 cannot hold a login is noise)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] On an `http:` origin whose hostname is outside the loopback set (`localhost`, `127.0.0.1`,
       `[::1]`), the sign-in screen carries a discreet notice: the connection is not encrypted, and the
