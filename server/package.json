@@ -8,6 +8,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc --project tsconfig.build.json",
+    "preflight": "tsx src/preflight-cli.ts",
     "typecheck": "tsc --project tsconfig.json",
     "dev": "tsx watch src/main.ts",
     "dev:fake": "tsx watch src/testing/dev-fake.ts",
