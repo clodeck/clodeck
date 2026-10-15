@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ProjectSwitcher } from './ProjectSwitcher';
+import { dirsAbove, nameCell } from './testing/direction';
 import { ToastProvider } from './toast/ToastProvider';
 
 /**
@@ -39,27 +40,6 @@ function renderSwitcher(projects: Project[]): void {
       />
     </ToastProvider>,
   );
-}
-
-/** The element a row draws its name on: the one that carries the direction rule. */
-function nameCell(button: HTMLElement): HTMLElement {
-  const cell = button.querySelector<HTMLElement>('[dir]');
-  if (cell === null) throw new Error(`the row "${button.textContent ?? ''}" draws its name with no rule`);
-  return cell;
-}
-
-/**
- * Every `dir` attribute on the way up from a row — the trap the direction rule
- * avoids by sitting on the name's own element and nowhere else, where the first
- * strong character of `123-…` would decide the whole row.
- */
-function dirsAbove(button: HTMLElement): string[] {
-  const found: string[] = [];
-  for (let element: HTMLElement | null = button; element !== null; element = element.parentElement) {
-    const dir = element.getAttribute('dir');
-    if (dir !== null) found.push(dir);
-  }
-  return found;
 }
 
 afterEach(() => {

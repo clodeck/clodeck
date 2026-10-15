@@ -3,6 +3,7 @@ import { MAX_UPLOAD_BYTES, type Project } from '@clodeck/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { dirsAbove, nameCell } from '../testing/direction';
 import { ToastProvider } from '../toast/ToastProvider';
 import { FilePanel } from './FilePanel';
 
@@ -189,27 +190,6 @@ function rowOf(button: HTMLElement): HTMLElement {
   const row = button.parentElement;
   if (row === null) throw new Error('a row button has no row');
   return row;
-}
-
-/** The element a row draws its name on: the one that carries the direction rule. */
-function nameCell(button: HTMLElement): HTMLElement {
-  const cell = button.querySelector<HTMLElement>('[dir]');
-  if (cell === null) throw new Error(`the row "${button.textContent ?? ''}" draws its name with no rule`);
-  return cell;
-}
-
-/**
- * Every `dir` attribute on the way up from a row's button — the trap the
- * direction rule avoids by sitting on the name's own element and nowhere else,
- * where the first strong character of `123-…` would decide the whole row.
- */
-function dirsAbove(button: HTMLElement): string[] {
-  const found: string[] = [];
-  for (let element: HTMLElement | null = button; element !== null; element = element.parentElement) {
-    const dir = element.getAttribute('dir');
-    if (dir !== null) found.push(dir);
-  }
-  return found;
 }
 
 /** One of the panel's two columns, by position. */
