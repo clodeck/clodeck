@@ -30,3 +30,38 @@ decision 16). It is not part of that slice and blocks nothing in it.
 - [ ] Tests drive the limiter through the transport under both topologies: a forwarded request behind a
       proxy, and a direct one. The clock stays injectable, so no test waits out a lock.
 - [ ] `npm run typecheck` and `npm test` pass.
+
+## The decision (taken by the operator, 2026-10-15)
+
+**B — a declared trust list: `CLODECK_TRUSTED_PROXIES`.** An env-only value in the same posture as
+`CLODECK_PUBLIC_URL`: a CIDR/list string handed straight to `Fastify({ trustProxy })`, which splits it on
+`,` and knows `loopback` and `uniquelocal`. Unset means nothing is trusted, which is today's behaviour
+exactly — so the direct route and the tunnelled route keep the bucket they have now. The compose file
+declares Docker's own pool (`172.16.0.0/12`), so that topology is fixed without the operator doing
+anything; the README states the other two (a proxy on the host → `127.0.0.1/8`; direct or tunnel →
+unset).
+
+The failure modes it accepts, which are what the first checklist item is for:
+
+| Where the request comes from | What the bucket keys on |
+|---|---|
+| no header (direct, tunnel) | the real peer address — unchanged |
+| a header that lies, from an untrusted peer | ignored: the key is the last hop a trusted peer added, so a forged prefix changes nothing |
+| a forged header from **inside** a declared range | the bucket can be rotated — the accepted cost, and the reason the value is declared rather than defaulted |
+
+**Rejected:**
+
+- **A — trust nothing (today).** Every login behind Caddy shares one bucket, so five failures from
+  anyone lock out the single legitimate user for fifteen minutes. This is the ticket's reason to exist.
+- **C — `trustProxy: true`.** One line and no variable, but the key is the *leftmost* `X-Forwarded-For`
+  entry, which is entirely client-controlled: an attacker is never locked and can burn any address's
+  bucket, the legitimate user's included. This is the "defeat it with a header" the ticket forbids.
+- **D — trust `uniquelocal` peers, no variable.** Zero-config, and it fixes compose too, and on a public
+  VPS a forged header is ignored because the peer is public. But the trust becomes implicit where this
+  repo declares its posture (`HOST`, the public origin), and any peer inside a private range — this
+  effort's own LAN deployment (ticket 64) included — can rotate the bucket. Declaring beats defaulting.
+
+A malformed value is a **warning plus the no-trust fallback**, not a boot failure — the posture
+`sessionCookieIsSecure` already takes for an unusable origin. The ADR is the implementation's: it amends
+`docs/adr/0001-session-cookie-follows-public-origin.md`'s claim that trusting the header makes the
+lockout spoofable, which stays true of the header *alone*.
