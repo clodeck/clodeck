@@ -9,7 +9,7 @@ picked, or that it picked none and why. The silent 404 was as much the bug as th
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] `WEB_ROOT` unset → the resolver walks up from the working directory to the directory whose package
       manifest declares workspaces, and uses `web/dist` there when it exists.

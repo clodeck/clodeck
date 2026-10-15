@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { warnToConsole, type Warn } from './logging.js';
@@ -14,7 +14,9 @@ export interface ServerConfig {
   uiPassword: string | null;
   /**
    * The built web client's directory, or null when the server serves no client
-   * — the dev loop, where Vite serves it (spec-06 §"Ticket 27").
+   * — the dev loop, where Vite serves it (spec-06 §"Ticket 27"). An unset
+   * `WEB_ROOT` resolves to a build this repo made, when there is one; see
+   * {@link resolveWebRoot}.
    */
   webRoot: string | null;
   /**
@@ -31,6 +33,15 @@ export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
   /** Defaults to `clodeck.config.json` in the working directory. */
   configPath?: string;
+  /**
+   * The working directory both defaults are read from: the config file's name,
+   * and the walk for a built client when `WEB_ROOT` is unset. Injectable for the
+   * same reason the projects root and the env are — a test of what an unset
+   * `WEB_ROOT` resolves to must not depend on where the suite happens to run,
+   * which would also mean depending on this machine's own build output
+   * (spec-07 §"The web root").
+   */
+  cwd?: string;
   warn?: Warn;
 }
 
@@ -49,7 +60,9 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
  *
  * `WEB_ROOT` is env-only for the same reason: it names the build artifact the
  * image produced (spec-06 §"Ticket 27"), which is not a thing an operator keeps
- * in a convenience file.
+ * in a convenience file. Unset, a build this repo made is found by walking up
+ * from the working directory (spec-07 §"The web root"), so an operator who has
+ * built the client need not also say where it went.
  *
  * `CLODECK_PUBLIC_URL` — the origin a browser reaches the app at — is the third
  * of that kind (spec-07). It is a deployment fact rather than a preference, and
@@ -58,11 +71,13 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
 export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const env = options.env ?? process.env;
   const warn = options.warn ?? warnToConsole;
+  const cwd = options.cwd ?? process.cwd();
+  const configPath = options.configPath ?? path.join(cwd, CONFIG_FILE_NAME);
 
   return {
-    projectsRoot: projectsRoot(env, options.configPath, warn),
+    projectsRoot: projectsRoot(env, configPath, warn),
     uiPassword: uiPassword(env, warn),
-    webRoot: webRoot(env),
+    webRoot: webRoot(env, cwd, warn),
     publicOrigin: publicOrigin(env),
   };
 }
@@ -96,25 +111,135 @@ function publicOrigin(env: NodeJS.ProcessEnv): string | null {
 /**
  * The built client's directory, or null. Environment-only, like the password:
  * it names a build artifact the image produced, not a preference an operator
- * would keep in a config file. An unset `WEB_ROOT` is what keeps the Vite dev
- * loop's behavior unchanged.
+ * would keep in a config file.
+ *
+ * An explicit `WEB_ROOT` is the operator saying where the build is, so nothing
+ * is looked for and nothing is reported. Unset, the walk below is what makes
+ * `GET /` the app in a checkout nobody configured — and its outcome is reported
+ * either way, because the silent 404 it replaces was as much the bug as the
+ * missing default was (spec-07 §"The web root").
  */
-function webRoot(env: NodeJS.ProcessEnv): string | null {
+function webRoot(env: NodeJS.ProcessEnv, cwd: string, warn: Warn): string | null {
   const fromEnv = envValue(env, 'WEB_ROOT');
-  return fromEnv === null ? null : path.resolve(fromEnv);
+  if (fromEnv !== null) {
+    return path.resolve(fromEnv);
+  }
+
+  const resolution = resolveWebRoot(cwd);
+  warn(resolution.reason);
+  return resolution.root;
 }
 
-function projectsRoot(
-  env: NodeJS.ProcessEnv,
-  configPathOption: string | undefined,
-  warn: Warn,
-): string | null {
+/**
+ * What came of looking for the built client with `WEB_ROOT` unset: the
+ * directory to serve, and the line that explains the answer either way. The
+ * reason is returned rather than logged where the walk happens, because the
+ * walk is the one part of this worth testing on its own — and such a test must
+ * never read this machine's own build output.
+ */
+export interface WebRootResolution {
+  /** The built client's directory, or null when no client is being served. */
+  root: string | null;
+  /** One line for the operator: `serving the built client from …`, or why none. */
+  reason: string;
+}
+
+/**
+ * The built client, found by walking up from `startDir` to the directory whose
+ * package manifest declares workspaces and taking `web/dist` under it.
+ *
+ * The walk is what lets an ordinary `npm start` serve the app: the server's
+ * working directory is `server/`, a package but not the repository root, and
+ * `WEB_ROOT` is a fact only a deployment knows to set. A package on the way up
+ * is stepped over rather than stopped at, and a manifest that declares
+ * workspaces but has no build under it ends the walk — that directory is the
+ * answer, and a build belongs there, not further up.
+ */
+export function resolveWebRoot(startDir: string): WebRootResolution {
+  const from = path.resolve(startDir);
+
+  for (let dir = from; ; dir = path.dirname(dir)) {
+    if (declaresWorkspaces(manifestAt(dir))) {
+      return builtClientUnder(dir);
+    }
+    // The filesystem root's parent is itself: there is nothing above it to walk to.
+    if (dir === path.dirname(dir)) {
+      return {
+        root: null,
+        reason:
+          `serving no client: no package manifest declaring workspaces above ${from}` +
+          ' — the Vite dev loop serves the client, or set WEB_ROOT',
+      };
+    }
+  }
+}
+
+/** A workspace root's resolution: the build under it, or why there is none (spec-07 §"The web root"). */
+function builtClientUnder(workspaceRoot: string): WebRootResolution {
+  const built = path.join(workspaceRoot, 'web', 'dist');
+  if (isDirectory(built)) {
+    return { root: built, reason: `serving the built client from ${built}` };
+  }
+
+  return {
+    root: null,
+    reason:
+      `serving no client: ${workspaceRoot} declares workspaces but has no web/dist` +
+      ' — run npm run build, or set WEB_ROOT',
+  };
+}
+
+/**
+ * A directory's `package.json`, parsed, or null when there is none or it cannot
+ * be read. A manifest that will not parse is not a workspace root, and the walk
+ * carries on past it, which is the most a stray file deserves.
+ */
+function manifestAt(dir: string): unknown {
+  let contents: string;
+  try {
+    contents = readFileSync(path.join(dir, 'package.json'), 'utf8');
+  } catch {
+    return null;
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a `package.json` declares workspaces — the marker that says this
+ * directory is the repository root rather than a package inside it. npm takes
+ * either an array or a `{ packages: […] }` object, so both count.
+ */
+function declaresWorkspaces(manifest: unknown): boolean {
+  if (typeof manifest !== 'object' || manifest === null) return false;
+
+  const workspaces = (manifest as Record<string, unknown>)['workspaces'];
+  if (Array.isArray(workspaces)) return workspaces.length > 0;
+  if (typeof workspaces !== 'object' || workspaces === null) return false;
+
+  const packages = (workspaces as Record<string, unknown>)['packages'];
+  return Array.isArray(packages) && packages.length > 0;
+}
+
+/** A path that is a directory. A *file* named `web/dist` is not a built client. */
+function isDirectory(candidate: string): boolean {
+  try {
+    return statSync(candidate).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function projectsRoot(env: NodeJS.ProcessEnv, configPath: string, warn: Warn): string | null {
   const fromEnv = envValue(env, 'PROJECTS_ROOT');
   if (fromEnv !== null) {
     return path.resolve(fromEnv);
   }
 
-  const configPath = configPathOption ?? path.join(process.cwd(), CONFIG_FILE_NAME);
   const fromFile = projectsRootFromFile(configPath, warn);
   return fromFile === null ? null : path.resolve(fromFile);
 }

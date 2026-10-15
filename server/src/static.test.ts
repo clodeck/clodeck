@@ -5,6 +5,7 @@ import type { Project } from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { loadConfig } from './config.js';
 import {
   createSandbox,
   createTestApp,
@@ -16,10 +17,10 @@ import {
 } from './test-support.js';
 
 /**
- * Serving the built client (spec-06 §"Ticket 27"). The seam is the same one the
- * rest of the server is tested at: the real app, through `inject()`, against a
- * real directory on disk — `WEB_ROOT` is a path, not a facade, so there is
- * nothing here to fake (spec-06 §"Ticket 27"). What is asserted is what the
+ * Serving the built client (spec-06 §"Ticket 27", spec-07 §"The web root"). The
+ * seam is the same one the rest of the server is tested at: the real app,
+ * through `inject()`, against a real directory on disk — a web root is a path,
+ * not a facade, so there is nothing here to fake. What is asserted is what the
  * browser sees: the bundle, the deep-link fallback, and — the part that matters
  * — that the bundle being public does not move the gate.
  */
@@ -29,16 +30,28 @@ const APP_JS = 'console.log("clodeck");';
 
 describe('serving the built client', () => {
   let sandbox: Sandbox;
+  /** A stand-in for this repository: a workspace root, and a built client under it. */
+  let repo: string;
   let webRoot: string;
   let apps: FastifyInstance[];
 
   beforeEach(async () => {
     sandbox = await createSandbox('clodeck-static-');
+    repo = path.join(sandbox.dir, 'repo');
     // A stand-in for `web/dist`: one html entry point and one hashed asset.
-    webRoot = path.join(sandbox.dir, 'web-dist');
+    webRoot = path.join(repo, 'web', 'dist');
     await mkdir(path.join(webRoot, 'assets'), { recursive: true });
     await writeFile(path.join(webRoot, 'index.html'), INDEX_HTML);
     await writeFile(path.join(webRoot, 'assets', 'app.js'), APP_JS);
+    // The two levels the server is started from: the manifest that names the
+    // workspaces, and the `server/` package inside it that names none — the
+    // tree the resolver walks when `WEB_ROOT` is unset.
+    await writeFile(
+      path.join(repo, 'package.json'),
+      JSON.stringify({ private: true, workspaces: ['web'] }),
+    );
+    await mkdir(path.join(repo, 'server'));
+    await writeFile(path.join(repo, 'server', 'package.json'), JSON.stringify({ name: '@clodeck/server' }));
     apps = [];
   });
 
@@ -123,6 +136,16 @@ describe('serving the built client', () => {
     expect(socket.statusCode).toBe(404);
   });
 
+  it('leaves /ws/terminal to its own route, not the static catch-all', async () => {
+    // A real route under a server-owned path, asked for as a browser asks for a
+    // page: the socket's gate answers, and the bundle answers nothing (spec-07
+    // §"The web root": no route is shadowed).
+    const response = await navigate(makeApp(), '/ws/terminal?projectId=whatever');
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body).not.toContain('<title>');
+  });
+
   it('leaves a /ws upgrade without a session refused, not answered with the index', async () => {
     const app = makeApp();
     const port = await listen(app);
@@ -144,5 +167,64 @@ describe('serving the built client', () => {
 
     expect(root.statusCode).toBe(404);
     expect(deep.statusCode).toBe(404);
+  });
+
+  /**
+   * The web root an operator never declared (spec-07 §"The web root"): with
+   * `WEB_ROOT` unset the server resolves one for itself, and serves it exactly
+   * as it serves an explicit one — so `GET /` is the app rather than the 404
+   * that sent the operator to the logs. Nothing to find is the dev loop's case,
+   * and it looks the way it did before any of this existed.
+   */
+  describe('when WEB_ROOT is unset', () => {
+    /** What a server started in `cwd` loads, with nothing declared but its directory. */
+    function configFrom(cwd: string) {
+      return loadConfig({
+        env: {},
+        cwd,
+        configPath: path.join(sandbox.dir, 'absent.config.json'),
+        warn: () => undefined,
+      });
+    }
+
+    it('serves the build the resolver walks up to', async () => {
+      const app = makeApp(configFrom(path.join(repo, 'server')).webRoot);
+
+      const shell = await navigate(app, '/');
+      const asset = await app.inject({ method: 'GET', url: '/assets/app.js' });
+      const deep = await navigate(app, '/projects/alpha/sessions');
+
+      expect(shell.statusCode).toBe(200);
+      expect(shell.body).toBe(INDEX_HTML);
+      expect(asset.body).toBe(APP_JS);
+      expect(deep.body).toBe(INDEX_HTML);
+    });
+
+    it('serves nothing when there is no build above the working directory', async () => {
+      const bare = path.join(sandbox.dir, 'bare');
+      await mkdir(bare);
+
+      const config = configFrom(bare);
+
+      expect(config.webRoot).toBeNull();
+      expect((await navigate(makeApp(config.webRoot), '/')).statusCode).toBe(404);
+    });
+
+    it('serves the WEB_ROOT it was given rather than the build above the working directory', async () => {
+      const elsewhere = path.join(sandbox.dir, 'elsewhere');
+      const operatorIndex = '<!doctype html><title>the operator said so</title>';
+      await mkdir(elsewhere);
+      await writeFile(path.join(elsewhere, 'index.html'), operatorIndex);
+
+      const config = loadConfig({
+        env: { WEB_ROOT: elsewhere },
+        cwd: path.join(repo, 'server'),
+        configPath: path.join(sandbox.dir, 'absent.config.json'),
+        warn: () => undefined,
+      });
+
+      expect(config.webRoot).toBe(elsewhere);
+      expect((await navigate(makeApp(config.webRoot), '/')).body).toBe(operatorIndex);
+    });
   });
 });

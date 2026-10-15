@@ -1,4 +1,9 @@
-/** Where a recoverable misconfiguration is reported to a human. */
+/**
+ * Where a line for the operator is reported: a recoverable misconfiguration, or
+ * the resolution that stands in its place — an unset `WEB_ROOT` that resolved to
+ * a build, say, which is worth a line precisely because it is invisible
+ * otherwise (spec-07 §"The web root").
+ */
 export type Warn = (message: string) => void;
 
 /**
