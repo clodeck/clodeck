@@ -705,6 +705,54 @@ describe('file rows carry their metadata', () => {
   });
 });
 
+describe('the row menu opens where it can be clicked', () => {
+  it('hangs off the row, so the flip is measured from the row and not the panel', async () => {
+    stubFiles();
+    renderPanel();
+    const actions = await screen.findByRole('button', { name: 'Actions for README.md' });
+    fireEvent.click(actions);
+
+    const row = rowOf(actions);
+    const menu = screen.getByRole('menu');
+    // `absolute` inside the row's `relative`: whichever way it opens, `top-full`
+    // and `bottom-full` measure from the row's own edges. jsdom computes no
+    // boxes, so the flip itself belongs to `placement.test.ts` and to the
+    // browser check, and what is pinned here is the box the flip is against.
+    expect(menu.parentElement).toBe(row);
+    expect(row.className).toContain('relative');
+    expect(menu.className).toContain('absolute');
+    // Left unmeasured, it opens downward — the case the rows with room keep.
+    expect(menu.className).toContain('top-full');
+  });
+
+  it('asks the boxes again when the tree scrolls under an open menu', async () => {
+    stubFiles();
+    renderPanel();
+    const actions = await screen.findByRole('button', { name: 'Actions for README.md' });
+
+    // jsdom computes no boxes, so the *answer* cannot move here. What can be
+    // pinned is that the question is asked again, which is the half a stale
+    // placement came from: the room is the scroller's edge against the row, and
+    // the row is what travels when the tree scrolls.
+    const reads = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    fireEvent.click(actions);
+    const opened = reads.mock.calls.length;
+    expect(opened).toBeGreaterThan(0);
+
+    fireEvent.scroll(window);
+    expect(reads.mock.calls.length).toBeGreaterThan(opened);
+
+    // …and the listener goes when the menu does: nothing is re-measured for a
+    // menu that is not on screen.
+    fireEvent.click(screen.getByRole('button', { name: 'Close menu' }));
+    const closed = reads.mock.calls.length;
+    fireEvent.scroll(window);
+    expect(reads.mock.calls.length).toBe(closed);
+
+    reads.mockRestore();
+  });
+});
+
 describe('dragging a file onto a folder', () => {
   it('highlights the folder under the drag, and clears it when the drag leaves', async () => {
     stubFiles();
