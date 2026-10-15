@@ -1,0 +1,23 @@
+{
+  // The repo's own tooling — the ticket loop and the tracker it reads — under the
+  // same strict baseline as the packages. It has no workspace to live in (nothing
+  // imports it and nothing ships it), so it gets its own config and its own step
+  // in the root `typecheck` script.
+  //
+  // `allowJs` + `checkJs` rather than a migration to TypeScript: the tracker is
+  // run as `node scripts/tickets.mjs` from inside the sandbox (see
+  // `.sandcastle/implement-prompt.md`), where only `node` is guaranteed. Leaving
+  // it a plain `.mjs` file keeps that door open, and JSDoc gives the checker the
+  // same information the annotations would.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  // `.sandcastle` is matched one level deep on purpose: `worktrees/` is where
+  // Sandcastle mounts a whole copy of the repo, and a recursive pattern would
+  // typecheck every worktree left behind.
+  "include": [".sandcastle/*.mts", "scripts", "vitest.config.mts"]
+}
