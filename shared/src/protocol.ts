@@ -89,6 +89,16 @@ interface ClientMessageBase {
 
 export interface SendPromptPayload {
   prompt: string;
+  /**
+   * The profile this turn runs on. Absent means the reserved **default** —
+   * the server's own environment — so a client that never chooses one asks for
+   * exactly what it asked for before profiles existed.
+   *
+   * The name is untrusted like every other field on the wire: the server
+   * resolves it against its boot-time list and refuses an unknown one visibly,
+   * rather than falling back to the default.
+   */
+  profile?: string;
 }
 
 /** No fields: interrupt targets the project's one active turn. */

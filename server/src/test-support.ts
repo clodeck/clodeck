@@ -9,6 +9,7 @@ import { buildApp, type AppOptions } from './app.js';
 import { createSessionStore } from './auth/sessions.js';
 import { SESSION_COOKIE, type AuthOptions } from './auth/transport.js';
 import { createProjectDiscovery } from './discovery.js';
+import { createProviderProfiles } from './profiles.js';
 import { createFakePtySpawner } from './testing/fake-pty.js';
 import { createFakeProvider } from './testing/fake-provider.js';
 
@@ -49,11 +50,16 @@ export function createTestAuth(overrides: Partial<AuthOptions> = {}): AuthOption
  *
  * `webRoot: null` is the shared one: no suite but `static.test.ts` is about
  * serving the bundle (spec-06 §27).
+ *
+ * `profiles` is deliberately the empty environment, which is every deployment
+ * that declares none: the list is the reserved default alone, and a suite that
+ * is about profiles says so by passing its own.
  */
 export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInstance {
   return buildApp({
     projects: createProjectDiscovery(null, { warn: () => undefined }),
     provider: createFakeProvider(),
+    profiles: createProviderProfiles({}, () => undefined),
     spawner: createFakePtySpawner(),
     auth: createTestAuth(),
     webRoot: null,

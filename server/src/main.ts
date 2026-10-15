@@ -3,6 +3,7 @@ import { createAuthOptions } from './auth/options.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import { warnToConsole } from './logging.js';
+import { createProviderProfiles } from './profiles.js';
 import { cleartextOriginWarning } from './public-origin.js';
 import { createAnthropicProvider } from './sdk/anthropic.js';
 import { createNodePtySpawner } from './terminal/node-pty-spawner.js';
@@ -16,6 +17,11 @@ const app = buildApp({
   // run without a provider of its own, so each one runs on this process's
   // environment. A run that chooses a profile rides on `SdkRunInput.provider`.
   provider: createAnthropicProvider(),
+  // The one reading of the environment that decides what a session may choose
+  // (spec-08 §"The provider module"). Read here rather than per request, so the
+  // set cannot change under a session that is already running: an edited
+  // environment is a restart, like an edited password.
+  profiles: createProviderProfiles(),
   // The one place the real node-pty binding is reached; tests inject the fake.
   spawner: createNodePtySpawner(),
   // The password is hashed here, once, at boot — or, when unset, the seam is

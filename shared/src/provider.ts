@@ -25,3 +25,20 @@ export interface ResolvedProvider {
   /** The model this run asks for. Absent means the endpoint decides. */
   model?: string;
 }
+
+/**
+ * One profile as the picker is told about it: a name to choose by, and the model
+ * that name resolves to — never the endpoint, and never the credential
+ * (`.scratch/clodeck/issues/66-provider-profiles-decision.md`, decision 14).
+ *
+ * A list of these is the whole of what the client receives, which is why it is a
+ * type of its own rather than a settled {@link ResolvedProvider}: the two shapes
+ * differ in exactly the field that must not cross the wire, so a route that
+ * served the wrong one cannot compile.
+ */
+export interface ProviderProfileSummary {
+  /** The name to choose by: `default`, or the operator's normalized name. */
+  name: string;
+  /** The model this profile resolves to. Absent means the endpoint decides. */
+  model?: string;
+}

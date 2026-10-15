@@ -4,6 +4,7 @@ import { buildApp } from '../app.js';
 import { createAuthOptions } from '../auth/options.js';
 import { loadConfig } from '../config.js';
 import { createProjectDiscovery } from '../discovery.js';
+import { createProviderProfiles } from '../profiles.js';
 import { createFakeProvider } from './fake-provider.js';
 import { createFakePtySpawner } from './fake-pty.js';
 
@@ -86,6 +87,11 @@ const app = buildApp({
     sessions: SESSIONS,
     sessionMessages: SESSION_MESSAGES,
   }),
+  // The real profile list, from this process's own environment: a developer
+  // exporting `CLODECK_PROVIDER_FAST_MODEL=…` sees the picker with two entries
+  // and drives the choice by hand, which is the whole point of the loop. The
+  // fake never reads the trio it is handed.
+  profiles: createProviderProfiles(),
   // The scripted fake here too, so `dev:fake` boots with no shell and no native
   // binding — the same "no API key, no network" story as the fake provider.
   spawner: createFakePtySpawner(),

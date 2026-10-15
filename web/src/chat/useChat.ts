@@ -30,7 +30,13 @@ export type ChatConnection = 'connecting' | 'live' | 'error';
 export interface ChatController {
   view: ChatView;
   connection: ChatConnection;
-  sendPrompt: (prompt: string) => void;
+  /**
+   * Send a prompt on `profile` — the name the picker chose, or the reserved
+   * `default` when nothing was remembered. It rides the frame rather than a
+   * second control message: the profile is a property of *this* turn, and the
+   * server resolves it as the run starts (spec-08 §"The run carries a provider").
+   */
+  sendPrompt: (prompt: string, profile: string) => void;
   interrupt: () => void;
   /** Answers the approval modal (Allow/Deny only for the MVP). */
   respond: (response: ApprovalResponsePayload) => void;
@@ -116,12 +122,12 @@ export function useChat(project: Project): ChatController {
   }, []);
 
   const sendPrompt = useCallback(
-    (prompt: string): void => {
+    (prompt: string, profile: string): void => {
       const trimmed = prompt.trim();
       if (trimmed === '') return;
       // Shown at once; the fold drops the bus's echo if one arrives.
       setView((current) => withUserPrompt(current, trimmed));
-      send(clientMessage({ type: 'send_prompt', payload: { prompt: trimmed } }));
+      send(clientMessage({ type: 'send_prompt', payload: { prompt: trimmed, profile } }));
     },
     [send],
   );

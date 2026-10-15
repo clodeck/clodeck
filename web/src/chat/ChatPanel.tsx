@@ -4,9 +4,12 @@ import { useState, type ReactElement } from 'react';
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
+import { DEFAULT_PROFILE, browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
+import { ProviderPicker } from './ProviderPicker';
 import type { ChatView, TurnResult } from './reducer';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
+import { useProfiles } from './useProfiles';
 import { useSessions } from './useSessions';
 
 /**
@@ -26,7 +29,33 @@ import { useSessions } from './useSessions';
 export function ChatPanel({ project }: { project: Project }): ReactElement {
   const { view, connection, sendPrompt, interrupt, respond, resume, dismissError } = useChat(project);
   const sessions = useSessions(project);
+  const profiles = useProfiles();
   const [browserOpen, setBrowserOpen] = useState(false);
+
+  /**
+   * The profile this session runs on. It opens on the one remembered for this
+   * project, and on the server's own environment when nothing is remembered —
+   * never on whatever the last session elsewhere chose (ticket 68's eighth
+   * criterion). It is written back as it is chosen, so the *next* session in
+   * this project does not have to be told again.
+   */
+  const [profile, setProfile] = useState(
+    () => readRememberedProfile(browserStorage(), project.id) ?? DEFAULT_PROFILE,
+  );
+
+  /**
+   * The lock is the server's own word for a session that has run — a session id
+   * it named, or a turn it reports as running — rather than a client flag
+   * flipped on send. A send that was refused (a stale profile name, say) never
+   * started a run and must not shut the control the error tells the user to use.
+   */
+  const locked = view.sessionId !== null || view.state !== 'idle';
+
+  const chooseProfile = (name: string): void => {
+    setProfile(name);
+    rememberProfile(browserStorage(), project.id, name);
+  };
+
   const approval = view.pendingApprovals[0];
   const viewingHistory = sessions.transcript.status !== 'closed';
 
@@ -134,7 +163,21 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
             {view.lastError !== null && (
               <ErrorBanner code={view.lastError.code} message={view.lastError.message} onDismiss={dismissError} />
             )}
-            <Composer onSend={sendPrompt} disabled={connection !== 'live'} />
+            {/* Beside the composer, not in the header: the profile is what the
+                *next* message runs on, so it belongs where the message is typed. */}
+            <ProviderPicker
+              state={profiles.state}
+              name={profile}
+              locked={locked}
+              onChoose={chooseProfile}
+              onReload={profiles.reload}
+            />
+            <Composer
+              onSend={(prompt) => {
+                sendPrompt(prompt, profile);
+              }}
+              disabled={connection !== 'live'}
+            />
           </div>
         </ChatColumn>
       </footer>
@@ -256,6 +299,10 @@ function errorTitle(code: string): string {
   switch (code) {
     case 'turn_in_progress':
       return 'A turn is already running';
+    case 'unknown_profile':
+      // The one refusal the user can act on: nothing ran, and the profile they
+      // asked for is the thing to change. The message names it.
+      return 'That profile is not available';
     case 'unknown_project':
       return 'This project is no longer available';
     case 'invalid_message':
