@@ -14,14 +14,14 @@ cannot hold a login is noise)
 
 **Status:** resolved
 
-- [ ] On an `http:` origin whose hostname is outside the loopback set (`localhost`, `127.0.0.1`,
+- [x] On an `http:` origin whose hostname is outside the loopback set (`localhost`, `127.0.0.1`,
       `[::1]`), the sign-in screen carries a discreet notice: the connection is not encrypted, and the
       password crosses the network in the clear.
-- [ ] On `https:`, and on any loopback host, the notice is absent. No nagging where there is no risk.
-- [ ] The predicate is a **pure function** of the origin, tested directly across `http:`/`https:` and
+- [x] On `https:`, and on any loopback host, the notice is absent. No nagging where there is no risk.
+- [x] The predicate is a **pure function** of the origin, tested directly across `http:`/`https:` and
       loopback/non-loopback hosts.
-- [ ] **The rendering is tested too, not just the predicate:** the notice appears on a non-loopback
+- [x] **The rendering is tested too, not just the predicate:** the notice appears on a non-loopback
       `http:` origin and is absent on `https:` and on loopback.
-- [ ] The notice gates nothing: the password field, the button and every refusal message behave exactly
+- [x] The notice gates nothing: the password field, the button and every refusal message behave exactly
       as they do today.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.

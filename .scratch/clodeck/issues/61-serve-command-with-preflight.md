@@ -17,23 +17,23 @@ what the command serves)
 
 **Status:** resolved
 
-- [ ] The root package gains one `serve` command: a preflight, then the build, then the server started
+- [x] The root package gains one `serve` command: a preflight, then the build, then the server started
       against the resolved web root.
-- [ ] **A missing `UI_PASSWORD` and a missing `PROJECTS_ROOT` each stop it**, in plain language, with a
+- [x] **A missing `UI_PASSWORD` and a missing `PROJECTS_ROOT` each stop it**, in plain language, with a
       non-zero exit. Present values pass. Blank counts as missing, as it does in the loader.
-- [ ] **The preflight is a pure function of the loaded config**, returning a list of problems, so it is
+- [x] **The preflight is a pure function of the loaded config**, returning a list of problems, so it is
       unit-tested rather than exercised by running a build. `npm run serve`'s own wiring is verified by
       running it once and recording the run; no test mocks npm.
-- [ ] **Startup logs one unmissable line** when the declared origin's scheme is `http:` and its host is
+- [x] **Startup logs one unmissable line** when the declared origin's scheme is `http:` and its host is
       not loopback: it names `CLODECK_PUBLIC_URL` and states the trade-off — the password, every chat
       message and every byte of terminal output cross the network in cleartext. A loopback origin and an
       `https:` origin log nothing.
-- [ ] **No acknowledgement flag.** The safe path stays the default and the risky one stays a single
+- [x] **No acknowledgement flag.** The safe path stays the default and the risky one stays a single
       setting; adding a flag back would reinstate exactly the decision the originating decision removed.
-- [ ] A reader of the log can tell which client directory is being served, consistently with ticket 60's
+- [x] A reader of the log can tell which client directory is being served, consistently with ticket 60's
       line.
-- [ ] Preflight tests cover missing, blank and present values for both variables.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Preflight tests cover missing, blank and present values for both variables.
+- [x] `npm run typecheck` and `npm test` pass.
 
 ## What landed
 
