@@ -14,7 +14,7 @@ expression exists.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The **public origin** comes from `CLODECK_PUBLIC_URL` (trimmed); unset or blank means *undeclared*.
       Environment-only, like the password and the web root — the config file stays `projectsRoot`-only.
