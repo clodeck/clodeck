@@ -13,23 +13,23 @@ nashode, bedoone hich warning.
 
 **Blocked by:** 68 (needs a run that carries a provider, and a picker to show the pin in)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `<project>/.claude/settings.json` az **hamān `ScopedFs`-e mojood** khānde mishavad (realpath +
+- [x] `<project>/.claude/settings.json` az **hamān `ScopedFs`-e mojood** khānde mishavad (realpath +
       containment), na az yek `fs`-e jadid.
-- [ ] Inke ān file kodām key-hā rā declare karde az yek **function-e pāk** miyāyad. File-e gom-shode,
+- [x] Inke ān file kodām key-hā rā declare karde az yek **function-e pāk** miyāyad. File-e gom-shode,
       JSON-e nāmoteaber, yā `env`-e gheyr-object = "hich pin" (bā yek log line) — yek file-e bad nabāyad
       server yā session rā bekoshad.
-- [ ] Yek project ke endpoint yā credential declare karde dar picker **pinned** neshoon dāde mishavad, va
+- [x] Yek project ke endpoint yā credential declare karde dar picker **pinned** neshoon dāde mishavad, va
       ānjā faghat profile-hā-ye **tier-shaped** pishnahād mishavad — chon yek name-e model-e yek vendor ru
       endpoint-e vendor-e digar bimani nist.
-- [ ] Vaghti project endpoint yā credential rā declare karde, run **faghat model** mifrestad; endpoint va
+- [x] Vaghti project endpoint yā credential rā declare karde, run **faghat model** mifrestad; endpoint va
       credential har do māl-e project mimoonan.
-- [ ] Vaghti project hich kodām rā declare nakarde, run **har se** rā az profile mifrestad.
-- [ ] **Exhaustive acceptance test:** ru har **hasht** zirmajmooe-ye se key, hich tarkibi nabāyad endpoint az
+- [x] Vaghti project hich kodām rā declare nakarde, run **har se** rā az profile mifrestad.
+- [x] **Exhaustive acceptance test:** ru har **hasht** zirmajmooe-ye se key, hich tarkibi nabāyad endpoint az
       yek manba va credential az manba-e dige bedahad. In test-e asli-e in ticket ast.
-- [ ] Ghāede **server-side** e'māl mishavad: yek client-e dastkāri-shode ke dar yek project-e pinned yek
+- [x] Ghāede **server-side** e'māl mishavad: yek client-e dastkāri-shode ke dar yek project-e pinned yek
       profile-e provider-shaped bekhaahad nemitavānad yek joft-e makhloot begirad.
-- [ ] Log line migo **chi ferestāde shod va chi negah dāshte shod** va chera.
-- [ ] Yek project ke hich `.claude/settings.json` nadārad daghighan mesl-e ticket 68 raftār mikonad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Log line migo **chi ferestāde shod va chi negah dāshte shod** va chera.
+- [x] Yek project ke hich `.claude/settings.json` nadārad daghighan mesl-e ticket 68 raftār mikonad.
+- [x] `npm run typecheck` and `npm test` pass.

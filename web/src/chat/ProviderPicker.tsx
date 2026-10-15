@@ -13,6 +13,13 @@ import type { ProfilesState } from './useProfiles';
  * is the whole button, which makes the accessible name read the same sentence a
  * sighted user reads.
  *
+ * It also says when a project pins its provider, in the words of what that does
+ * — the endpoint and the credential stay the project's — rather than in the words
+ * of the file. And because a vendor's model name means nothing at another
+ * vendor's endpoint, a pinned project is offered its **tiers** only (decision 9);
+ * the server enforces the same rule on the wire regardless of what this list
+ * says, so a bug here can offer a useless choice but never a mixed pair.
+ *
  * The two states it can be in are the ones the rest of the shell already uses: a
  * control that cannot do its job is *disabled* and carries the reason in a
  * `title` (the rail's rule, ticket 57), and the list is a popup that closes on
@@ -24,6 +31,10 @@ const ENDPOINT_DECIDES = 'the endpoint decides';
 
 /** Why the control is shut, in the two places a reader arrives from (see `App.tsx`'s rail). */
 const LOCKED_REASON = 'a turn has already run in this session, so the profile is set';
+
+/** Why a pinned project's choice is a model and nothing else (ADR 0002, in the user's words). */
+const PINNED_REASON =
+  'this project pins its provider in .claude/settings.json, so a session can only choose the model';
 
 interface ProviderPickerProps {
   state: ProfilesState;
@@ -48,6 +59,14 @@ export function ProviderPicker({
   const showing = open && !locked;
 
   const profiles = state.status === 'ready' ? state.profiles : [];
+  // What this project may be offered: everything, or the tiers alone when it pins
+  // its own endpoint and credential.
+  const pinned = state.status === 'ready' && state.pinned;
+  const offered = pinned ? profiles.filter((profile) => profile.shape === 'tier') : profiles;
+  const endpoint = state.status === 'ready' ? state.endpoint : undefined;
+  // The label is answered from the whole list, not the offered one: a session may
+  // still be on a profile this project would no longer offer, and the line has to
+  // say what it is running on rather than pretend it is something else.
   const chosen = profiles.find((profile) => profile.name === name);
   // An absent model can only be reported as the endpoint's decision once the
   // list has arrived to say so; before that there is nothing to say at all.
@@ -78,6 +97,18 @@ export function ProviderPicker({
         </button>
       </span>
 
+      {pinned && (
+        // The endpoint is the one half of a pin a browser may be shown: the user
+        // can read the same file in the drawer (decision 14). It goes in the text
+        // rather than a tooltip because the phone is what this control is for.
+        <span
+          title={PINNED_REASON}
+          className="inline-block max-w-[18rem] truncate text-[11px] text-accent"
+        >
+          {endpoint === undefined ? 'pinned by this project' : `pinned by this project · ${endpoint}`}
+        </span>
+      )}
+
       {state.status === 'error' && (
         <span className="flex items-center gap-2 text-[11px] text-ink-dim">
           profiles unavailable
@@ -106,7 +137,7 @@ export function ProviderPicker({
             aria-label="Provider profile"
             className="absolute bottom-full left-0 z-20 mb-1 flex w-72 flex-col rounded border border-line bg-panel py-1 shadow-lg"
           >
-            {profiles.map((profile) => (
+            {offered.map((profile) => (
               <li key={profile.name}>
                 <button
                   type="button"

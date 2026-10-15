@@ -18,8 +18,8 @@ import { ChatPanel } from './ChatPanel';
 const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
 
 const PROFILES: ProviderProfileSummary[] = [
-  { name: 'default', model: 'claude-opus-5-5' },
-  { name: 'FAST', model: 'claude-haiku-5-5' },
+  { name: 'default', model: 'claude-opus-5-5', shape: 'tier' },
+  { name: 'FAST', model: 'claude-haiku-5-5', shape: 'tier' },
 ];
 
 /**
@@ -77,17 +77,22 @@ function jsonResponse(body: unknown): Response {
   } as Response;
 }
 
+/** Every URL the panel asked for, in order. */
+const fetched: string[] = [];
+
 beforeEach(() => {
   window.localStorage.clear();
   FakeSocket.instances.length = 0;
+  fetched.length = 0;
   vi.stubGlobal('WebSocket', FakeSocket);
   // The panel also fetches the project's sessions on mount; a 404 leaves that in
   // its error state, which is not what this file is about.
-  vi.stubGlobal('fetch', (input: RequestInfo | URL) =>
-    String(input).includes('/api/profiles')
-      ? Promise.resolve(jsonResponse({ profiles: PROFILES }))
-      : Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) }),
-  );
+  vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+    fetched.push(String(input));
+    return String(input).includes('/profiles')
+      ? Promise.resolve(jsonResponse({ profiles: PROFILES, pinned: false }))
+      : Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+  });
 });
 
 afterEach(() => {
@@ -167,5 +172,14 @@ describe('the provider a turn is sent on', () => {
 
     fireEvent.click(locked);
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('asks what this project may choose, since a pin is the project’s and not the deployment’s', async () => {
+    render(<ChatPanel project={project} />);
+    await screen.findByRole('button', { name: /^running on/ });
+
+    // The one answer a deployment-wide list could not give: whether this project
+    // pins its own endpoint and credential (ADR 0002).
+    expect(fetched).toContain(`/api/projects/${project.id}/profiles`);
   });
 });

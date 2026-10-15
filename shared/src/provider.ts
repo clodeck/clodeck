@@ -27,8 +27,24 @@ export interface ResolvedProvider {
 }
 
 /**
- * One profile as the picker is told about it: a name to choose by, and the model
- * that name resolves to — never the endpoint, and never the credential
+ * What a profile declares, by the two words decision 9 keeps it to: a
+ * **provider** names the endpoint or the credential, so the model it carries
+ * belongs to that host; a **tier** names only a model, and can run on any of
+ * them. The reserved default declares nothing, which makes it a tier — *whatever
+ * this server has* is a model to a project that pins its own endpoint.
+ *
+ * A pinned project offers **only tiers**, because a vendor's model name means
+ * nothing at another vendor's endpoint. It is classified by what a profile
+ * *declares* rather than by what it resolves to: a tier inherits the server's
+ * endpoint all the same, and declaring an endpoint of one's own is exactly the
+ * claim this word is about.
+ */
+export type ProviderProfileShape = 'provider' | 'tier';
+
+/**
+ * One profile as the picker is told about it: a name to choose by, the model
+ * that name resolves to, and the shape that decides where it may be offered —
+ * never the endpoint, and never the credential
  * (`.scratch/clodeck/issues/66-provider-profiles-decision.md`, decision 14).
  *
  * A list of these is the whole of what the client receives, which is why it is a
@@ -41,6 +57,8 @@ export interface ProviderProfileSummary {
   name: string;
   /** The model this profile resolves to. Absent means the endpoint decides. */
   model?: string;
+  /** Whether this profile may be offered to a project that pins its provider. */
+  shape: ProviderProfileShape;
 }
 
 /**

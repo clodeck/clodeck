@@ -2,18 +2,27 @@ import type { ProviderProfileSummary } from '@clodeck/shared';
 import { useCallback, useEffect, useState } from 'react';
 
 /**
- * The profile list the picker offers, shaped like `useProjects`: a discriminated
- * state union and an effect that owns the request.
+ * What the picker may offer in one project: the profile list, and whether that
+ * project pins its provider.
  *
  * The list comes from the server rather than from a constant in this package, so
  * adding a profile is an environment change on the server and not a rebuild of
- * the client (spec-08 §"The picker"). It is a name and a model per entry and
- * nothing else: the endpoint and the credential never leave the server, so there
- * is nothing here for a browser to leak.
+ * the client (spec-08 §"The picker"), and it is fetched per project because the
+ * *pin* is the project's: the same list can be offered whole in one project and
+ * trimmed to its tiers in the next. It is a name, a model and a shape per entry
+ * and nothing else: the endpoint and the credential never leave the server, so
+ * there is nothing here for a browser to leak.
  */
 export type ProfilesState =
   | { status: 'loading' }
-  | { status: 'ready'; profiles: ProviderProfileSummary[] }
+  | {
+      status: 'ready';
+      profiles: ProviderProfileSummary[];
+      /** True when this project's `.claude/settings.json` pins its provider (ADR 0002). */
+      pinned: boolean;
+      /** The endpoint the pin declares, when the file declares one. Never the credential. */
+      endpoint?: string;
+    }
   | { status: 'error'; message: string };
 
 export interface ProfilesQuery {
@@ -21,7 +30,7 @@ export interface ProfilesQuery {
   reload: () => void;
 }
 
-export function useProfiles(): ProfilesQuery {
+export function useProfiles(projectId: string): ProfilesQuery {
   const [state, setState] = useState<ProfilesState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -29,9 +38,9 @@ export function useProfiles(): ProfilesQuery {
     const controller = new AbortController();
     setState({ status: 'loading' });
 
-    fetchProfiles(controller.signal).then(
-      (profiles) => {
-        if (!controller.signal.aborted) setState({ status: 'ready', profiles });
+    fetchProfiles(projectId, controller.signal).then(
+      (offered) => {
+        if (!controller.signal.aborted) setState({ status: 'ready', ...offered });
       },
       (error: unknown) => {
         // An aborted request is this effect being replaced, not a failure.
@@ -42,21 +51,31 @@ export function useProfiles(): ProfilesQuery {
     );
 
     return () => controller.abort();
-  }, [attempt]);
+  }, [projectId, attempt]);
 
   return { state, reload: useCallback(() => setAttempt((count) => count + 1), []) };
 }
 
-/** `GET /api/profiles` answers `{ profiles: ProviderProfileSummary[] }`. */
-async function fetchProfiles(signal: AbortSignal): Promise<ProviderProfileSummary[]> {
-  const response = await fetch('/api/profiles', { signal, headers: { accept: 'application/json' } });
+/** `GET /api/projects/:id/profiles` answers `{ profiles, pinned, endpoint? }`. */
+async function fetchProfiles(projectId: string, signal: AbortSignal): Promise<Offered> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/profiles`, {
+    signal,
+    headers: { accept: 'application/json' },
+  });
 
   if (!response.ok) throw new Error(await failureMessage(response));
 
   const body: unknown = await response.json();
   if (!isProfilesEnvelope(body)) throw new Error('unexpected response shape');
 
-  return body.profiles;
+  return body;
+}
+
+/** Everything the ready state holds but the status itself — the route's whole payload. */
+interface Offered {
+  profiles: ProviderProfileSummary[];
+  pinned: boolean;
+  endpoint?: string;
 }
 
 /** The server's REST error shape is `{ error }` (the same idiom as `useSessions.ts`). */
@@ -78,14 +97,25 @@ async function failureMessage(response: Response): Promise<string> {
  * The contract is compile-time; the wire is not. One guard at the boundary turns
  * a drifted response into the error state instead of a broken render.
  */
-function isProfilesEnvelope(body: unknown): body is { profiles: ProviderProfileSummary[] } {
+function isProfilesEnvelope(body: unknown): body is Offered {
   if (typeof body !== 'object' || body === null) return false;
   const profiles = (body as { profiles?: unknown }).profiles;
-  return Array.isArray(profiles) && profiles.every(isProfileSummary);
+  const pinned = (body as { pinned?: unknown }).pinned;
+  const endpoint = (body as { endpoint?: unknown }).endpoint;
+  return (
+    Array.isArray(profiles) &&
+    profiles.every(isProfileSummary) &&
+    typeof pinned === 'boolean' &&
+    (endpoint === undefined || typeof endpoint === 'string')
+  );
 }
 
 function isProfileSummary(value: unknown): value is ProviderProfileSummary {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { name?: unknown; model?: unknown };
-  return typeof candidate.name === 'string' && (candidate.model === undefined || typeof candidate.model === 'string');
+  const candidate = value as { name?: unknown; model?: unknown; shape?: unknown };
+  return (
+    typeof candidate.name === 'string' &&
+    (candidate.model === undefined || typeof candidate.model === 'string') &&
+    (candidate.shape === 'provider' || candidate.shape === 'tier')
+  );
 }

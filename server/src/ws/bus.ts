@@ -5,7 +5,9 @@ import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 
 import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
 import type { ProjectDiscovery } from '../discovery.js';
-import { UnknownProfileError, type ProviderProfiles } from '../profiles.js';
+import { createScopedFs } from '../files/scoped-fs.js';
+import { applyPin, UnknownProfileError, type ProviderProfiles, type RunProfile } from '../profiles.js';
+import { readProjectPin } from '../project-pin.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
 import { WS_OPEN, textOf } from './frames.js';
@@ -29,7 +31,11 @@ export function registerWsBus(
   options: {
     projects: ProjectDiscovery;
     turns: TurnManager;
-    /** The boot-time profile list a `send_prompt` names one from. */
+    /**
+     * The boot-time profile list a `send_prompt` names one from. The name is
+     * resolved here, and then narrowed by whatever the project itself pins
+     * (`profiles.ts`'s `applyPin`).
+     */
     profiles: ProviderProfiles;
     auth: AuthOptions;
   },
@@ -118,7 +124,7 @@ async function dispatchFrame(
           context.projectId,
           context.cwd,
           intent.payload.prompt,
-          context.options.profiles.resolve(intent.payload.profile),
+          await profileForRun(context.options.profiles, context.cwd, intent.payload.profile),
         );
         break;
       case 'interrupt':
@@ -155,6 +161,26 @@ async function dispatchFrame(
     // One control message failing must not break the chain for the frames behind it.
     context.emit(errorDraft(context.projectId, 'internal', 'the control message failed'));
   }
+}
+
+/**
+ * The profile a `send_prompt` will run on: the name resolved against the boot-time
+ * list, then narrowed by whatever the project pins in its own
+ * `.claude/settings.json` (ADR 0002).
+ *
+ * The pin is read here, per send, through the project's own `ScopedFs`: the file
+ * is the user's, they can edit it in the drawer, and a turn that starts after such
+ * an edit has to honour it — a cached answer would be a rule applied to a project
+ * as it used to be. The name is resolved first, so a stale one is refused without
+ * touching a disk.
+ */
+async function profileForRun(
+  profiles: ProviderProfiles,
+  cwd: string,
+  name: string | undefined,
+): Promise<RunProfile> {
+  const profile = profiles.resolve(name);
+  return applyPin(profile, await readProjectPin(createScopedFs(cwd)));
 }
 
 function emitNoActiveTurn(context: { projectId: string; emit: EmitDraft }): void {

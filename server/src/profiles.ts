@@ -1,8 +1,16 @@
-import { DEFAULT_PROFILE, type ProviderProfileSummary, type ResolvedProvider } from '@clodeck/shared';
+import {
+  DEFAULT_PROFILE,
+  type ProviderProfileShape,
+  type ProviderProfileSummary,
+  type ResolvedProvider,
+} from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 
 import { envValue } from './config.js';
+import type { ProjectDiscovery } from './discovery.js';
+import { createScopedFs } from './files/scoped-fs.js';
 import { warnToConsole, type Warn } from './logging.js';
+import { isPinned, readProjectPin, type ProjectPin } from './project-pin.js';
 
 /**
  * The provider profiles: a session's choice of which provider it runs on
@@ -22,10 +30,17 @@ import { warnToConsole, type Warn } from './logging.js';
  * `sdk/`'s business, and the tests of these rules need no key, no network and no
  * server.
  *
+ * A name is not the whole story. The project a session runs in may pin its own
+ * provider in its `.claude/settings.json`, and the pin outranks a choice made
+ * here key by key — so {@link applyPin} is what turns a resolved trio into the
+ * keys a run actually carries, under the rule the ADR states: **the endpoint and
+ * the credential travel together, and the model travels free**. `project-pin.ts`
+ * reads the declaration; this file decides what follows from it.
+ *
  * The route at the bottom of this file is the one door onto that list, and it is
- * deliberately three lines that cannot be tempted: the client is told a name and
- * a model, and a {@link ProviderProfileSummary} has no field for an endpoint or
- * a credential to travel in.
+ * deliberately a few lines that cannot be tempted: the client is told a name, a
+ * model and a shape, and a {@link ProviderProfileSummary} has no field for an
+ * endpoint or a credential to travel in.
  */
 
 /** The namespace a profile is declared in. */
@@ -140,12 +155,16 @@ export function listProfiles(env: NodeJS.ProcessEnv, warn: Warn = warnToConsole)
 }
 
 /**
- * The name and model of every profile, for the picker.
+ * The name, model and shape of every profile, for the picker.
  *
  * The model is the **resolved** one rather than the declared one, so the model
  * the picker shows and the model the run asks for are the same string by
  * construction — a tier that names a model and one that inherits it are told
  * apart by nothing on screen, which is the truth.
+ *
+ * The shape, by contrast, is read off what the profile **declares** (decision 9):
+ * a profile that names an endpoint or a credential is a provider, and a pinned
+ * project may not be offered it, however completely it resolves.
  */
 export function summarizeProfiles(
   profiles: readonly ProviderProfile[],
@@ -153,8 +172,21 @@ export function summarizeProfiles(
 ): ProviderProfileSummary[] {
   return profiles.map((profile) => {
     const { model } = resolveProfile(profiles, env, profile.name).provider;
-    return model === undefined ? { name: profile.name } : { name: profile.name, model };
+    const shape = shapeOf(profile);
+    return model === undefined
+      ? { name: profile.name, shape }
+      : { name: profile.name, model, shape };
   });
+}
+
+/**
+ * Which of the two words a profile is: **provider** when it declares the endpoint
+ * or the credential, **tier** when it declares neither. The reserved default
+ * declares nothing at all, and so is a tier — *whatever this server has* is a
+ * model as far as a pinned project is concerned.
+ */
+function shapeOf(profile: ProviderProfile): ProviderProfileShape {
+  return isPinned(profile.declared) ? 'provider' : 'tier';
 }
 
 /**
@@ -180,6 +212,65 @@ export function resolveProfile(
   };
 
   return { name, provider };
+}
+
+/* -------------------------------------------------------------------------- */
+/* The project's pin                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The profile one run carries, after the project it runs in has had its say: the
+ * name the session chose, the keys this run's environment will actually carry
+ * from clodeck, and the pin that kept the rest.
+ *
+ * It exists because a choice and its outcome stopped being the same thing the
+ * moment a project could pin a provider — and because the line that records
+ * "what did that turn run on" has to be able to say which of the two it is
+ * seeing.
+ */
+export interface RunProfile {
+  /** The profile the session chose, by the name it chose it by. */
+  name: string;
+  /**
+   * The keys clodeck puts on the run's environment. `null` when it puts none:
+   * a pinned project asking for a model the profile does not name leaves
+   * clodeck with nothing to send at all.
+   */
+  sent: ResolvedProvider | null;
+  /**
+   * The project's pin, when it kept the endpoint and the credential to itself;
+   * `null` when the run carries the profile's — which is also what a project
+   * that declares nothing gives.
+   */
+  pin: ProjectPin | null;
+}
+
+/**
+ * The send rule (`docs/adr/0002-…`, decision 8): what a run carries, given the
+ * profile a session chose and the pin the project declares.
+ *
+ * Two answers, and never a third. A project that declares **neither** the
+ * endpoint nor the credential gets the whole resolved trio. A project that
+ * declares **either** keeps both — they travel together — and the run carries
+ * the **model alone**, which is what leaves the cheap/strong choice alive inside
+ * a project whose billing is fixed.
+ *
+ * The pair is the point. The SDK's own precedence is per key, so supplying the
+ * profile's endpoint beside a credential the project file won would be a
+ * credential delivered to a host it was never issued for, with no warning at all
+ * — and supplying the profile's credential beside the project's endpoint is the
+ * same mistake facing the other way. So clodeck supplies both or neither.
+ */
+export function applyPin(profile: ResolvedProfile, pin: ProjectPin): RunProfile {
+  const { name, provider } = profile;
+
+  if (!isPinned(pin)) return { name, sent: provider, pin: null };
+
+  return {
+    name,
+    sent: provider.model === undefined ? null : { model: provider.model },
+    pin,
+  };
 }
 
 /**
@@ -209,16 +300,41 @@ export function createProviderProfiles(
 /* -------------------------------------------------------------------------- */
 
 /**
- * `GET /api/profiles`: the whole of what the picker is told.
+ * `GET /api/projects/:id/profiles`: the whole of what the picker is told.
  *
- * It sits beside the rules it serves because it *is* three lines — and because
- * the one thing a reader has to be able to check about it is that nothing but a
- * name and a model leaves the server, which is easier to check with the list's
- * own type in the same file. Registered into the app's gated `/api` scope, so it
- * is authenticated by where it sits rather than by a rule of its own.
+ * The list is the server's, not the project's — an operator's profiles are the
+ * deployment's — but the *pin* is the project's, which is why this route hangs
+ * off one project rather than standing beside them: what a session in this
+ * project may choose is not the same answer as what a session elsewhere may.
+ *
+ * It sits beside the rules it serves because the one thing a reader has to be
+ * able to check about it is what leaves the server, which is easier to check with
+ * the list's own type in the same file: a name, a model and a shape per profile,
+ * and of the pin only the endpoint — the half a browser may be shown, because the
+ * user can read the same file in the drawer (decision 14). The credential is not
+ * in the file's declaration this route hands on, and a test asserts the bytes.
+ *
+ * Registered into the app's gated `/api` scope, so it is authenticated by where
+ * it sits rather than by a rule of its own; `:id` re-enters `resolveProject`, the
+ * only place an id becomes a directory.
  */
-export function registerProfileRoutes(api: FastifyInstance, options: { profiles: ProviderProfiles }): void {
-  api.get('/profiles', async () => ({ profiles: options.profiles.list() }));
+export function registerProfileRoutes(
+  api: FastifyInstance,
+  options: { projects: ProjectDiscovery; profiles: ProviderProfiles },
+): void {
+  api.get<{ Params: { id: string } }>('/projects/:id/profiles', async (request, reply) => {
+    const project = await options.projects.resolveProject(request.params.id);
+    if (project === null) {
+      return reply.code(404).send({ error: 'no allowlisted project matches this id' });
+    }
+
+    const pin = await readProjectPin(createScopedFs(project.path));
+    return {
+      pinned: isPinned(pin),
+      ...(pin.baseUrl === undefined ? {} : { endpoint: pin.baseUrl }),
+      profiles: options.profiles.list(),
+    };
+  });
 }
 
 /* -------------------------------------------------------------------------- */
