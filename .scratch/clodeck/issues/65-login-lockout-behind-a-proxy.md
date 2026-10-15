@@ -17,19 +17,19 @@ decision 16). It is not part of that slice and blocks nothing in it.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The chosen address source is written down with the failure mode it accepts: what happens when the
+- [x] The chosen address source is written down with the failure mode it accepts: what happens when the
       header is absent, when it lies, and when the app is reached directly with no proxy in front.
-- [ ] Behind a proxy, a run of failures from one client address locks **that** address, and a different
+- [x] Behind a proxy, a run of failures from one client address locks **that** address, and a different
       address can still log in.
-- [ ] A forged forwarding header cannot lock out the legitimate user, or if it can, that is stated as the
+- [x] A forged forwarding header cannot lock out the legitimate user, or if it can, that is stated as the
       accepted cost rather than left implicit.
-- [ ] The lockout still holds with no proxy in front — the direct route and the tunnelled route keep the
+- [x] The lockout still holds with no proxy in front — the direct route and the tunnelled route keep the
       behaviour they have today.
-- [ ] Tests drive the limiter through the transport under both topologies: a forwarded request behind a
+- [x] Tests drive the limiter through the transport under both topologies: a forwarded request behind a
       proxy, and a direct one. The clock stays injectable, so no test waits out a lock.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 ## The decision (taken by the operator, 2026-10-15)
 

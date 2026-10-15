@@ -311,6 +311,51 @@ describe('the server API', () => {
     expect(config.publicOrigin).toBeNull();
   });
 
+  it('takes the trust list from CLODECK_TRUSTED_PROXIES, unset or blank trusting nothing', async () => {
+    const configPath = path.join(sandbox.dir, 'absent.config.json');
+    const warnings: string[] = [];
+    const warn = (message: string) => warnings.push(message);
+
+    const declared = loadConfig({
+      env: { CLODECK_TRUSTED_PROXIES: ' 172.16.0.0/12 , loopback ' },
+      configPath,
+      warn,
+    });
+    const unset = loadConfig({ env: {}, configPath });
+    const blank = loadConfig({ env: { CLODECK_TRUSTED_PROXIES: '   ' }, configPath });
+
+    // Normalized — a list with spaces around the commas is the same list — but
+    // not otherwise touched: this is what `Fastify({ trustProxy })` reads.
+    expect(declared.trustedProxies).toBe('172.16.0.0/12,loopback');
+    // Nothing declared is the behaviour every deployment had before the variable
+    // existed: the direct and tunnelled routes keep the bucket they have.
+    expect(unset.trustedProxies).toBeNull();
+    expect(blank.trustedProxies).toBeNull();
+    // A list it can read is not worth a line; the walk for a built client says
+    // its own piece, which is why this asks about the variable rather than the
+    // whole log.
+    expect(warnings.join('\n')).not.toContain('CLODECK_TRUSTED_PROXIES');
+  });
+
+  it('reports a trust list it cannot compile, rather than failing to boot on it', async () => {
+    const configPath = path.join(sandbox.dir, 'absent.config.json');
+    const warnings: string[] = [];
+
+    const config = loadConfig({
+      env: { CLODECK_TRUSTED_PROXIES: 'caddy' },
+      configPath,
+      warn: (message) => warnings.push(message),
+    });
+
+    // The fallback is the unset state exactly: Fastify would throw on this value
+    // where it is built, so the loader is where the typo costs a warning instead
+    // of a server (ticket 65).
+    expect(config.trustedProxies).toEqual(loadConfig({ env: {}, configPath }).trustedProxies);
+    expect(config.trustedProxies).toBeNull();
+    expect(warnings.join('\n')).toContain('CLODECK_TRUSTED_PROXIES');
+    expect(warnings.join('\n')).toContain('caddy');
+  });
+
   /**
    * The resolver on its own (spec-07 §"The web root"). It is a pure function of
    * the directory it is handed, so every tree it walks is built here, in the
@@ -428,6 +473,34 @@ describe('the server API', () => {
       expect(anonymous.statusCode).toBe(401);
       expect(me.statusCode).toBe(401);
       expect(login.statusCode).toBe(200);
+    });
+
+    it('counts a login behind a declared proxy against the client it reports', async () => {
+      // The wiring, end to end: a declared trust list reaches the server the
+      // loader built it for, so this app — not only the transport the auth suite
+      // assembles by hand — buckets a login by the browser behind the proxy
+      // (ticket 65). The limiter's own behaviour is `auth/transport.test.ts`'s.
+      const app = createTestApp({ trustedProxies: '172.16.0.0/12' });
+      apps.push(app);
+
+      const loginAs = (client: string, password = TEST_PASSWORD) =>
+        app.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          payload: { password },
+          remoteAddress: '172.17.0.1',
+          headers: { 'x-forwarded-for': client },
+        });
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect((await loginAs('198.51.100.9', 'wrong')).statusCode).toBe(401);
+      }
+
+      expect((await loginAs('198.51.100.9')).statusCode).toBe(429);
+      // A different client through the same proxy is a different bucket: one
+      // shared bucket is the bug this fixes, and it would look exactly like a
+      // 429 here.
+      expect((await loginAs('203.0.113.7')).statusCode).toBe(200);
     });
 
     it('serves the same route once the cookie from a real login rides the request', async () => {

@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { warnToConsole, type Warn } from './logging.js';
+import { trustedProxyList } from './trusted-proxies.js';
 
 export interface ServerConfig {
   /** The projects root, or null when nothing is configured (an empty list, never an error). */
@@ -27,6 +28,15 @@ export interface ServerConfig {
    * proxy terminating TLS makes the app's own origin and the browser's differ.
    */
   publicOrigin: string | null;
+  /**
+   * The proxies whose forwarded address the app believes —
+   * `CLODECK_TRUSTED_PROXIES`, already checked and normalized — or null when
+   * nothing is trusted (ticket 65). Unset is the behaviour every deployment had
+   * before this variable existed; declared, it is what lets the login limiter
+   * count failures against the browser's address rather than the proxy's, which
+   * is otherwise one bucket shared by everyone behind it.
+   */
+  trustedProxies: string | null;
 }
 
 export interface LoadConfigOptions {
@@ -67,6 +77,11 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
  * `CLODECK_PUBLIC_URL` — the origin a browser reaches the app at — is the third
  * of that kind (spec-07). It is a deployment fact rather than a preference, and
  * it is the one nothing else in the process can supply.
+ *
+ * `CLODECK_TRUSTED_PROXIES` — the proxies in front of this deployment — is the
+ * fourth (ticket 65), and it is environment-only for the same reason: whether a
+ * hop in front of the app is one the operator put there is known outside the
+ * process or nowhere.
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const env = options.env ?? process.env;
@@ -79,6 +94,11 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     uiPassword: uiPassword(env, warn),
     webRoot: webRoot(env, cwd, warn),
     publicOrigin: publicOrigin(env),
+    // The one value here that is checked on the way through, and for one reason:
+    // it is handed to Fastify, which throws on a list it cannot compile. A typo
+    // would cost the operator a boot rather than a warning, so it is caught at
+    // the door every config comes through (`trusted-proxies.ts`).
+    trustedProxies: trustedProxyList(envValue(env, 'CLODECK_TRUSTED_PROXIES'), warn),
   };
 }
 

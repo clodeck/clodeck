@@ -30,6 +30,12 @@ The origin a browser reaches the app at. Not necessarily the origin the app proc
 proxy terminating TLS makes the two differ, which is why the app cannot infer it.
 _Avoid_: base URL, public URL, domain, external URL
 
+**Declared trust list**:
+The addresses of the proxies in front of a deployment, stated as `CLODECK_TRUSTED_PROXIES`, whose
+`X-Forwarded-For` the app therefore believes. Unset means nothing is trusted, and the app keys address
+decisions — today, the login lockout — on the connecting peer instead.
+_Avoid_: trusted proxy, proxy allowlist, forwarded header
+
 **Provider**:
 An API endpoint a session can be run against, together with the credential and the model that go to it.
 clodeck speaks exactly one API shape — the Anthropic Messages API — so any other vendor arrives through

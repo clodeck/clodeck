@@ -117,6 +117,7 @@ export interface SessionStore {
 - An in-memory per-IP counter lives in the auth transport (not a separate service). Defaults `maxAttempts: 5`, `windowMs: 15 min`, `lockMs: 15 min`, `now: Date.now`.
 - Five failures within the window → locked for `lockMs`; during lockout even a *correct* password gets `429`. Every failed login is logged (reuse `logging.ts`'s `Warn`).
 - The `loginLimit` field on `AuthOptions` lets tests shrink the window and drive a fake `now`; prod uses the defaults.
+  - **Amended 2026-10-15:** the address is whatever `request.ip` reports, which follows the **declared trust list** `CLODECK_TRUSTED_PROXIES` (`trusted-proxies.ts`, ticket 65): the connecting peer's own address unless the operator declares the proxies in front of the deployment, in which case it is the address those proxies report for the client.
 
 ### Config + main wiring
 

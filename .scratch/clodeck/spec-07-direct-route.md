@@ -42,6 +42,11 @@ browser **https** dārad — pas hich chiz dar un darkhāst goyā-ye haqiqat nis
 javāb nist، chon `trustProxy` rā lāzem dārad va rate-limit-e login rooye `request.ip` key mishavad،
 yani header-e jā'li ham ghofl rā dor mizane ham āدرس jā'li misāze.
 
+**Amended 2026-10-15:** the last sentence holds for the header *alone*. `trustProxy` is now installed
+from a declared list (`CLODECK_TRUSTED_PROXIES`, ticket 65), so a header from outside it is ignored and
+the lockout follows the browser — but the cookie still follows `CLODECK_PUBLIC_URL`, because the direct
+route has no proxy header to read at all.
+
 **Bedune in vāzhe، do divār-e dige ham baste mishan:** `WEB_ROOT` be client-e build-shode resolve
 mishe، va ye `npm run serve` build+start+preflight rā yek command mikone.
 
@@ -214,6 +219,11 @@ mikone va safhe-ye login ham miguyd — na ye chizi ke sar-pushide shode.
   every login shares one bucket and five failures lock out the legitimate user too. It is a real bug in
   today's compose deployment and it is **its own ticket**: the fix is a security decision, because
   trusting `X-Forwarded-For` makes the lockout defeatable by a header.
+  - **Resolved 2026-10-15 (ticket 65):** that decision was taken — a declared trust list,
+    `CLODECK_TRUSTED_PROXIES`, which the compose deployment sets to Docker's own pool and the direct
+    and tunnelled routes leave unset. Each client behind the proxy gets its own bucket, and a header
+    from a peer outside the list is ignored. The choice and the failure modes it accepts are in
+    `.scratch/clodeck/issues/65-login-lockout-behind-a-proxy.md`.
 - **Verifying the Let's Encrypt path.** Ticket 30 recorded it as never verified for want of a public
   domain; it stays unverified, and the direct route is what makes it unnecessary for this operator.
 - **Direct TLS inside the app** (certificate paths wired into the server). Caddy terminates; the app

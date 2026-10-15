@@ -48,7 +48,9 @@ export function createTestAuth(overrides: Partial<AuthOptions> = {}): AuthOption
  * five lines in seven files.
  *
  * `webRoot: null` is the shared one: no suite but `static.test.ts` is about
- * serving the bundle (spec-06 §27).
+ * serving the bundle (spec-06 §27). `trustedProxies: null` is the same kind of
+ * default: the direct topology, which is what a suite gets unless it is about
+ * life behind a proxy (ticket 65).
  */
 export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInstance {
   return buildApp({
@@ -57,6 +59,7 @@ export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInsta
     spawner: createFakePtySpawner(),
     auth: createTestAuth(),
     webRoot: null,
+    trustedProxies: null,
     ...overrides,
   });
 }
