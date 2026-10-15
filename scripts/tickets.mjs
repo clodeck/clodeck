@@ -7,15 +7,17 @@
 // no index to fall out of sync and no service to call, which is why this file is
 // a parser rather than a schema.
 //
-// Three commands, matching what Sandcastle's custom-tracker scaffold expects:
+// Four commands, matching what Sandcastle's custom-tracker scaffold expects:
 //
 //   list [--brief]   every ticket ready to be worked on, as JSON
 //   view <ID>        one ticket, verbatim
+//   ready <ID>       one ticket's verdict: itself, or why it cannot start
 //   close <ID>       mark one ticket resolved
 //
 // "Ready" means the status is `ready-for-agent` *and* every ticket it is blocked
 // by is `resolved`. `list` prints what it skipped and why on stderr, so a ticket
-// that is missing from the queue says where it went.
+// that is missing from the queue says where it went; `ready` gives the one
+// ticket a pinned run asked for the same answer, in JSON.
 
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
@@ -55,32 +57,54 @@ export function readTickets() {
     .sort((a, b) => Number(a.id) - Number(b.id));
 }
 
+const statusById = (tickets) => new Map(tickets.map((ticket) => [ticket.id, ticket.status]));
+
+/**
+ * Why this ticket cannot start now, or undefined when it can.
+ *
+ * The one place the readiness rule lives: `list` reports the reasons it skipped,
+ * and a pinned run asks for one ticket's verdict from here, so the queue and the
+ * pin cannot disagree about what "ready" means.
+ */
+function whyNotReady(ticket, status) {
+  if (ticket.status !== READY) return `${ticket.id} is ${ticket.status}`;
+  // A blocker with no ticket file counts as unresolved: leaving a ticket in the
+  // queue is better than starting one whose dependency nobody can find.
+  const open = ticket.blockedBy.filter((id) => status.get(id) !== RESOLVED);
+  if (open.length > 0) return `${ticket.id} is blocked by ${open.join(", ")}`;
+  return undefined;
+}
+
 /** The tickets worth starting now, plus a reason for each one that is not. */
 export function readyTickets() {
   const all = readTickets();
-  const status = new Map(all.map((ticket) => [ticket.id, ticket.status]));
+  const status = statusById(all);
   const ready = [];
   const skipped = [];
 
   for (const ticket of all) {
+    const reason = whyNotReady(ticket, status);
+    if (reason === undefined) {
+      ready.push(ticket);
+      continue;
+    }
     // A resolved ticket is simply not up for work, and this effort has fifty of
     // them — reporting each one would drown the two lines that matter.
-    if (ticket.status === RESOLVED) continue;
-    if (ticket.status !== READY) {
-      skipped.push(`${ticket.id} is ${ticket.status}`);
-      continue;
-    }
-    // A blocker with no ticket file counts as unresolved: leaving a ticket in
-    // the queue is better than starting one whose dependency nobody can find.
-    const open = ticket.blockedBy.filter((id) => status.get(id) !== RESOLVED);
-    if (open.length > 0) {
-      skipped.push(`${ticket.id} is blocked by ${open.join(", ")}`);
-      continue;
-    }
-    ready.push(ticket);
+    if (ticket.status !== RESOLVED) skipped.push(reason);
   }
 
   return { ready, skipped };
+}
+
+/** One ticket's verdict: the ticket, or the reason it cannot start now. */
+export function readyTicket(id) {
+  const all = readTickets();
+  const ticket = all.find((candidate) => candidate.id === id);
+  if (!ticket) return { ready: false, reason: `no ticket ${id} under ${ISSUES_DIR}` };
+
+  const reason = whyNotReady(ticket, statusById(all));
+  if (reason === undefined) return { ready: true, ...ticket };
+  return { ready: false, reason };
 }
 
 /** Flip one ticket's status to `resolved`. */
@@ -118,10 +142,12 @@ try {
     const ticket = readTickets().find((t) => t.id === argument);
     if (!ticket) throw new Error(`no ticket ${argument} under ${ISSUES_DIR}`);
     console.log(ticket.body.trimEnd());
+  } else if (command === "ready") {
+    console.log(JSON.stringify(readyTicket(argument)));
   } else if (command === "close") {
     console.log(closeTicket(argument));
   } else {
-    console.error("usage: tickets.mjs <list [--brief] | view <ID> | close <ID>>");
+    console.error("usage: tickets.mjs <list [--brief] | view <ID> | ready <ID> | close <ID>>");
     process.exit(1);
   }
 } catch (error) {

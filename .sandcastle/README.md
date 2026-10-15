@@ -19,10 +19,11 @@ Which ticket is next is decided **on the host**, before any container exists: `s
 reads `**Status:**` and `**Blocked by:**` out of `.scratch/clodeck/issues/*.md` and prints the tickets
 that are `ready-for-agent` with every blocker `resolved`. A ticket whose branch already exists is
 skipped — a status only reaches the host when its branch is merged, so an unmerged branch is the one
-thing standing between the loop and redoing the same ticket.
+thing standing between the loop and redoing the same ticket. `--ticket` hands that choice to the
+operator instead: see [More than one lane at a time](#more-than-one-lane-at-a-time).
 
-`MAX_TICKETS` in `main.mts` caps a single run at six passes. Each pass is a container, an `npm ci` and
-two agents, so that constant is the dial that decides what a run costs.
+`MAX_TICKETS` in `main.mts` caps a single run at six passes, when nobody pinned one. Each pass is a
+container, an `npm ci` and two agents, so that constant is the dial that decides what a run costs.
 
 ## Setting the loop up on another machine
 
@@ -88,24 +89,46 @@ simply run at their own speed.
 
 ## More than one lane at a time
 
-**Not today**, and the infra is not the reason. Containers are named `sandcastle-<uuid>` and worktrees
-are per-branch (`.sandcastle/worktrees/clodeck-67-provider-seam-per-run`), so two passes cannot collide
-there. The ticket *choice* is the reason: `nextTicket()` scans the ready list and takes the first
-ticket whose branch does not exist, with nothing serialising it. Two runs started together both take
-that same ticket, and the second either dies on `Branch '…' is already checked out in worktree …` or —
-worse, because it is silent — finds that worktree clean, reuses it, and puts a second agent into the
-same files.
-
-What it would take is a way to name the ticket per process, so each lane claims a different one:
+Two lanes are two processes, each told which ticket it works on:
 
 ```sh
-npm run sandcastle -- --ticket 67      # not built yet: nextTicket() always searches
+npm run sandcastle -- --ticket 67      # one shell
 npm run sandcastle -- --ticket 65      # a second shell, a second lane
 ```
 
+`--ticket` may be repeated, and the tickets are worked in the order given. A pinned run starts only the
+tickets it was given, and `MAX_TICKETS` has nothing to say about it — the list is the cap, and the
+operator is the one who decided what the run costs.
+
+**Each lane needs a different ticket.** The branch check below is answered per process, against what
+exists at that moment, so two lanes aimed at the same ticket both pass it, and then share that
+branch's worktree and its log file. Nothing stops that but aiming the lanes apart.
+
+The ticket *choice* is where two lanes used to collide, so a pinned run answers it **on the host,
+before any container exists**, and refuses rather than improvising:
+
+- a ticket the queue holds back is refused with the tracker's own reason — `63 is blocked by 60, 61,
+  62` — and an id that names no ticket with `no ticket 999 under .scratch/clodeck/issues`;
+- a ticket pinned twice is refused: one ticket is one branch;
+- **a ticket whose branch already exists ends the run** instead of being skipped. The unpinned loop
+  skips it and takes the next ticket, but a pin has nowhere to go — and Sandcastle, finding that
+  branch's worktree clean, would reuse it and put this pass's agent into whatever is already there.
+
+Nothing else is shared. Containers are named `sandcastle-<uuid>`, worktrees are per-branch
+(`.sandcastle/worktrees/clodeck-67-provider-seam-per-run`) and the logs are named after the branch too
+(`.sandcastle/logs/clodeck-67-provider-seam-per-run-implement-67.log`). The one thing two lanes do
+share is the repository they branch from, and `git worktree add` racing itself there turns out to be
+safe: four concurrent claims of exactly that shape, three rounds, and every lane came back with its
+own worktree and its own branch — so there is no lock and no staggered start.
+
+**Two lanes have not been run end to end yet.** The flag is new, and the first pair belongs on the
+machine that will host the loop rather than on a laptop. The host-side half is checked — the refusals
+above were run, and the worktree race was probed on its own — and the container half is per-lane by
+construction.
+
 Budget for it as a resource decision rather than a correctness one: each lane is a container, an
-`npm ci` and two agents, and two or three at once is comfortable on a server. The merges stay yours,
-one branch at a time, `--no-ff`, which is the real cost — the more lanes, the longer the queue of
+`npm ci` and two agents, and two or three at once is comfortable on a server. **The merges stay yours,
+one branch at a time, `--no-ff`, and that is the real cost** — the more lanes, the longer the queue of
 branches waiting to be read and merged.
 
 **The tracker limits parallelism more than the infra does.** A `**Blocked by:**` chain is serial by
