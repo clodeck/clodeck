@@ -60,13 +60,13 @@ test('login, chat, shell and file drawer hold at this machine\'s LAN origin', as
   const origin = directOrigin();
   test.skip(origin === null, 'this machine has no non-loopback IPv4 address to drive the direct route from');
 
-  // The login is the assertion the bug breaks, and it is asserted here before
-  // anything else the app draws. With the cookie still `Secure`, a browser at a
-  // bare LAN origin discards what the login just handed it: the request below
-  // carries no session and answers 401, and the app bounces back to the sign-in
-  // screen — which is why the workspace wait under it would never return. The
-  // poll is for the login's own round trip, not for the assertion's sake: until
-  // it lands there is no cookie to present.
+  // The login is the assertion the bug breaks, and it is asserted here — before
+  // anything the app draws, and not through `login`. That helper waits for the
+  // workspace behind the gate, which under the bug never arrives, so a red run
+  // would stall there and read as a button that never came instead of as the
+  // 401 it is; the split is what keeps the failure legible. The poll, rather
+  // than a single request, waits out the login's own round trip: until it lands
+  // there is no cookie to present.
   await signIn(page);
   await expect.poll(async () => (await page.request.get('/api/auth/me')).status()).toBe(200);
   await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeVisible();

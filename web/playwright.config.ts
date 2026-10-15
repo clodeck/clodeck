@@ -10,11 +10,12 @@ import { directOrigin } from './e2e/direct-origin';
  * which the Vitest suite has. Run it with `npm run e2e` from the repo root.
  *
  * **Two projects, because there are two ways to reach the app.** `dev-pair` is
- * the five specs that drive the Vite dev server, exactly as before. `direct-route`
- * is the acceptance spec for the deployment with no domain, and it runs against
- * the *built client served by the server* at this machine's own LAN address —
- * the two are different origins with different prerequisites, so they are two
- * configurations rather than one base URL that changes underneath the specs.
+ * the rest of the layer — every spec that drives the Vite dev server, exactly as
+ * before. `direct-route` is the acceptance spec for the deployment with no
+ * domain, and it runs against the *built client served by the server* at this
+ * machine's own LAN address — the two are different origins with different
+ * prerequisites, so they are two configurations rather than one base URL that
+ * changes underneath the specs.
  *
  * Either project on its own is `npm run e2e -- --project=dev-pair` (or
  * `--project=direct-route`), which is what a run that has only one of the two
