@@ -44,10 +44,12 @@ That is the one behaviour this ticket removes, and it is the point rather than a
 
 **Unchanged in that window:** `NothingSelected` still says `Select a project to begin.`; `ProjectSwitcher`
 still offers `New project` and its empty state; no drawer, shell or placeholder is mounted for a project
-that is not there. Because the state can only be reached *before* the first selection, a project that
-disappears under a refresh (`selected` derived, `state.projects` re-fetched) is not this window: nothing
-is reset, and the next selection behaves as it always did. A create still lands on its own project (47),
-so the rail is live by the time the new row is drawn — `App.projects.test.tsx` keeps pinning that.
+that is not there. "No project" means no **id** is chosen, not that the list has yet to resolve one: the
+list is in flight for the whole of every create and every refresh, and the rail is not shut for those
+(see the code review below). Once it lands with the id still naming nothing — a project deleted under a
+refresh — the rail shuts again, which is why the derivation asks the resolved list too. A create still
+lands on its own project (47), so the rail is live by the time the new row is drawn —
+`App.projects.test.tsx` keeps pinning that.
 
 **Tests:** `web/src/App.workspace.test.tsx` gains a `the rail with no project selected` block, driven
 through `Workspace` with the project list as a prop — the same seam the file already documents, so the
@@ -57,6 +59,37 @@ plain name; Chat still enabled and pressed, with no drawer invented in its place
 no tab recorded for the project that arrives next; and both buttons restored, and working, once
 `selectedId` becomes a real project. The browser suite needs no sixth spec: every e2e spec already
 selects its project before it reaches the rail.
+
+## Code review
+
+Two axes of review over the branch, and the three fixes they produced:
+
+1. **The rail was shut for the whole of every create and every refresh.** The first version derived it
+   from `selected`, which is null whenever `state.status !== 'ready'`, and `Shell.createProject` sets the
+   id and *then* reloads — so the one moment the rail was certainly wanted, a project being born, was the
+   moment it was dead, and a click there was refused where it used to be remembered. The rail now asks for
+   the **id** while the list is in flight and for the resolved project once it has landed, which keeps this
+   ticket's window — no id, nothing chosen — exactly as narrow as the ticket claims. Three cases in
+   `App.workspace.test.tsx` pin it: live on the strength of the id, refused once more when the id never
+   resolves, and still refused with no id at all.
+2. **The reason could not reach a mouse.** A disabled control takes no pointer events, so its own `title`
+   is not a tooltip in the browsers that matter: the reason sat on the attribute a screen reader reads and
+   nowhere a pointer could reach. `RailButton` carries it on a wrapper as well, and the test asserts both
+   readers rather than one.
+3. **A shut button lit up under the pointer.** `:hover` still matches a disabled element, so
+   `CHROME_TONE`'s resting step applied to a control that could not be clicked. It is `enabled:hover:` now,
+   which is a no-op for the drawer's tabs because they are never disabled.
+
+Declined on purpose:
+
+- **`aria-disabled` in place of the native `disabled`.** Raised on both axes: a natively disabled control
+  leaves the tab order, so a keyboard user cannot land on the rail to be told why. That is what disabled
+  means here, and the ticket chose it deliberately — the browser refuses the click, so there is no handler
+  left to guard and nothing to record in the gap this ticket exists to close. The reason is still in the
+  accessible description, and the stage's own `Select a project to begin.` says it on screen.
+- **Renaming `hasProject`.** It reads as "the root holds projects" while it holds "a project is chosen";
+  `projectChosen` is the honest name. Left alone because the id-versus-resolved split above would make the
+  new name misleading in the loading window without a second name for that half.
 
 ## Reference
 

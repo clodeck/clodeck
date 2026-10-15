@@ -112,13 +112,22 @@ export function Workspace({
   const selected =
     state.status === 'ready' ? (state.projects.find((project) => project.id === selectedId) ?? null) : null;
 
+  // The rail can draw a drawer as soon as a project is *chosen*, and an id on
+  // its own is chosen: a create sets the id and then reloads the list, so the
+  // resolved project lags its own selection by a round trip. Gating on
+  // `selected` alone shut the rail for the whole of every create and every
+  // refresh — a window the user did not choose to be in, and not the one ticket
+  // 57 is about. Once the list lands the id has to resolve, because an id that
+  // no longer names a project is not a project.
+  const railHasProject = selected !== null || (selectedId !== null && state.status === 'loading');
+
   return (
     <ToastProvider>
       <div className="flex h-screen bg-canvas text-ink">
         {/* The drawer lives *inside* the stage, so Terminal and Files have
             nothing to draw without a project; Chat is the stage's own shut
             state and needs none. */}
-        <Rail tab={drawerTab} onTab={setDrawerTab} hasProject={selected !== null} />
+        <Rail tab={drawerTab} onTab={setDrawerTab} hasProject={railHasProject} />
 
         <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
           <header className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -203,8 +212,16 @@ function ChatStage({
  * two steps up when it is the current one. The rail's buttons and the drawer's
  * tabs are that same control there, so they wear the same two levels here and
  * differ only in the text colour, which stays each caller's own.
+ *
+ * The hover step is `enabled:` because `:hover` still matches a *disabled*
+ * button, which left a shut rail button lighting up under the pointer exactly
+ * like a live one (ticket 57). The drawer's tabs are never disabled, so the
+ * qualifier changes nothing for them.
  */
-const CHROME_TONE = { current: 'bg-bg-4', resting: 'text-ink-dim hover:bg-bg-3 hover:text-ink' } as const;
+const CHROME_TONE = {
+  current: 'bg-bg-4',
+  resting: 'text-ink-dim enabled:hover:bg-bg-3 enabled:hover:text-ink',
+} as const;
 
 /** Why a rail button is shut, said in its `title` (ticket 57). */
 const NO_PROJECT_REASON = 'choose a project first';
@@ -213,12 +230,15 @@ const NO_PROJECT_REASON = 'choose a project first';
  * The far-left icon rail: the product's three surfaces, one at a time. Chat is
  * active while the drawer is shut, so exactly one button always reads as pressed.
  *
- * Terminal and Files are **disabled** until a project is selected, and that is
+ * Terminal and Files are **disabled** until a project is chosen, and that is
  * the deliberate half of ticket 57: the tab used to be recorded anyway, so a
  * click here did nothing visible and then opened a drawer later, once a project
  * was picked — a selection the user had long stopped thinking about. A control
  * that cannot do its job says so instead of quietly remembering. Chat is never
  * disabled: shutting the drawer is the stage's own state, and needs no project.
+ *
+ * "Chosen" is the id, not the resolved project: the list is in flight for the
+ * whole of every create and every refresh, and the rail is not shut for those.
  */
 function Rail({
   tab,
@@ -275,20 +295,29 @@ function RailButton({
   /** Shut for want of a project; the `title` carries the reason. */
   disabled?: boolean;
 }): ReactElement {
+  // A shut button hands the reason to two readers who arrive differently. The
+  // disabled control itself gets no pointer events, so its own `title` never
+  // becomes a tooltip — a mouse has to hover the wrapper, which is why the
+  // reason is on both. A screen reader takes the accessible description from
+  // that same attribute, and reaches the control whether or not it is focusable.
+  const reason = disabled ? `${label} — ${NO_PROJECT_REASON}` : null;
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      aria-pressed={active}
-      title={disabled ? `${label} — ${NO_PROJECT_REASON}` : label}
-      disabled={disabled}
-      className={`flex h-9 w-9 items-center justify-center rounded disabled:opacity-40 ${
-        active ? `${CHROME_TONE.current} text-accent` : CHROME_TONE.resting
-      }`}
-    >
-      <RailIcon name={icon} />
-    </button>
+    <span title={reason ?? undefined}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-pressed={active}
+        title={reason ?? label}
+        disabled={disabled}
+        className={`flex h-9 w-9 items-center justify-center rounded disabled:opacity-40 ${
+          active ? `${CHROME_TONE.current} text-accent` : CHROME_TONE.resting
+        }`}
+      >
+        <RailIcon name={icon} />
+      </button>
+    </span>
   );
 }
 

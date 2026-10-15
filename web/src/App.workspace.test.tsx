@@ -32,10 +32,19 @@ function noop(): void {
   // The layout's callbacks are not what this file is about.
 }
 
-function workspace(selectedId: string | null, projects: Project[] = [projectA, projectB]): ReactElement {
+/**
+ * The workspace at one project state. `loading` is the third one because a
+ * create and a refresh both pass through it, and the rail has to survive that
+ * window (ticket 57) — a `loading` state carries no list to pass.
+ */
+function workspace(
+  selectedId: string | null,
+  projects: Project[] = [projectA, projectB],
+  status: 'ready' | 'loading' = 'ready',
+): ReactElement {
   return (
     <Workspace
-      state={{ status: 'ready', projects }}
+      state={status === 'loading' ? { status: 'loading' } : { status: 'ready', projects }}
       selectedId={selectedId}
       onSelect={noop}
       onRefresh={noop}
@@ -133,9 +142,12 @@ describe('the rail with no project selected', () => {
   it('says why on the control, rather than leaving a dead click to explain it', () => {
     render(workspace(null, []));
 
-    expect(screen.getByRole('button', { name: 'Files' }).getAttribute('title')).toContain(
-      'choose a project first',
-    );
+    const files = screen.getByRole('button', { name: 'Files' });
+    expect(files.getAttribute('title')).toContain('choose a project first');
+    // The control takes no pointer events while it is disabled, so its own title
+    // is never shown to a mouse: the wrapper is what the pointer actually
+    // reaches, and the reason has to be on both to reach both readers.
+    expect(files.parentElement?.getAttribute('title')).toContain('choose a project first');
     // Chat has nothing to explain, so its name is its whole title.
     expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('title')).toBe('Chat');
   });
@@ -176,5 +188,44 @@ describe('the rail with no project selected', () => {
     // Enabled means it works, not merely that it stopped looking shut.
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(screen.getByRole('tab', { name: 'Files' }).getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+/**
+ * The other window an id-less rail is *not*: the round trip a create and a
+ * refresh both make. The id is chosen and the list is in flight, so the project
+ * it names cannot be resolved yet. Deriving the rail from the resolved project
+ * alone shut it for that whole round trip — and a create goes straight into it,
+ * so the rail died at the exact moment a project was born.
+ */
+describe('the rail while the list is in flight', () => {
+  it('stays live on the strength of the id, so a create does not shut it', () => {
+    const { rerender } = render(workspace('AAA', [projectA, projectB], 'loading'));
+    expect(unavailable('Files')).toBe(false);
+
+    // The click is not dropped on the floor: the tab is recorded, and the drawer
+    // it chose is there the moment the list lands.
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    rerender(workspace('AAA'));
+
+    expect(screen.getByRole('tab', { name: 'Files' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('refuses again when the id never resolves into a project', () => {
+    const { rerender } = render(workspace('AAA', [projectA], 'loading'));
+    expect(unavailable('Files')).toBe(false);
+
+    // The project went away under the refresh. An id that names nothing is not a
+    // project, so the rail shuts rather than promising a drawer it cannot draw.
+    rerender(workspace('AAA', [projectB]));
+
+    expect(unavailable('Files')).toBe(true);
+  });
+
+  it('still refuses with no id at all, which is ticket 57’s window', () => {
+    render(workspace(null, [], 'loading'));
+
+    expect(unavailable('Terminal')).toBe(true);
+    expect(unavailable('Files')).toBe(true);
   });
 });
