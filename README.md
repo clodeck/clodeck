@@ -26,7 +26,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 - [Requirements](#requirements)
 - [Quickstart](#quickstart)
 - [Run it on a server](#run-it-on-a-server)
-  - [The one rule: HTTPS, or localhost](#the-one-rule-https-or-localhost)
+  - [The direct route](#the-direct-route)
   - [Linux server](#linux-server)
   - [Windows server](#windows-server)
   - [Docker](#docker)
@@ -34,7 +34,8 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
   - [Day-to-day with the containers](#day-to-day-with-the-containers)
 - [Reaching it from another machine](#reaching-it-from-another-machine)
   - [The SSH tunnel](#the-ssh-tunnel)
-  - [Why a plain-HTTP address cannot hold a login](#why-a-plain-http-address-cannot-hold-a-login)
+  - [The encrypted alternative: Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate)
+  - [When the origin is not declared](#when-the-origin-is-not-declared)
 - [Configuration](#configuration)
 - [Commands](#commands)
 - [Troubleshooting](#troubleshooting)
@@ -191,21 +192,21 @@ the API in this mode, not a page — the client at 5173 is the only thing to ope
 
 Stop everything with `Ctrl-C` in that shell; both processes go down together.
 
-### 5. Optional: run the built client instead of Vite
+### 5. Run the built app — this, not the dev loop, is what you deploy
 
-The same app, one process, no dev server. `WEB_ROOT` is what turns the server into a static host for
-the client it just built:
+The same app, one process, no dev server. `npm run serve` is the whole deployment path: it checks the
+configuration, builds all three packages, and starts the server against the client it has just built.
 
 ```sh
-npm run build
-UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects WEB_ROOT="$PWD/web/dist" \
-  npm start --workspace @clodeck/server
+UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm run serve
 ```
 
-Then <http://127.0.0.1:3001> *is* the app — login screen, shell, everything. `/healthz` and the whole
-`/api` and `/ws` surface behave exactly as they do under Vite; only the client's origin changed.
-`WEB_ROOT` resolves against the working directory, which is `server/` when a workspace script runs it,
-so pass an absolute path when in doubt. This, not the dev loop, is what you deploy.
+Then <http://127.0.0.1:3001> *is* the app — login screen, shell, everything — and there is no second
+process to remember. The preflight stops before the build, in plain language, when `UI_PASSWORD` or
+`PROJECTS_ROOT` is missing; the server logs which client directory it resolved; and the whole
+`/api` and `/ws` surface behaves exactly as it does under Vite. Only the client's origin changed.
+Reaching this app from another machine — or from a phone — is what `CLODECK_PUBLIC_URL` and
+[the direct route](#the-direct-route) are for.
 
 ### 6. Optional: run without an API key
 
@@ -221,36 +222,53 @@ work, and for a first look at the app before wiring a key.
 ## Run it on a server
 
 The point of Clodeck is that it runs *where the projects are*: a dedicated machine that holds the
-folders, reachable from whatever browser you happen to be at. Same app, same two environment
+folders, reachable from whatever browser you happen to be at. Same app, same handful of environment
 variables — the difference is only in how the browser gets to it.
 
 | Your situation | Do this |
 |---|---|
 | Trying it out, or developing | [Quickstart](#quickstart) on your own machine |
-| A server, no domain, just you | [Linux](#linux-server) / [Windows](#windows-server) / [Docker](#docker), bound to loopback, plus an [SSH tunnel](#the-ssh-tunnel) |
+| A server, no domain, just you | [The direct route](#the-direct-route) — a bare `http://<ip>:<port>` origin any browser can bookmark, with the password and every session byte **in cleartext** ([Linux](#linux-server) / [Windows](#windows-server) / [Docker](#docker) show the install) |
+| A server, no domain, and you want encryption | [The SSH tunnel](#the-ssh-tunnel) — nothing to install, but no phone and no bookmark — or [Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate) — a real `https:` origin, at the price of installing a root CA on every device |
 | A server with a domain you own | [Docker Compose with a domain](#docker-compose-with-a-domain) — real HTTPS from any browser |
-| A server behind your own proxy | Bind the app to `127.0.0.1:3001` and terminate TLS in that proxy |
+| A server behind your own proxy | Bind the app to `127.0.0.1:3001`, terminate TLS in that proxy, and set `CLODECK_PUBLIC_URL` to the origin the browser uses |
 
-### The one rule: HTTPS, or localhost
+### The direct route
 
-**The session cookie is `Secure`, and browsers only keep a `Secure` cookie on an HTTPS origin or on
-`localhost`.** That is deliberate (see [Security](#security)) and it has one consequence worth
-internalising before you pick a way in:
+A server, a public IP and no domain is the most ordinary deployment there is, and it works. Bind the
+app to the network, declare the origin a browser will type, and the session sticks — so any browser on
+any device can bookmark it, with nothing installed on the client and no tunnel to hold open.
 
-> Reaching the app at `http://<server-ip>:5173` or `http://<server-ip>:3001` gets you a login screen
-> that **accepts the password and bounces straight back to itself.** The server logs a successful
-> login; the browser silently discarded the cookie.
+```sh
+# Linux / macOS. `npm run serve` checks the config, builds, and starts (see step 5 of Quickstart).
+HOST=0.0.0.0 \
+CLODECK_PUBLIC_URL=http://203.0.113.10:3001 \
+UI_PASSWORD='a-long-password' \
+PROJECTS_ROOT=/srv/clodeck-projects \
+  npm run serve
+```
 
-So there are exactly two ways in, and both work:
+**`CLODECK_PUBLIC_URL` is the whole trick, and its cost belongs in the same breath: there is no TLS,
+so the password, every chat message and every byte of terminal output cross the network in cleartext.**
+Anyone on the path can read them. That is the trade for reaching the app from a phone with no domain,
+and it is deliberately said twice — the server warns at startup, and the login screen says it where you
+type the password. Declare the same origin with `https:` and the session cookie is `Secure` again,
+which is what the encrypted routes are for.
 
-1. **An SSH tunnel**, which puts the app on `http://localhost:…` of your own machine — the one
-   plain-HTTP address a browser treats as trustworthy. Nothing to configure on the server, nothing
-   exposed to the network. See [The SSH tunnel](#the-ssh-tunnel).
-2. **A real HTTPS origin** — a domain and a certificate, which is what Caddy does for you in
-   [Docker Compose with a domain](#docker-compose-with-a-domain).
+**Undeclared, nothing changes.** With no `CLODECK_PUBLIC_URL` the cookie stays `Secure`, exactly as it
+always was — and a bare `http://` origin then gets the bounce described in
+[When the origin is not declared](#when-the-origin-is-not-declared).
 
-The full explanation, with the DevTools and `curl` evidence, is in
-[Why a plain-HTTP address cannot hold a login](#why-a-plain-http-address-cannot-hold-a-login).
+If you would rather encrypt it, three routes do that:
+
+1. **An SSH tunnel** — the app appears on `http://localhost:…` of your own machine, nothing exposed
+   and nothing to configure on the server, but it takes a tunnel: no phone, no bookmark. See
+   [The SSH tunnel](#the-ssh-tunnel).
+2. **Caddy's internal certificate** — a real `https:` origin with no domain, at the price of
+   installing Caddy's root CA on every device. See
+   [the encrypted alternative](#the-encrypted-alternative-caddys-internal-certificate).
+3. **A domain and Let's Encrypt** — nothing to install on any client, which is why it is the one to
+   pick once you have a domain. See [Docker Compose with a domain](#docker-compose-with-a-domain).
 
 ### Linux server
 
@@ -281,23 +299,30 @@ sudo mkdir -p /srv/clodeck-projects && sudo chown clodeck:clodeck /srv/clodeck-p
 sudo -u clodeck -i
 git clone <this repo> /home/clodeck/clodeck && cd /home/clodeck/clodeck
 npm ci                 # ci, not install: this is a deployment, and the lock file is the contract
-npm run build
 
 # the password in a file rather than an environment variable
 mkdir -p ~/.config/clodeck && (umask 077; printf 'a-long-password' > ~/.config/clodeck/password)
 
 PROJECTS_ROOT=/srv/clodeck-projects \
-WEB_ROOT=/home/clodeck/clodeck/web/dist \
 UI_PASSWORD_FILE=/home/clodeck/.config/clodeck/password \
 ANTHROPIC_API_KEY=sk-ant-... \
-  npm start --workspace @clodeck/server
+  npm run serve
 ```
+
+`npm run serve` is the deployment path: the preflight refuses to build anything until it can see a
+password and a projects root, then it builds and starts the server against the client it has just
+built. `WEB_ROOT` needs no value here — unset, the build that command made is found and logged.
 
 (The key is inline here for brevity; the systemd unit below keeps it in a root-owned file instead.)
 
 `clodeck server listening on http://127.0.0.1:3001` and `curl http://127.0.0.1:3001/healthz` →
 `{"status":"ok"}` mean it is up. The bind address stays loopback: the tunnel reaches it, the network
 does not. Then open [The SSH tunnel](#the-ssh-tunnel) and point it at **3001**.
+
+To reach it from other machines directly instead — from a phone, with no tunnel to hold open — add
+`HOST=0.0.0.0` and `CLODECK_PUBLIC_URL=http://<the address a browser types>:3001` to the same
+environment. That is [the direct route](#the-direct-route), and it puts the password and every byte
+of the session on the wire in cleartext.
 
 **Keep it running — a systemd unit**
 
@@ -362,23 +387,21 @@ Set-Service -Name sshd -StartupType Automatic
 git clone <this repo> $HOME\clodeck
 cd $HOME\clodeck
 npm ci
-npm run build
 
 $env:PROJECTS_ROOT = "D:\projects"
-$env:WEB_ROOT = "$HOME\clodeck\web\dist"
 $env:UI_PASSWORD = "a-long-password"
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
-npm start --workspace @clodeck/server
+npm run serve
 ```
 
 Open [The SSH tunnel](#the-ssh-tunnel) and point it at **3001**.
 
 Two Windows notes:
 
-- **Do not open a firewall rule for this.** Binding `HOST=0.0.0.0` to serve other machines directly
-  would not work anyway — that is the plain-HTTP case in
-  [The one rule](#the-one-rule-https-or-localhost), which cannot hold a login. The tunnel is the way
-  in, and it needs no inbound port.
+- **Do not open a firewall rule for this.** The tunnel is the way in, and it needs no inbound port.
+  Serving other machines directly is [the direct route](#the-direct-route): it works once the origin
+  is declared, and it puts the password and every byte of the session on the wire in cleartext — so
+  open the port when you mean it, not by accident.
 - **The command above is a foreground process.** For a service, run it under
   [NSSM](https://nssm.cc) or a Scheduled Task at startup, or take the
   [Docker](#docker) route on a Linux host and keep the Windows box as the client.
@@ -393,7 +416,8 @@ second process.
 docker build -t clodeck .
 ```
 
-**No domain? Run it on loopback and tunnel to it.** This is the shortest path to a working server:
+**No domain? Run it on loopback and tunnel to it.** This is the shortest path to a working server, and
+the encrypted one:
 
 ```sh
 # /etc/clodeck/clodeck.env — chmod 600
@@ -410,8 +434,9 @@ docker run -d --name clodeck --restart unless-stopped \
 ```
 
 - **`-p 127.0.0.1:3001:3001`** publishes to the host's loopback only. The tunnel reaches it; the
-  internet does not. Drop the `127.0.0.1:` and you have exposed the app to the network — where the
-  `Secure` cookie will then stop you signing in anyway.
+  internet does not. Dropping the `127.0.0.1:` is how you reach it from other machines instead — that
+  is [the direct route](#the-direct-route), and it needs `CLODECK_PUBLIC_URL` in the env file, set to
+  the origin the browser types, or the login will bounce ([why](#when-the-origin-is-not-declared)).
 - **`-v /srv/clodeck-projects:/projects`** is where the projects *are*. The container runs as uid
   1000, so that directory has to be writable by it: `sudo chown -R 1000:1000 /srv/clodeck-projects`.
   Read-only is enough for browsing, and not enough for creating a project, uploading a file or letting
@@ -468,7 +493,9 @@ Everything is Debian (glibc) because the SDK ships a native `claude` binary; the
 `init: true` so `docker compose stop` delivers a real `SIGTERM`.
 
 **If you already run a reverse proxy**, skip this compose file: publish the app on the proxy's network
-(`127.0.0.1:3001:3001`) and terminate TLS in front of it. Nothing in the app requires Caddy.
+(`127.0.0.1:3001:3001`), terminate TLS in front of it, and set `CLODECK_PUBLIC_URL` to the `https:`
+origin the browser uses — the one fact the app cannot see from behind a proxy. Nothing in the app
+requires Caddy.
 
 ### Day-to-day with the containers
 
@@ -485,14 +512,15 @@ Everything is Debian (glibc) because the SDK ships a native `claude` binary; the
 
 ### The SSH tunnel
 
-A tunnel makes the app appear on your own `localhost`, which is the one plain-HTTP origin browsers
-treat as trustworthy — so this is the simplest way in, and the only one that needs nothing on the
-server side.
+A tunnel makes the app appear on your own `localhost`, which browsers treat as a trustworthy origin
+whatever the scheme — so the session cookie stays `Secure` and SSH encrypts every byte end to end.
+Nothing is exposed, and nothing on the server side needs configuring. The price is the tunnel itself:
+no phone, no bookmark.
 
 | What you are running on the server | Tunnel | Open |
 |---|---|---|
 | `npm run dev` (the dev loop) | `5173` | <http://localhost:5173> |
-| `npm start` with `WEB_ROOT`, or Docker | `3001` | <http://localhost:3001> |
+| `npm run serve`, or Docker | `3001` | <http://localhost:3001> |
 
 ```sh
 # macOS / Linux, and Windows PowerShell or Windows Terminal — OpenSSH is built in
@@ -512,8 +540,9 @@ and `Ctrl-C` closes it. Then open the URL in the table above. Notes:
   `-p 2222`, and a key is `-i $HOME\.ssh\id_ed25519`. In CMD, use the same command; only the env-var
   syntax elsewhere in this README differs between shells.
 - **No `--host 0.0.0.0` anywhere.** Vite binds `localhost` by default, which is exactly what the tunnel
-  reaches. Opening the dev server to the network buys nothing — the `Secure` cookie blocks the login
-  anyway (see below) — and puts a dev server with no auth of its own on a public port.
+  reaches, and opening it to the network would put a dev server with no auth of its own on a public
+  port. Reaching the app from other machines is [the direct route](#the-direct-route), where the
+  server serves the built client — not Vite.
 - **`clodeck@` is whichever account owns the install** — `clodeck` for the systemd setup above,
   `root@` if you installed under root. The user matters only for reaching the files.
 - **The tunnel survives a laptop sleep only if you tell it to**: add `-o ServerAliveInterval=30
@@ -521,19 +550,47 @@ and `Ctrl-C` closes it. Then open the URL in the table above. Notes:
 - **Leaving it open is fine.** A tunnel binds your own loopback; it is not an open port, and it stops
   the moment you close it.
 
-### Why a plain-HTTP address cannot hold a login
+### The encrypted alternative: Caddy's internal certificate
 
-If you point a browser at the server by IP over HTTP — `http://203.0.113.10:5173`, with Vite started
-`--host 0.0.0.0` — you get a specific, confusing failure. Type the password and the screen flickers
-and stays on the sign-in form. No error message, no failed login in the server's log. Quite the
-opposite: the server logs a *successful* login. DevTools shows it plainly:
+If you want the direct route's reachability without the cleartext, and you have no domain, Caddy can
+issue the certificate from its **own local authority** instead of Let's Encrypt — the
+[`tls internal`](https://caddyserver.com/docs/caddyfile/directives/tls#tls) directive, on the same
+compose stack. The caveat is the whole story: no browser trusts that authority, so every device needs
+its root CA **installed** before the warning goes away — Caddy's root CA lands in the `caddy-data`
+volume and has to be copied onto each client. On iOS, installing the profile is only half of it: the
+certificate then has to be trusted under **Settings → General → About → Certificate Trust Settings**,
+and a warning clicked through is not enough. A laptop tolerates a warning; the phone bookmark this
+route exists for does not.
+[Docker Compose with a domain](#docker-compose-with-a-domain) stays the route with nothing to install
+anywhere.
 
-```http
-POST http://203.0.113.10:5173/api/auth/login   →  200
-GET  http://203.0.113.10:5173/api/auth/me      →  401
+```caddyfile
+# Caddyfile — the site address needs no public domain: any name that resolves to this
+# machine works, so a LAN name in each device's hosts file is enough. The certificate
+# comes from Caddy's own CA, so nothing is requested from Let's Encrypt.
+https://clodeck.lan {
+	tls internal
+	reverse_proxy app:3001 {
+		health_uri /healthz
+		health_interval 30s
+	}
+}
 ```
 
-The cause is one line of the login response. Every session cookie is set with `Secure`
+### When the origin is not declared
+
+Point a browser at the app by IP over HTTP — `http://203.0.113.10:3001`, or the dev server started
+`--host 0.0.0.0` at `http://203.0.113.10:5173` — **without declaring that origin**, and you get a
+specific, confusing failure. Type the password and the screen flickers and stays on the sign-in form.
+No error message, no failed login in the server's log. Quite the opposite: the server logs a
+*successful* login. DevTools shows it plainly:
+
+```http
+POST http://203.0.113.10:3001/api/auth/login   →  200
+GET  http://203.0.113.10:3001/api/auth/me      →  401
+```
+
+The cause is one flag. With no `CLODECK_PUBLIC_URL`, the session cookie is set `Secure`
 (`server/src/auth/transport.ts`):
 
 ```http
@@ -541,7 +598,7 @@ Set-Cookie: clodeck_session=…; HttpOnly; Secure; SameSite=Strict; Max-Age=…
 ```
 
 A browser accepts a `Secure` cookie **only** from an HTTPS origin, or from `localhost` / `127.0.0.1`
-/ `[::1]` — which are special-cased as trustworthy. `http://203.0.113.10:5173` is neither, so the
+/ `[::1]` — which are special-cased as trustworthy. `http://203.0.113.10:3001` is neither, so the
 browser throws the `Set-Cookie` away. The next request carries no cookie, the auth gate answers 401,
 and the client — which reads the principal from `/api/auth/me` rather than assuming one — returns you
 to the sign-in screen. Chrome says it out loud in the Console:
@@ -553,18 +610,20 @@ This Set-Cookie was blocked because it had the "Secure" attribute but was not re
 You can watch the server do everything right, cookie and all, from a shell that has no such rule:
 
 ```sh
-curl -i -X POST http://203.0.113.10:5173/api/auth/login \
+curl -i -X POST http://203.0.113.10:3001/api/auth/login \
   -H 'content-type: application/json' -d '{"password":"a-long-password"}'
 # 200, and a Set-Cookie line with Secure on it
 ```
 
-**The fix is not to weaken the cookie.** Use the [SSH tunnel](#the-ssh-tunnel) and open
-`http://localhost:3001`, or put the app behind HTTPS with
-[Docker Compose with a domain](#docker-compose-with-a-domain). Two workarounds exist and are worth
-knowing only so you can recognise them as workarounds: a browser flag
-(`chrome --unsafely-treat-insecure-origin-as-secure=http://203.0.113.10:5173 --user-data-dir=/tmp/clodeck`,
-temporary and per-machine), and `tls internal` in Caddy, which issues a certificate no browser trusts
-until you install its root CA. Neither is worth it when the tunnel is one command.
+**The fix is to declare the origin, not to weaken the cookie.** In this exact case
+`CLODECK_PUBLIC_URL=http://203.0.113.10:3001` is what makes the cookie non-`Secure` and the login
+hold — that is [the direct route](#the-direct-route), cost included. Reaching the app over HTTPS
+instead keeps the cookie `Secure` and drops the cost: use
+[Docker Compose with a domain](#docker-compose-with-a-domain), an [SSH tunnel](#the-ssh-tunnel), or
+[Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate). What is
+*not* a fix is a browser flag that calls the origin secure
+(`chrome --unsafely-treat-insecure-origin-as-secure=…`): it is per-machine, temporary, and leaves
+the traffic readable to everyone else on the path.
 
 ## Configuration
 
@@ -576,8 +635,9 @@ Read by the **server** in every case; the client bakes in nothing but relative U
 | `UI_PASSWORD` | — | The single account's password. Unset or empty → the server boots **fail-closed**: every route and socket answers 401 and no login can succeed. |
 | `UI_PASSWORD_FILE` | — | Read **only** when `UI_PASSWORD` is unset: a file whose trimmed contents are the password (the Docker-secret shape). |
 | `PORT` | `3001` | The server's port. The Vite dev proxy targets the same value, so `PORT=3300 npm run dev` moves both halves together. |
-| `HOST` | `127.0.0.1` | The server's bind address. Loopback by default as defense in depth — the auth gate, not the bind address, is what keeps the surface closed. A container sets `0.0.0.0` because its loopback reaches nobody. |
-| `WEB_ROOT` | — | The built client's directory. Unset → the server serves no client at all, which is what the Vite dev loop wants. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links, and `npm run build && npm start` is the whole app. |
+| `HOST` | `127.0.0.1` | The server's bind address. Loopback by default as defense in depth — the auth gate, not the bind address, is what keeps the surface closed. A container sets `0.0.0.0` because its loopback reaches nobody, and [the direct route](#the-direct-route) sets it because other machines are the point of that route. |
+| `CLODECK_PUBLIC_URL` | — | The origin a browser reaches the app at — scheme, host and port, e.g. `http://203.0.113.10:3001`. It is read for its **scheme**, and that decides the session cookie's `Secure` flag: `http:` → not `Secure`, which is what lets a bare origin hold a login ([the direct route](#the-direct-route)) at the cost of cleartext on the wire; `https:` → `Secure`. Unset or blank → `Secure`, exactly as before, and a bare `http://` origin then bounces ([why](#when-the-origin-is-not-declared)). Declaring the origin the browser types is also what a deployment behind a TLS-terminating proxy wants, even though the app itself sees plain HTTP. |
+| `WEB_ROOT` | — | The built client's directory. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links. Unset → the server walks up from its working directory to the repo root and serves `web/dist` if it has been built, logging the directory it picked or the reason it picked none. No build anywhere → no client is served, which is what the Vite dev loop wants. |
 | `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the Agent SDK keeps its transcripts — the thing session history and resume are read from. The Docker image sets `/home/node/.claude` and mounts a volume there. |
 
@@ -599,10 +659,11 @@ Every command runs from the repo root.
 | `npm run dev` | Builds `shared`, then runs the server (`tsx watch` — reloads on change) and the web client (Vite dev server) together. |
 | `npm run dev:fake` | The same, but the server runs the scripted fake Agent SDK provider instead of the real one — the whole chat surface with no API key and no network. It still needs `UI_PASSWORD`: the gate is installed the same way, so an unset password is fail-closed here too. |
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
-| `npm start --workspace @clodeck/server` | Runs the built server. With `WEB_ROOT` set, it serves the client too. |
+| `npm run serve` | **The deployment command:** a preflight that stops — plainly, before anything is built — when `UI_PASSWORD` or `PROJECTS_ROOT` is missing, then `npm run build`, then the server, serving the client it just built. |
+| `npm start --workspace @clodeck/server` | Runs the server from `dist/`, serving the client directory it resolves (or the `WEB_ROOT` you set). Reach for `serve` unless a service manager is starting it for you. |
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
-| `npm run e2e` | Runs the Playwright suite in `web/e2e/` against a dev loop that is already up (see [Development](#development)). |
+| `npm run e2e` | Runs the Playwright suite in `web/e2e/` against an app that is already up — a dev loop, plus a built one for its `direct-route` project (see [Development](#development)). |
 | `npm run sandcastle` | Drains the ticket queue under `.scratch/clodeck/issues/` — one pass per ticket, each on its own branch in its own container, implement then review. It never merges and never pushes, so the branches wait for you. See [`.sandcastle/README.md`](.sandcastle/README.md). |
 
 `dev`, `test`, `build` and `typecheck` all build `shared` first, because `server` and `web` resolve it
@@ -617,22 +678,25 @@ its warnings name their own fix.
 
 ### I sign in and land back on the sign-in screen
 
-**The signature of the `Secure` cookie over plain HTTP.** The browser reached the app at an
-`http://` address that is not `localhost`, accepted the login, discarded the session cookie, and was
-answered `401` by the next call. Nothing is wrong with the server, and no amount of reading its log
-will show it — it logs the login as a success.
+**The signature of an undeclared origin.** The browser reached the app at an `http://` address that is
+not `localhost`, the session cookie went out `Secure` — the default, because no `CLODECK_PUBLIC_URL`
+was declared — the browser discarded it, and the next call was answered `401`. Nothing is wrong with
+the server, and no amount of reading its log will show it: it logs the login as a success.
 
 Open DevTools → Network and look for `POST /api/auth/login → 200` followed by
 `GET /api/auth/me → 401` (the Console also reports the blocked cookie). Then:
 
-- **Reaching a server by IP?** Use an [SSH tunnel](#the-ssh-tunnel) and open
-  `http://localhost:3001`. This is the fix, not a workaround.
+- **Reaching a server by IP?** Declare it: put `CLODECK_PUBLIC_URL=http://<the address the browser
+  typed>:<port>` in the server's environment and restart. That is [the direct route](#the-direct-route)
+  — the cookie follows the declared scheme and the login holds — and it is cleartext on the wire.
+- **Prefer encryption?** An [SSH tunnel](#the-ssh-tunnel) needs no configuration and keeps the
+  `Secure` cookie; [Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate)
+  or [a domain](#docker-compose-with-a-domain) give a real `https:` origin.
 - **Just started it locally?** You are on `http://localhost:5173` — check that the host in the address
   bar really says `localhost` or `127.0.0.1`, not the machine's LAN IP from the `Network:` line Vite
-  prints next to `Local:`. That line is for other devices, and the cookie rule is exactly why it does
-  not work for them.
-- The full mechanism is in
-  [Why a plain-HTTP address cannot hold a login](#why-a-plain-http-address-cannot-hold-a-login).
+  prints next to `Local:`. That line is for other devices, and reaching it is
+  [the direct route](#the-direct-route) — same declaration, with `:5173` as the port.
+- The full mechanism is in [When the origin is not declared](#when-the-origin-is-not-declared).
 
 ### The client answers 502 for everything
 
@@ -726,16 +790,23 @@ One account, password only, meant to be reachable from the internet — so a cou
 deliberate rather than incidental.
 
 **The login.** `POST /api/auth/login` checks the password against a salted **scrypt** hash (built from
-`UI_PASSWORD` at boot; the plaintext is never kept), and sets an `HttpOnly; Secure; SameSite=Strict`
-session cookie. Every `/api/**` route plus both `/ws` and `/ws/terminal` require it — `/healthz` and
-the two auth routes are the only exemptions. Logins are rate-limited per address (five failures lock
-it out for fifteen minutes, and the lock is checked before the password so a locked address cannot burn
-scrypt cycles). Session ids live server-side, so a logout or a restart invalidates them. A WebSocket
-upgrade is refused when its `Origin` is not the host it was sent to.
+`UI_PASSWORD` at boot; the plaintext is never kept), and sets an `HttpOnly; SameSite=Strict` session
+cookie — `Secure` unless the deployment declares an `http:` public origin. Every `/api/**` route plus
+both `/ws` and `/ws/terminal` require it — `/healthz` and the two auth routes are the only exemptions.
+Logins are rate-limited per address (five failures lock it out for fifteen minutes, and the lock is
+checked before the password so a locked address cannot burn scrypt cycles). Session ids live
+server-side, so a logout or a restart invalidates them. A WebSocket upgrade is refused when its
+`Origin` is not the host it was sent to.
 
-`Secure` is always on, with no off-switch: browsers exempt `localhost`, so the dev loop is unaffected,
-and anything else has to be HTTPS. That is the rule in
-[The one rule](#the-one-rule-https-or-localhost), and it is why the tunnel is the recommended way in.
+**The cookie's `Secure` flag follows the declared public origin** — the one fact the app cannot work
+out for itself, because behind a TLS-terminating proxy it sees plain HTTP while the browser sees
+HTTPS. `CLODECK_PUBLIC_URL` states it once; undeclared, the cookie stays `Secure`, so an operator who
+sets nothing sees no change at all. An `http:` origin drops the flag, which is exactly what
+[the direct route](#the-direct-route) is and what it costs. The reasoning, and the alternatives that
+were rejected (a `COOKIE_SECURE` boolean, `X-Forwarded-Proto`), are in
+[`docs/adr/0001-session-cookie-follows-public-origin.md`](docs/adr/0001-session-cookie-follows-public-origin.md) —
+if you came here asking why this cookie is not always `Secure`, that file is the answer rather than an
+oversight in this one.
 
 **What the app can touch.** Everything below is enforced, not documented intent:
 
@@ -791,7 +862,10 @@ before a socket exists.
   ```
 
   The dev server must be on <http://localhost:5173>, and the server must be hashed against the same
-  `UI_PASSWORD` the suite sends, because it logs in like a person does.
+  `UI_PASSWORD` the suite sends, because it logs in like a person does. The suite's `direct-route`
+  project is the exception: it drives the **built client served by the server**, at this machine's own
+  non-loopback address — loopback is exempt from the browser's `Secure` rule, so a spec there would
+  assert nothing — and that spec's header names the command that puts the app up for it.
 
 - **One commit per coherent change, never on `main`** — this repo's conventions, including the branch
   naming and the local issue tracker, are in [`AGENTS.md`](AGENTS.md).
@@ -800,6 +874,8 @@ before a socket exists.
 
 - [`AGENTS.md`](AGENTS.md) — working conventions for this repo: language, git flow, and how the local
   issue tracker is laid out.
+- [`docs/adr/`](docs/adr) — the decisions that outlived the slice that made them. Start with
+  [0001 — the session cookie's `Secure` flag follows the declared public origin](docs/adr/0001-session-cookie-follows-public-origin.md).
 - [`.sandcastle/README.md`](.sandcastle/README.md) — the ticket loop: what one pass does, and the
   checklist for running it on another machine.
 - [`.scratch/clodeck/`](.scratch/clodeck) — the current build effort: spec, tickets, handoff.

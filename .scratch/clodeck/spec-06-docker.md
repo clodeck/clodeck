@@ -68,7 +68,7 @@ In slice hame-ye in ro mibande: server SPA ro serve mikone (artifact-e tak), Doc
 ### Ticket 29 — docker-compose + Caddy
 
 - **Two services:** `app` (build from the Dockerfile, `init: true`, unpublished) and `caddy` (`caddy:2`, the only published service).
-- **Caddyfile:** one site block; `{$CLODECK_DOMAIN}` resolves the host, automatic HTTPS via Let's Encrypt; `reverse_proxy app:3001`. Ports `80` → `443` redirect. The cookie is `Secure`, so HTTPS is the only supported prod path.
+- **Caddyfile:** one site block; `{$CLODECK_DOMAIN}` resolves the host, automatic HTTPS via Let's Encrypt; `reverse_proxy app:3001`. Ports `80` → `443` redirect. The cookie is `Secure`, so HTTPS is the only supported prod path. **Superseded in part, 2026-10-15:** HTTPS is the only path *this deployment* takes — undeclared, the cookie stays `Secure` and nothing here changes — but a bare `http://` origin is now a supported route too (`CLODECK_PUBLIC_URL`, `spec-07-direct-route.md`).
 - **`app` env:** `HOST=0.0.0.0`, `PORT=3001`, `WEB_ROOT=/app/web` (the copied `web/dist`), `PROJECTS_ROOT=/projects`, `CLAUDE_CONFIG_DIR=/home/node/.claude`, `ANTHROPIC_API_KEY`, and `UI_PASSWORD_FILE=/run/secrets/ui_password`.
 - **Volumes:** named `claude-data:/home/node/.claude`; `PROJECTS_ROOT` bind-mounted to `/projects` (the host's real projects dir).
 - **Secrets:** the password as a Docker secret (→ `UI_PASSWORD_FILE`), the API key as an env var (the SDK reads it from the server's environment; the server never reads it itself — README's existing contract).

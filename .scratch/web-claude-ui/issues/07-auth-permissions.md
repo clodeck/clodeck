@@ -4,6 +4,13 @@ Type: grilling
 Status: resolved
 Blocked by: 04, 05, 06
 
+**Superseded in part, 2026-10-15:** the cookie's `Secure` flag is no longer unconditional. It follows
+the scheme of the declared public origin (`CLODECK_PUBLIC_URL`), so a browser at a bare `http://`
+origin is a supported deployment route — the **direct route**, cleartext and warned about. Everything
+else here stands. Recorded as
+[`docs/adr/0001-session-cookie-follows-public-origin.md`](../../../docs/adr/0001-session-cookie-follows-public-origin.md);
+the effort that built it is `.scratch/clodeck/spec-07-direct-route.md`.
+
 ## Question
 
 How do we authenticate the single user to the web UI and protect every endpoint behind it? Specifically: (a) session mechanism — httpOnly cookie vs JWT/bearer token — given the chat and terminal WebSockets must also be authenticated; (b) HTTPS termination — reverse proxy vs the Node server itself; (c) credential form and storage — password-only vs username+password, and plaintext-env vs a bcrypt/argon2 hash; (d) the authorization boundary — what is protected, and does the middleware resolve a per-user principal now (the multi-user seam) or stay binary?
