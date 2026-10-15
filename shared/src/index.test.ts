@@ -9,6 +9,7 @@ import {
   type FileEntry,
   type Principal,
   type Project,
+  type ResolvedProvider,
   type SDKMessage,
   type ServerEvent,
   type SessionMessage,
@@ -141,6 +142,18 @@ describe('@clodeck/shared', () => {
 
     expect(Object.keys(summary).sort()).toEqual(['createdAt', 'id', 'lastModified', 'tag', 'title']);
     expect(message.content.map((block) => block.type)).toEqual(['text', 'tool_use']);
+  });
+
+  it('is the single source of the provider a run executes on', () => {
+    // A resolved trio, and nothing else: the server translates these three into
+    // the SDK's own variables, and the client is shown a name and a model.
+    const provider: ResolvedProvider = {
+      baseUrl: 'https://gateway.example',
+      authToken: 'a-token',
+      model: 'deepseek-flash',
+    };
+
+    expect(Object.keys(provider).sort()).toEqual(['authToken', 'baseUrl', 'model']);
   });
 
   it('is the single source of the principal shape', () => {

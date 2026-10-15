@@ -11,21 +11,21 @@ In ticket vojood dārad tā diff-e 68 dar morede **feature** bāshad, na dar mor
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `createAnthropicProvider()` mitavānad provider rā **per run** begirad; instance-e boot-time be
+- [x] `createAnthropicProvider()` mitavānad provider rā **per run** begirad; instance-e boot-time be
       **default profile** tabdil mishavad (environment-e khode-ye server), va yek operator ke hich chiz
       set nakarde hich taghiri nemibinad.
-- [ ] `SdkRunInput` provider rā dar **shared type-hā** haml mikone (trio) — hich type-e SDK be `shared`
+- [x] `SdkRunInput` provider rā dar **shared type-hā** haml mikone (trio) — hich type-e SDK be `shared`
       vāred nemishavad, va ghāede-ye mojood ("`shared` hich dependency-e `@anthropic-ai` nadārad") shekaste
       nemishavad.
-- [ ] Environment-i ke be SDK dāde mishavad az yek **function-e pāk-e export-shode** miyāyad: bā yek
+- [x] Environment-i ke be SDK dāde mishavad az yek **function-e pāk-e export-shode** miyāyad: bā yek
       provider-e resolve-shode `{ ...process.env, ...trio }` bar-migardānad, va bedoone provider **hich**
       `env`-i set nemikonad (raftār-e emrooz).
-- [ ] Spread-e `process.env` **dākhel-e** hamān function ast, chon `Options.env` environment-e subprocess
+- [x] Spread-e `process.env` **dākhel-e** hamān function ast, chon `Options.env` environment-e subprocess
       rā **replace** mikonad na merge. (In bayad dar comment-e function sabt shavad.)
-- [ ] Function mostaghim test mishavad: environment-e ambient bāghi mimānad, se key override mishavad, va
+- [x] Function mostaghim test mishavad: environment-e ambient bāghi mimānad, se key override mishavad, va
       hāl-e bedoone-provider hich `env`-i set nemikonad.
-- [ ] **Hich taghir-e raftāri:** kol-e suite sabz mimānad, taghirāt-e mojood faghat signature-e mekāniki
+- [x] **Hich taghir-e raftāri:** kol-e suite sabz mimānad, taghirāt-e mojood faghat signature-e mekāniki
       hastan, va hich test credential yā network nemikhāhad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
