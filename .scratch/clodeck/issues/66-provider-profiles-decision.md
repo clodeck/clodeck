@@ -7,7 +7,8 @@ pattern — decisions in one place, first, so the build argues with none of them
 
 **Blocked by:** none
 
-**Status:** ready-for-agent (decision taken by the user, 2026-10-15; tickets 67–71 are not yet files)
+**Status:** resolved (decision taken by the user, 2026-10-15; the docs moves below landed in this
+ticket's branch; 67–71 follow from `/to-tickets`)
 
 ## The decision
 
@@ -80,18 +81,38 @@ These are statements about what the product *is*, and the decision makes them fa
 provider block is deliberately **not** here: it describes behaviour, and a README describing an unbuilt
 flag is worse than a stale one (ticket 63's argument). It belongs to ticket 71.
 
-- [ ] `AGENTS.md` §"Standing decisions" — the MVP scope line names `model selection (UI model picker)`
+- [x] `AGENTS.md` §"Standing decisions" — the MVP scope line names `model selection (UI model picker)`
       as **out of MVP**. It is now in, named the way the D3-promoted items are named, with its
-      provenance (decision 2026-10-15, ticket 66; built by 67–70).
-- [ ] `.scratch/web-claude-ui/map.md:38` — "model selection (UI model picker) — beyond the MVP
+      provenance (decision 2026-10-15, ticket 66; built by 67–70). The section also gains a **provider
+      bullet**, so a session that reads nothing else still meets the credential rule.
+- [x] `.scratch/web-claude-ui/map.md:38` — "model selection (UI model picker) — beyond the MVP
       destination; a later effort": a **superseded** pointer to this ticket. The map is closed and is not
       rewritten; what must not survive is a reader taking its line for current.
-- [ ] `.scratch/clodeck/issues/07-sdk-provider-fake.md` and `.scratch/clodeck/spec-02-chat-transport.md`
+- [x] `.scratch/clodeck/issues/07-sdk-provider-fake.md` and `.scratch/clodeck/spec-02-chat-transport.md`
       (Further Notes, "hich key-handling dar server nist") — the claim that the server never handles the
       API key narrows to *never stores, never persists, never invents one*: a superseded pointer to ADR
       `docs/adr/0002-provider-credentials-travel-with-their-endpoint.md`.
-- [ ] No code and no test: nothing here is executable. The pre-commit hook stays green because no package
+- [x] No code and no test: nothing here is executable. The pre-commit hook stays green because no package
       changed.
+
+## What landed
+
+```
+docs/adr/0002-provider-credentials-travel-with-their-endpoint.md
+                                   the credential rule: both measurements, the consequences, and the
+                                   five rejected options (fill-the-gaps, refuse, write the project's
+                                   settings file, projectConfigRoot, settingSources: [])
+GLOSSARY.md                        provider, provider profile, tier, pinned project
+AGENTS.md                          a provider bullet in §"Standing decisions"; the MVP line names
+                                   per-session provider profiles with provenance and drops
+                                   `model selection (UI model picker)` from Out of MVP
+.scratch/web-claude-ui/map.md:38   the fifth post-MVP member becomes a superseded pointer
+.scratch/clodeck/issues/07-…:12    the "server never handles the API key" criterion carries the
+                                   superseded pointer
+.scratch/clodeck/spec-02-…:114     the same, in the Further Notes
+```
+
+Docs only — no code, no test, and the pre-commit hook stays green because no package changed.
 
 ## Ticket split (for `/to-tickets`)
 

@@ -35,5 +35,5 @@ _none — every open decision for this effort is resolved._
 
 ## Out of scope
 
-- Post-MVP features: git explorer, plugins, browser-use, live file editing, model selection (UI model picker) — beyond the MVP destination; a later effort.
+- Post-MVP features: git explorer, plugins, browser-use, live file editing — beyond the MVP destination; a later effort. **Superseded 2026-10-15:** `model selection (UI model picker)` was this list's fifth member and is now *in* scope — `.scratch/clodeck/issues/66-provider-profiles-decision.md`.
 - The production build itself (execution of the spec) — a later effort, not this map.
