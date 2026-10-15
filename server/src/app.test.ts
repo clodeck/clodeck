@@ -476,10 +476,12 @@ describe('the server API', () => {
     });
 
     it('counts a login behind a declared proxy against the client it reports', async () => {
-      // The wiring, end to end: a declared trust list reaches the server the
-      // loader built it for, so this app — not only the transport the auth suite
-      // assembles by hand — buckets a login by the browser behind the proxy
-      // (ticket 65). The limiter's own behaviour is `auth/transport.test.ts`'s.
+      // The seam the transport suite cannot see: `buildApp` hands the declared
+      // list to Fastify, so the app *it* assembles — the transport suite builds
+      // its own instance by hand — buckets a login by the browser behind the
+      // proxy rather than by the proxy (ticket 65). The limiter's own behaviour
+      // is `auth/transport.test.ts`'s, and the loader's is the two config tests
+      // above.
       const app = createTestApp({ trustedProxies: '172.16.0.0/12' });
       apps.push(app);
 

@@ -50,8 +50,13 @@ export interface AppOptions {
    * and normalized it (`CLODECK_TRUSTED_PROXIES`), or `null` for "trust nothing"
    * (ticket 65). Configuration, not a seam, and the same shape as `webRoot`: it
    * is a fact about this deployment that nothing behind it can supply. It
-   * reaches one thing — `request.ip`, which every address-keyed decision reads —
-   * and today that is the login limiter alone.
+   * reaches `request.ip` — the address every address-keyed decision reads, and
+   * today that is the login limiter alone. Fastify's `trustProxy` reaches two
+   * more: `request.host` and `request.protocol` follow a trusted peer's
+   * `X-Forwarded-Host` and `-Proto`. Both are inert here — the handshake guard
+   * compares the raw `Host` header, and the cookie's flag follows the declared
+   * public origin rather than the request — but a later decision that read
+   * either would be deciding on a header a declared peer can set.
    *
    * It arrives here already usable on purpose: Fastify compiles the value while
    * building the server and throws on one it cannot read, so a misdeclared list

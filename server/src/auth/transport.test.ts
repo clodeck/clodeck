@@ -321,18 +321,21 @@ describe('the auth transport', () => {
     }
 
     /**
-     * One login as the app sees it behind a proxy: the peer is the proxy, and
-     * the address it reports for the client arrives in `X-Forwarded-For`.
+     * One login as the app sees it behind a proxy: the peer is the declared
+     * proxy, and the address it reports for the client arrives in
+     * `X-Forwarded-For`. A test that needs a *sender* the list does not name —
+     * so that the header is a string and nothing more — passes it as `peer`.
      */
     async function failLoginThroughProxy(
       app: FastifyInstance,
       forwarded: string,
+      peer = PROXY_ADDRESS,
     ): Promise<number> {
       const response = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
         payload: { password: 'wrong' },
-        remoteAddress: PROXY_ADDRESS,
+        remoteAddress: peer,
         headers: { 'x-forwarded-for': forwarded },
       });
       return response.statusCode;
@@ -416,6 +419,25 @@ describe('the auth transport', () => {
       }
       expect(await failLoginThroughProxy(app, `${OTHER_CLIENT}, ${CLIENT}`)).toBe(429);
 
+      expect(await loginThroughProxy(app, OTHER_CLIENT)).toBe(200);
+    });
+
+    it('ignores a header sent by a peer the declared list does not name', async () => {
+      const app = makeApp({ loginLimit: lockedClock().limit }, TRUSTED_PROXIES);
+
+      // The third row of the decision's table: a header that lies, from outside
+      // the list. The list is what makes a header worth reading, so from a peer
+      // it does not name it stays a string the sender chose, and the bucket is
+      // the sender's own address — five failures naming five addresses all land
+      // on it. What this pins is the difference between a list and believing
+      // every sender (`trustProxy: true`), where the last two assertions are
+      // the other way round: the sender would be the one left unlocked.
+      for (const claimed of [OTHER_CLIENT, '192.0.2.4', '192.0.2.5', '192.0.2.6', '192.0.2.7']) {
+        expect(await failLoginThroughProxy(app, claimed, CLIENT), claimed).toBe(401);
+      }
+
+      expect(await failLoginThroughProxy(app, CLIENT, CLIENT)).toBe(429);
+      // And the address the sender kept naming is untouched.
       expect(await loginThroughProxy(app, OTHER_CLIENT)).toBe(200);
     });
 
