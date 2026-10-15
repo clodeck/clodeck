@@ -13,10 +13,15 @@
  */
 
 /**
- * The hosts a browser treats as loopback — the set spec-07 §"The warnings"
- * names, matched exactly: `localhost` and its IP spellings, not a name that
- * merely contains one. Nothing else is excused, because the notice is a claim
- * about an unencrypted network path, and only loopback is one that is not.
+ * The loopback hosts the notice excuses — exactly the set spec-07 §"The
+ * warnings" names: `localhost` and its two IP spellings, not a name that merely
+ * contains one. Nothing else is excused, because the notice is a claim about an
+ * unencrypted network path, and only loopback is one that is not.
+ *
+ * Deliberately narrower than the browser's own potentially-trustworthy set,
+ * which also covers `127.0.0.0/8` and `*.localhost`: the spec names these three,
+ * and erring the other way costs a notice on an exotic spelling of an address
+ * that is unencrypted all the same.
  */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 

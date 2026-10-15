@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LoginScreen, type LoginScreenProps } from './LoginScreen';
-import type { LoginResult } from './transport';
 
 /**
  * The notice on the one screen the password is typed on (ticket 62).
@@ -21,11 +20,14 @@ import type { LoginResult } from './transport';
 const NOTICE = /not encrypted/i;
 
 /** A login that is never refused; the shell's half is not what this file is about. */
-const accepts: LoginScreenProps['login'] = () => Promise.resolve({ ok: true });
+const accepts: LoginScreenProps['login'] = async () => ({ ok: true });
 
-async function refuses(): Promise<LoginResult> {
-  return { ok: false, reason: 'invalid', message: 'invalid password' };
-}
+/** A login the server refuses — the form's own path, with the notice sitting above it. */
+const refuses: LoginScreenProps['login'] = async () => ({
+  ok: false,
+  reason: 'invalid',
+  message: 'invalid password',
+});
 
 function renderLogin(origin: string, login: LoginScreenProps['login'] = accepts): void {
   render(<LoginScreen login={login} origin={origin} />);
