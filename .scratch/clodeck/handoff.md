@@ -7,8 +7,9 @@ under the typecheck and the suite*, and **the merge immediately after it is the 
 on `main`** — read `git log --oneline -3` rather than trusting a SHA written here, since the handoff
 cannot name its own merge commit. The 72 branch was cut from `docs/handoff-71`, so merging it brought
 that branch's commits with it and `docs/handoff-71` is gone too; `docs/handoff-72` and
-`docs/handoff-72-main-sha` went the same way. Nothing is pushed: `main` is **9 commits ahead of
-`origin/main`**.
+`docs/handoff-72-main-sha` went the same way. Nothing is pushed: `main` is ahead of `origin/main` and
+staying that way until someone says otherwise — `git rev-list --count origin/main..main` has the number,
+which a handoff cannot keep.
 
 ## What this phase is
 
