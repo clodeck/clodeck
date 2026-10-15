@@ -103,7 +103,8 @@ export function readyTicket(id) {
   if (!ticket) return { ready: false, reason: `no ticket ${id} under ${ISSUES_DIR}` };
 
   const reason = whyNotReady(ticket, statusById(all));
-  return reason === undefined ? { ready: true, ...ticket } : { ready: false, reason };
+  if (reason === undefined) return { ready: true, ...ticket };
+  return { ready: false, reason };
 }
 
 /** Flip one ticket's status to `resolved`. */

@@ -37,6 +37,12 @@ const MAX_TICKETS = 6;
 // one under `.scratch/`.
 const BRANCH_PREFIX = "clodeck";
 
+/**
+ * Why a run will not touch a branch that is already there. The unpinned loop
+ * reports it and takes the next ticket; a pinned run has nowhere to go and stops.
+ */
+const branchTaken = (branch: string): string => `${branch} already exists — merge or delete it first`;
+
 // ---------------------------------------------------------------------------
 // Git, inside the sandbox
 // ---------------------------------------------------------------------------
@@ -217,7 +223,7 @@ function nextTicket(): Ticket | undefined {
   for (const ticket of JSON.parse(tracker("list")) as Ticket[]) {
     const branch = branchOf(ticket);
     if (branchExists(branch)) {
-      console.log(`skipping ${ticket.id}: ${branch} already exists — merge or delete it first`);
+      console.log(`skipping ${ticket.id}: ${branchTaken(branch)}`);
       continue;
     }
     return ticket;
@@ -230,52 +236,34 @@ function nextTicket(): Ticket | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * The tickets the operator named on the command line, in the order given.
+ * The ticket ids the operator named on the command line, in the order given.
  *
  * `parseArgs` is strict — an argument it does not know stops the run — so a typo
  * cannot quietly turn a pinned run into one that drains the whole queue.
  */
-function pinnedTickets(argv: string[]): string[] {
-  const { values } = parseArgs({
-    args: argv,
-    options: { ticket: { type: "string", multiple: true } },
-  });
-  return values.ticket ?? [];
-}
-
-/**
- * One pinned ticket, checked against the tracker and the branch list — both read
- * here, on the host, before any container exists.
- *
- * "Ready" is the tracker's to answer, and it answers with the reason `list` would
- * have skipped the ticket for, so a pin cannot start what the queue holds back.
- */
-function pinnedTicket(id: string): { ticket: Ticket } | { refusal: string } {
-  const verdict = JSON.parse(tracker("ready", id)) as Verdict;
-  if (!verdict.ready) return { refusal: verdict.reason };
-
-  const ticket: Ticket = {
-    id: verdict.id,
-    slug: verdict.slug,
-    title: verdict.title,
-    file: verdict.file,
-  };
-
-  // Where the unpinned loop skips a branch that already exists and takes the
-  // next ticket, a pin has nowhere to go — and Sandcastle, finding that branch's
-  // worktree clean, would quietly reuse it and put this pass's agent into
-  // whatever is already there.
-  const branch = branchOf(ticket);
-  if (branchExists(branch)) {
-    return { refusal: `${branch} already exists — merge or delete it first` };
+function requestedTicketIds(argv: string[]): string[] {
+  try {
+    const { values } = parseArgs({
+      args: argv,
+      options: { ticket: { type: "string", multiple: true } },
+    });
+    return values.ticket ?? [];
+  } catch (error) {
+    // `parseArgs` throws a TypeError whose sentence is the whole answer, buried in
+    // a stack trace that says nothing an operator with a typo can use.
+    console.error(`\n${error instanceof Error ? error.message : error}\n`);
+    process.exit(1);
   }
-
-  return { ticket };
 }
 
 /**
  * The tickets a pinned run will work on, in the order given — or the one reason
- * it will not run at all. Nothing is created until every request has an answer.
+ * it will not run at all.
+ *
+ * Every question here is answered on the host, against the tracker and the
+ * branch list, before any container exists: a request that cannot be honoured
+ * must not cost a container, and must say why rather than quietly working on
+ * some other ticket.
  */
 function pinnedQueue(ids: string[]): { tickets: Ticket[] } | { refusal: string } {
   const tickets: Ticket[] = [];
@@ -285,9 +273,25 @@ function pinnedQueue(ids: string[]): { tickets: Ticket[] } | { refusal: string }
     if (tickets.some((ticket) => ticket.id === id)) {
       return { refusal: `${id} was pinned twice — one ticket is one branch` };
     }
-    const pinned = pinnedTicket(id);
-    if ("refusal" in pinned) return pinned;
-    tickets.push(pinned.ticket);
+
+    // "Ready" is the tracker's to answer, and it answers with the reason `list`
+    // would have skipped the ticket for, so a pin cannot start what the queue
+    // holds back.
+    const verdict = JSON.parse(tracker("ready", id)) as Verdict;
+    if (!verdict.ready) return { refusal: verdict.reason };
+
+    // The verdict is the ticket — the tracker answers with the same object `list`
+    // prints, so there is nothing here to pick apart.
+    const ticket: Ticket = verdict;
+
+    // Where the unpinned loop skips a branch that already exists and takes the
+    // next ticket, a pin has nowhere to go — and Sandcastle, finding that
+    // branch's worktree clean, would quietly reuse it and put this pass's agent
+    // into whatever is already there.
+    const branch = branchOf(ticket);
+    if (branchExists(branch)) return { refusal: branchTaken(branch) };
+
+    tickets.push(ticket);
   }
   return { tickets };
 }
@@ -296,9 +300,9 @@ function pinnedQueue(ids: string[]): { tickets: Ticket[] } | { refusal: string }
 // The loop
 // ---------------------------------------------------------------------------
 
-const pinned = pinnedQueue(pinnedTickets(process.argv.slice(2)));
-if ("refusal" in pinned) {
-  console.error(`${pinned.refusal}\n`);
+const claim = pinnedQueue(requestedTicketIds(process.argv.slice(2)));
+if ("refusal" in claim) {
+  console.error(`${claim.refusal}\n`);
   process.exit(1);
 }
 
@@ -306,7 +310,7 @@ if ("refusal" in pinned) {
 // run nobody pinned asks the tracker at the start of every pass instead, which
 // is also how it notices the branch the pass before it created. The pass count
 // is read before the first ticket leaves the queue.
-const queue = [...pinned.tickets];
+const queue = [...claim.tickets];
 const pinnedRun = queue.length > 0;
 const passes = pinnedRun ? queue.length : MAX_TICKETS;
 

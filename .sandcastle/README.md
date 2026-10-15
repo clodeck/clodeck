@@ -100,6 +100,10 @@ npm run sandcastle -- --ticket 65      # a second shell, a second lane
 tickets it was given, and `MAX_TICKETS` has nothing to say about it — the list is the cap, and the
 operator is the one who decided what the run costs.
 
+**Each lane needs a different ticket.** The branch check below is answered per process, against what
+exists at that moment, so two lanes aimed at the same ticket both pass it, and then share that
+branch's worktree and its log file. Nothing stops that but aiming the lanes apart.
+
 The ticket *choice* is where two lanes used to collide, so a pinned run answers it **on the host,
 before any container exists**, and refuses rather than improvising:
 
@@ -125,7 +129,7 @@ construction.
 Budget for it as a resource decision rather than a correctness one: each lane is a container, an
 `npm ci` and two agents, and two or three at once is comfortable on a server. **The merges stay yours,
 one branch at a time, `--no-ff`, and that is the real cost** — the more lanes, the longer the queue of
-branches waiting to be read and merged. A lane never merges and never pushes.
+branches waiting to be read and merged.
 
 **The tracker limits parallelism more than the infra does.** A `**Blocked by:**` chain is serial by
 construction — 67 → 68 → 69 → 70 cannot overlap — and two tickets can look independent while still
