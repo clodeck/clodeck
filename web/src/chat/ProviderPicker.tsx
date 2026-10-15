@@ -1,6 +1,6 @@
+import { DEFAULT_PROFILE } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
-import { DEFAULT_PROFILE } from './providerMemory';
 import type { ProfilesState } from './useProfiles';
 
 /**

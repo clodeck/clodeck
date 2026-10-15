@@ -1,4 +1,4 @@
-import type { ProviderProfileSummary, ResolvedProvider } from '@clodeck/shared';
+import { DEFAULT_PROFILE, type ProviderProfileSummary, type ResolvedProvider } from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 
 import { envValue } from './config.js';
@@ -27,13 +27,6 @@ import { warnToConsole, type Warn } from './logging.js';
  * a model, and a {@link ProviderProfileSummary} has no field for an endpoint or
  * a credential to travel in.
  */
-
-/**
- * The reserved profile: "whatever this server already has". Named in lowercase
- * because it is the one name an operator does not write, and a declaration that
- * clashes with it (case-insensitively) is refused.
- */
-export const DEFAULT_PROFILE = 'default';
 
 /** The namespace a profile is declared in. */
 const PREFIX = 'CLODECK_PROVIDER_';
@@ -113,7 +106,6 @@ export class UnknownProfileError extends Error {
  */
 export function listProfiles(env: NodeJS.ProcessEnv, warn: Warn = warnToConsole): ProviderProfile[] {
   const declared = new Map<string, ResolvedProvider>();
-  const clashing = new Set<string>();
 
   for (const key of Object.keys(env)) {
     if (!key.startsWith(PREFIX)) continue;
@@ -129,18 +121,16 @@ export function listProfiles(env: NodeJS.ProcessEnv, warn: Warn = warnToConsole)
     const value = envValue(env, key);
     if (value === null) continue;
 
+    // The reserve holds: a declaration of the reserved name is reported rather
+    // than obeyed, so `default` goes on meaning this server's own environment.
     if (parsed.name === RESERVED) {
-      clashing.add(key);
+      warn(`ignoring ${key}: "${DEFAULT_PROFILE}" is reserved for this server's own environment`);
       continue;
     }
 
     const profile = declared.get(parsed.name) ?? {};
     profile[parsed.field] = value;
     declared.set(parsed.name, profile);
-  }
-
-  for (const key of clashing) {
-    warn(`ignoring ${key}: "${DEFAULT_PROFILE}" is reserved for this server's own environment`);
   }
 
   return [

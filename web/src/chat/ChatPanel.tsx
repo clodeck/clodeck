@@ -1,10 +1,16 @@
-import type { ApprovalRequestPayload, ApprovalResponsePayload, Project, ResumePayload } from '@clodeck/shared';
+import {
+  DEFAULT_PROFILE,
+  type ApprovalRequestPayload,
+  type ApprovalResponsePayload,
+  type Project,
+  type ResumePayload,
+} from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
-import { DEFAULT_PROFILE, browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
+import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
 import type { ChatView, TurnResult } from './reducer';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';

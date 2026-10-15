@@ -16,9 +16,6 @@
  * is the only thing the browser honestly knows.
  */
 
-/** The reserved profile a project with nothing remembered opens on. */
-export const DEFAULT_PROFILE = 'default';
-
 /** One key per project, namespaced so a later choice cannot collide with anything else stored. */
 const KEY_PREFIX = 'clodeck.provider.';
 

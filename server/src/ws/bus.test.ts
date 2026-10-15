@@ -454,12 +454,15 @@ describe('the /ws event bus', () => {
     const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
 
-    // Unparseable JSON, an unknown type, and a payload missing a required field
-    // all land on the same answer.
+    // Unparseable JSON, an unknown type, a payload missing a required field, and
+    // a profile that is not a name all land on the same answer.
     const malformed: unknown[] = [
       'this is not json',
       { v: 1, id: 'c1', type: 'no_such_type', payload: {} },
       { v: 1, id: 'c2', type: 'send_prompt', payload: {} },
+      // A profile is a name and nothing else; a richer object is a frame this
+      // server does not understand rather than a name it can refuse.
+      { v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'hi', profile: { name: 'FAST' } } },
     ];
     for (const [index, frame] of malformed.entries()) {
       if (typeof frame === 'string') client.sendRaw(frame);
@@ -469,7 +472,7 @@ describe('the /ws event bus', () => {
     }
 
     // Nothing above closed or wedged the socket.
-    client.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'still here' } });
+    client.send({ v: 1, id: 'c4', type: 'send_prompt', payload: { prompt: 'still here' } });
     const started = await client.nextMatching((event) => event.kind === 'stream_status');
     expect(started).toMatchObject({ payload: { status: 'turn_started' } });
     await expect(provider.waitForQueryInput(1)).resolves.toMatchObject({ prompt: 'still here' });
