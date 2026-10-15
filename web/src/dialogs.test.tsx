@@ -74,7 +74,7 @@ describe('NameDialog', () => {
     expect(dialog.querySelector('p')).toBeNull();
   });
 
-  it('still shows the server’s own refusal when the name itself is refused by nobody else', () => {
+  it('keeps the server’s word in the line until the box has a reason of its own', () => {
     render(
       <NameDialog
         title="New file"
@@ -87,6 +87,15 @@ describe('NameDialog', () => {
       />,
     );
 
-    expect(screen.getByRole('dialog', { name: 'New file' }).textContent).toContain('already exists');
+    // A name the rule accepts has nothing of its own to say, so the server's
+    // refusal on the last submit — `error` — keeps the line.
+    const dialog = screen.getByRole('dialog', { name: 'New file' });
+    expect(dialog.textContent).toContain('already exists');
+
+    // A name the rule can refuse for itself speaks for the box instead: the
+    // server's word was about the name that was submitted, not about this one.
+    type('a'.repeat(MAX_NAME_BYTES + 1));
+    expect(dialog.textContent).toContain(`${String(MAX_NAME_BYTES)} bytes`);
+    expect(dialog.textContent).not.toContain('already exists');
   });
 });

@@ -373,7 +373,11 @@ export function nameRefusal(name: string): string | null {
   return null;
 }
 
-/** The same rule as a yes/no, for a caller that only needs the verdict. */
+/**
+ * The same rule as a yes/no: what the boundary tests assert in, a name accepted
+ * or refused. The dialogs take {@link nameRefusal} instead — a dead confirm has
+ * to say why, and `false` cannot.
+ */
 export function isValidName(name: string): boolean {
   return nameRefusal(name) === null;
 }

@@ -129,16 +129,14 @@ async function createProject(name: string): Promise<Project> {
  * drawer's own rule — one clean segment, the byte cap included — plus discovery's,
  * which is not a *name* rule at all: the scan skips dot-directories, so a `.foo`
  * project would be a directory the user could create and then never see.
- * Re-used from `nameRefusal` rather than restated, so the two refusals stay one
+ * Built on `nameRefusal` rather than restating it, so the two refusals stay one
  * rule and one addition — neither caller holds its own copy of the cap.
  */
 export function projectNameRefusal(name: string): string | null {
-  return nameRefusal(name) ?? (name.startsWith('.') ? 'a project name cannot start with a dot' : null);
-}
-
-/** The same rule as a yes/no, for a caller that only needs the verdict. */
-export function isValidProjectName(name: string): boolean {
-  return projectNameRefusal(name) === null;
+  const refusal = nameRefusal(name);
+  if (refusal !== null) return refusal;
+  if (name.startsWith('.')) return 'a project name cannot start with a dot';
+  return null;
 }
 
 /**
