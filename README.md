@@ -13,7 +13,9 @@ Agent SDK turns over a WebSocket bus at `/ws`, tool cards, the approval modal, a
 resume over REST. So does the terminal: a per-project shell (node-pty behind a facade) streamed as raw
 bytes over `/ws/terminal` into an xterm.js panel. So does the file drawer: a tree that expands in
 place, with create / rename / delete / upload, and an editable preview that saves back to disk — all
-scoped to the project root. Auth fronts every one of them.
+scoped to the project root. Auth fronts every one of them. And each chat turn runs on a **provider
+profile** you pick beside the composer — the server's own environment, or any
+`CLODECK_PROVIDER_<NAME>_*` the operator declared ([Provider profiles](#provider-profiles)).
 
 **Where to start:** [Quickstart](#quickstart) goes from a clean clone to a signed-in browser on your
 own machine. [Run it on a server](#run-it-on-a-server) is the same thing for a Linux box, a Windows
@@ -37,6 +39,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
   - [The encrypted alternative: Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate)
   - [When the origin is not declared](#when-the-origin-is-not-declared)
 - [Configuration](#configuration)
+- [Provider profiles](#provider-profiles)
 - [Commands](#commands)
 - [Troubleshooting](#troubleshooting)
 - [Security](#security)
@@ -49,7 +52,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 | Surface | What it does |
 |---|---|
 | **Projects** | The sidebar lists the immediate child directories of `PROJECTS_ROOT`. Select one and its chat takes the stage. `New project` creates one for real — a `mkdir` under the root, nothing else. |
-| **Chat** | One Agent SDK session per project: streamed turns, tool cards, an approval modal when the agent asks, and session history you can resume. |
+| **Chat** | One Agent SDK session per project: streamed turns, tool cards, an approval modal when the agent asks, session history you can resume — and a profile picker beside the composer for the provider each session runs on. |
 | **Terminal** | A real shell whose working directory is the selected project's folder — a pty (node-pty) streamed as raw bytes into xterm.js. |
 | **Files** | The project's tree, expanding in place: preview (markdown rendered, code with a numbered gutter and syntax colouring), edit and save, create, rename, delete, upload, download, and drag a file onto a folder to move it. |
 | **Auth** | One password, an `HttpOnly` session cookie, and every route and socket behind it. |
@@ -648,7 +651,8 @@ Read by the **server** in every case; the client bakes in nothing but relative U
 | `CLODECK_PUBLIC_URL` | — | The origin a browser reaches the app at — scheme, host and port, e.g. `http://203.0.113.10:3001`. It is read for its **scheme**, and that decides the session cookie's `Secure` flag: `http:` → not `Secure`, which is what lets a bare origin hold a login ([the direct route](#the-direct-route)) at the cost of cleartext on the wire; `https:` → `Secure`. Unset or blank → `Secure`, exactly as before, and a bare `http://` origin then bounces ([why](#when-the-origin-is-not-declared)). Declaring the origin the browser types is also what a deployment behind a TLS-terminating proxy wants, even though the app itself sees plain HTTP. |
 | `WEB_ROOT` | — | The built client's directory. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links. Unset → the server walks up from its working directory to the repo root and serves `web/dist` if it has been built, logging the directory it picked or the reason it picked none. No build anywhere → no client is served, which is what the Vite dev loop wants. |
 | `CLODECK_TRUSTED_PROXIES` | — | The proxies in front of this deployment, as a comma-separated list of addresses, CIDR ranges and the keywords `loopback` / `linklocal` / `uniquelocal` — `172.16.0.0/12` for the compose Caddy, `127.0.0.1/8` for a proxy on the same host. It is the address the **login lockout** keys on: without it, every login behind a proxy arrives from the proxy itself, so five failures — anyone's — lock out the one user there is. Unset or blank → nothing is trusted, which is what the direct and tunnelled routes want; a forged `X-Forwarded-For` is ignored by a peer outside the list either way, so only a client *inside* it can rotate the bucket. A value that is not a list of addresses is a startup warning rather than a failure: the server trusts nothing and says so. |
-| `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
+| `CLODECK_PROVIDER_<NAME>_BASE_URL`, `_AUTH_TOKEN`, `_MODEL` | — | One provider profile, named `<NAME>`: any subset of the endpoint, the credential and the model, with the rest inherited from this server's own `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`. Read once, at boot. See [Provider profiles](#provider-profiles). |
+| `ANTHROPIC_API_KEY` | — | The default profile's credential, read by the Agent SDK from the server's environment. clodeck never stores, persists or invents one — it reads what you exported and hands it to the run. Only the real provider needs it — `npm run dev:fake` needs none. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the Agent SDK keeps its transcripts — the thing session history and resume are read from. The Docker image sets `/home/node/.claude` and mounts a volume there. |
 
 **`clodeck.config.json`** is the fallback for deployments that would rather not export an environment
@@ -658,6 +662,90 @@ the root scripts run it, because npm runs a workspace script there:
 ```json
 { "projectsRoot": "/srv/projects" }
 ```
+
+## Provider profiles
+
+**A session does not have to run on the environment the server was started with.** A **provider
+profile** is a named patch over that environment: declare any subset of the endpoint, the credential and
+the model under `CLODECK_PROVIDER_<NAME>_*`, and the keys you leave out are inherited — from the
+server's own `ANTHROPIC_*`, never from another profile. One endpoint with two models on it is therefore
+two lines, not six.
+
+| Variable | The key it declares |
+|---|---|
+| `CLODECK_PROVIDER_<NAME>_BASE_URL` | The Anthropic-compatible endpoint this profile talks to. |
+| `CLODECK_PROVIDER_<NAME>_AUTH_TOKEN` | The credential it carries. |
+| `CLODECK_PROVIDER_<NAME>_MODEL` | The model to ask for. |
+
+```sh
+# The endpoint and the credential are already this server's own environment, so
+# each profile is a model alone — which is what a tier is.
+ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic \
+ANTHROPIC_AUTH_TOKEN=sk-... \
+CLODECK_PROVIDER_FLASH_MODEL=deepseek-chat \
+CLODECK_PROVIDER_PRO_MODEL=deepseek-reasoner \
+  npm run serve
+```
+
+All three keys together is a provider of its own, on a server whose environment points somewhere else:
+
+```sh
+CLODECK_PROVIDER_GROQ_BASE_URL=https://… \
+CLODECK_PROVIDER_GROQ_AUTH_TOKEN=gsk-… \
+CLODECK_PROVIDER_GROQ_MODEL=… \
+  npm run serve
+```
+
+A profile's name is normalized — upper-cased, with `-` folded to `_` — so `deepseek-flash` and
+`DEEPSEEK_FLASH` are one profile, and the picker lists the normalized spelling. A key under the prefix
+that names no profile, or names none of the three, is reported on the server's first lines rather than
+silently ignored.
+
+**The reserved `default` profile is the server's own environment.** With nothing declared the picker
+offers exactly one entry — *server environment* — and every run is the run it has always been, so **a
+deployment that declares no profile changes in no way at all**. A name that clashes with `default` is
+refused with a warning rather than obeyed. Profiles are read **once, at boot**: adding or changing one is
+a restart, the same deliberate act as changing the password.
+
+**The credential rule, in one line: the endpoint and its credential travel together, and the model
+travels free.** A project can pin its own provider, and when it does clodeck sends the model and nothing
+else — the two halves of a host-and-credential pair never come from different sources. The measurements
+this rests on, and the five alternatives that were rejected, are in
+[`docs/adr/0002-provider-credentials-travel-with-their-endpoint.md`](docs/adr/0002-provider-credentials-travel-with-their-endpoint.md).
+
+**clodeck speaks one API, so every other vendor arrives through a proxy.** A profile's endpoint has to be
+**Anthropic-compatible**: clodeck talks the Anthropic Messages API and nothing else, and it grows no
+translation layer. DeepSeek's `/anthropic` surface is one out of the box; a vendor without one reaches
+you through a **translation proxy the operator runs**, with a profile pointed at that. The chat surface
+is only as good as what the proxy passes through unaltered — `stream_event` deltas (the live bubble),
+`tool_use` blocks (the tool cards), the `can_use_tool` approval round trip those blocks trigger (the
+modal), and the trailing `result` (the turn's outcome).
+
+**The picker sits beside the composer** — under the box you type in, not up in the chat header — as one
+line reading `running on <profile> · <model>`. The choice is **per session**: a new session in a project
+opens on the profile the last one there used, and on the server's environment when nothing is
+remembered. It **locks once the session's first turn has run**, so what you are talking to cannot change
+mid-conversation; a different profile means a new session — reloading the page is one, because the
+binding lives in the browser and nowhere else. The picker is told names and models, and of a pinned
+project's file only the endpoint it declares (which you can read in the drawer too) — **never a
+credential** — and a profile the operator has since removed is refused by name, never quietly swapped for
+the default. Each run logs the profile and model it used: the only record of what a turn actually ran on.
+
+**A project can pin its own provider, and may then choose only a model.** If a project's
+`.claude/settings.json` declares `ANTHROPIC_BASE_URL` or `ANTHROPIC_AUTH_TOKEN` in its `env` block, the
+SDK gives that file precedence over the server's environment key by key, and clodeck neither fights it
+nor duplicates it: the picker says *pinned by this project* and offers **tiers only**, because one
+vendor's model name means nothing at another vendor's endpoint, and the run carries the chosen model
+while the project keeps the endpoint and the credential. The file is read per turn, through the same
+scoped file access the drawer uses, so a pin you edit takes effect on the next turn; a file that is
+missing, is not JSON, or has an `env` that is not an object means *no pin*, reported in the server's log
+rather than treated as a reason to fail.
+
+**A credential written into a project file is readable by the model.** The drawer filters no dotfiles —
+`.claude/settings.json` is right there in the tree — and the agent's `Read` is auto-approved and scoped
+to the project, so a key hand-written into a project's settings is a key the agent it pays for can open.
+That is accepted rather than engineered around, and it is why the profiles above exist: **a credential
+that matters belongs in the server's environment**, which no browser is ever shown a part of.
 
 ## Commands
 
@@ -776,10 +864,10 @@ route answers that even for the correct password.
 
 ### Everything works except the chat's answer
 
-The chat turn is the one thing that needs `ANTHROPIC_API_KEY` in the server's environment — the server
-never reads it, the Agent SDK does. Without a key the login, the terminal, the file drawer and history
-all work and the turn fails; `npm run dev:fake` is the offline stand-in, and a *wrong* key fails at the
-first turn with the SDK's own error in the chat.
+The chat turn is the one thing that needs a credential: `ANTHROPIC_API_KEY` in the server's environment,
+or a profile's `CLODECK_PROVIDER_<NAME>_AUTH_TOKEN` ([Provider profiles](#provider-profiles)). Without one
+the login, the terminal, the file drawer and history all work and the turn fails; `npm run dev:fake` is
+the offline stand-in, and a *wrong* key fails at the first turn with the SDK's own error in the chat.
 
 ### npm install fails on Linux
 
@@ -841,8 +929,11 @@ oversight in this one.
   account), or use the [Docker](#docker) image, which already runs as `node`.
 
 **Secrets.** The compose deployment keeps the password in a mounted file rather than an environment
-variable, so it stays out of `docker inspect`. The Agent SDK reads `ANTHROPIC_API_KEY` from the
-process environment; the server itself never reads, stores or forwards it.
+variable, so it stays out of `docker inspect`. A provider's credential is read from the server's own
+environment and handed to the run that asked for it — never stored, never persisted, never invented by
+clodeck — and the environment is where it belongs: a credential written into a project's
+`.claude/settings.json` is readable by the agent that spends it
+([Provider profiles](#provider-profiles)), and the browser is never told one at all.
 
 ## Architecture
 
