@@ -30,7 +30,9 @@ supplies the three numbers and that file decides what they mean. `web/src/files/
 ancestor, the tree column's `overflow-y-auto` scroller, or the page where there is none, since a menu
 drawn past that edge is cut off rather than overlapped — and `EntryActions` grows a `useLayoutEffect`
 that runs with the menu already in the DOM and before the browser paints, setting the placement from the
-row's span, the clip's span and the menu's own height. The menu is otherwise the element it was: still a
+row's span, the clip's span and the menu's own height — and setting it again on a scroll of that
+scroller, since the room is the clip's edge against a row that travels. The menu is otherwise the element
+it was: still a
 direct child of the row's `relative`, still `absolute right-0 z-20 w-32`, with only the edge it hangs
 from moving (`top-full mt-1` ⇄ `bottom-full mb-1`). `top-full` and `bottom-full` therefore still measure
 from the row and not the panel — bullet 4's containing block — and the one change serves both listings,
@@ -78,6 +80,15 @@ Fixed in this pass:
    readings sit together.
 3. **The Reference block's line numbers.** The menu and the row it points at moved with this change, and
    the drawer's own row moved with tickets 49 and 50; all three point at the file again.
+4. **A scroll under an open menu.** A second pass over the branch (two axes, after the loop's own review)
+   found the effect's comment — "it moves the row and the scroller together, so the room on either side is
+   the same afterwards" — to be simply false, and the decline below resting on it. The room is the
+   scroller's edge *against the row*, so it narrows as the row scrolls toward it: a menu opened with room
+   below ends up cut off by its own scroller once the tree moves, which is bullet 1's failure by a second
+   route. The effect re-measures now, on a capture-phase `scroll` listener that hears the drawer's own
+   scroller without hunting for the element that owns it, and the listener goes when the menu does. jsdom
+   has no boxes for the `answer` to move, so the test pins the question being asked again — and not asked
+   once the menu is closed.
 
 Declined on purpose:
 
@@ -85,9 +96,10 @@ Declined on purpose:
   side, the pure rule's parameter on the other. One number would mean giving up either the classes or the
   parameter, and the drift a future edit could cause is the last row's 4px. The constant's own comment
   says which classes carry it, and the app sets no root font size, so `mt-1` is 4px.
-- **A resize while a menu is open leaves the placement as it was read.** The rule runs on open, and a
-  scroll of the clipping scroller cannot change its answer — that is why there is no listener at all —
-  but a resize does move the room. Re-measuring means a listener on a surface that lives for seconds.
+- **A resize while a menu is open leaves the placement as it was read.** A resize moves the room, but
+  re-measuring it means a `resize` listener on a surface that lives for seconds — and unlike a scroll,
+  which the pointer can drive while the menu is up, a resize is not something the user does *to* the
+  drawer. The scroll case is fixed above; this one stays a known gap.
 - **`clipOf`'s fallback to `document.documentElement`.** Unreachable in the app, where a row always has
   the tree column's scroller above it; in jsdom it is what keeps every box at zero, which is what leaves
   the panel's own menu tests on the downward default.

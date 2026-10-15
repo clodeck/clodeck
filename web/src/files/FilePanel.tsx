@@ -1017,17 +1017,29 @@ function EntryActions({
    * frame. The row stays the menu's containing block either way, which is what
    * `top-full` / `bottom-full` are measured against.
    *
-   * Scrolling needs no listener of its own: it moves the row and the scroller
-   * together, so the room on either side is the same afterwards — and the menu
-   * rides along with the row it is placed against.
+   * A scroll re-measures, in the capture phase so the drawer's own scroller is
+   * heard without hunting for the element that owns it. The row and the scroller
+   * do travel together, but the room is the scroller's edge *against the row*,
+   * and that narrows as the row scrolls toward it: a menu opened with room below
+   * would be cut off by its own scroller once the tree moved under it — the
+   * failure this ticket exists to remove, arriving by a second route.
    */
   useLayoutEffect(() => {
     const panel = menuPanel.current;
     if (panel === null) return;
     const row = panel.parentElement;
     if (row === null) return;
-    const menuHeight = panel.getBoundingClientRect().height;
-    setPlacement(menuPlacement(spanOf(row), clipOf(row), menuHeight, MENU_GAP));
+
+    const place = (): void => {
+      const menuHeight = panel.getBoundingClientRect().height;
+      setPlacement(menuPlacement(spanOf(row), clipOf(row), menuHeight, MENU_GAP));
+    };
+    place();
+
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+    };
   }, [menuOpen]);
 
   /** The edge it hangs from, with the same 4px clearance at the row either way. */

@@ -636,6 +636,33 @@ describe('the row menu opens where it can be clicked', () => {
     // Left unmeasured, it opens downward — the case the rows with room keep.
     expect(menu.className).toContain('top-full');
   });
+
+  it('asks the boxes again when the tree scrolls under an open menu', async () => {
+    stubFiles();
+    renderPanel();
+    const actions = await screen.findByRole('button', { name: 'Actions for README.md' });
+
+    // jsdom computes no boxes, so the *answer* cannot move here. What can be
+    // pinned is that the question is asked again, which is the half a stale
+    // placement came from: the room is the scroller's edge against the row, and
+    // the row is what travels when the tree scrolls.
+    const reads = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    fireEvent.click(actions);
+    const opened = reads.mock.calls.length;
+    expect(opened).toBeGreaterThan(0);
+
+    fireEvent.scroll(window);
+    expect(reads.mock.calls.length).toBeGreaterThan(opened);
+
+    // …and the listener goes when the menu does: nothing is re-measured for a
+    // menu that is not on screen.
+    fireEvent.click(screen.getByRole('button', { name: 'Close menu' }));
+    const closed = reads.mock.calls.length;
+    fireEvent.scroll(window);
+    expect(reads.mock.calls.length).toBe(closed);
+
+    reads.mockRestore();
+  });
 });
 
 describe('dragging a file onto a folder', () => {
