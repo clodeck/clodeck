@@ -14,8 +14,10 @@ const app = buildApp({
   // The one place the real node-pty binding is reached; tests inject the fake.
   spawner: createNodePtySpawner(),
   // The password is hashed here, once, at boot — or, when unset, the seam is
-  // built fail-closed and warns (see `auth/options.ts`).
-  auth: await createAuthOptions(config.uiPassword),
+  // built fail-closed and warns (see `auth/options.ts`). The declared public
+  // origin rides along: its scheme is what lets a deployment with no domain
+  // keep a session at all (spec-07).
+  auth: await createAuthOptions(config.uiPassword, config.publicOrigin),
   // Set by the image (spec-06 §"Ticket 27"); unset in the dev loop, where Vite
   // serves the client instead.
   webRoot: config.webRoot,

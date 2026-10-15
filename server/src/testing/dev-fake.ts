@@ -92,7 +92,8 @@ const app = buildApp({
   // The same gate as production: `dev:fake` needs `UI_PASSWORD` too, and
   // without it the loop is fail-closed rather than open (spec-05 §"Further
   // notes"). A dev loop with no login is not a dev loop; it is a rehearsal.
-  auth: await createAuthOptions(config.uiPassword),
+  // The public origin comes along for the same reason it does in `main.ts`.
+  auth: await createAuthOptions(config.uiPassword, config.publicOrigin),
   // The same config seam as `main.ts`. Unset here in practice: this loop is the
   // dev loop, and Vite serves the client.
   webRoot: config.webRoot,

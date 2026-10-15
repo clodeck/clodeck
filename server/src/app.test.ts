@@ -247,6 +247,36 @@ describe('the server API', () => {
     expect(blank.webRoot).toBeNull();
   });
 
+  it('takes the public origin from CLODECK_PUBLIC_URL, unset or blank meaning undeclared', async () => {
+    const configPath = path.join(sandbox.dir, 'absent.config.json');
+
+    const declared = loadConfig({
+      env: { CLODECK_PUBLIC_URL: '  http://203.0.113.10:3001  ' },
+      configPath,
+    });
+    const unset = loadConfig({ env: {}, configPath });
+    const blank = loadConfig({ env: { CLODECK_PUBLIC_URL: '   ' }, configPath });
+
+    // Trimmed but *not* resolved: this is a URL, not a path.
+    expect(declared.publicOrigin).toBe('http://203.0.113.10:3001');
+    // Undeclared is the fail-safe state, not the insecure one (spec-07): an
+    // operator who upgrades and sets nothing keeps today's `Secure` cookie.
+    expect(unset.publicOrigin).toBeNull();
+    expect(blank.publicOrigin).toBeNull();
+  });
+
+  it('reads the public origin from the environment only', async () => {
+    // A deployment fact, like the password and the web root: the config file is
+    // a convenience for the projects root, and the origin that decides whether
+    // a session can be kept at all is not a convenience.
+    const configPath = path.join(sandbox.dir, 'with-origin.config.json');
+    await writeFile(configPath, JSON.stringify({ publicOrigin: 'http://203.0.113.10:3001' }));
+
+    const config = loadConfig({ env: {}, configPath });
+
+    expect(config.publicOrigin).toBeNull();
+  });
+
   // File symlinks need elevation or Developer Mode on Windows, so this case is
   // only creatable on POSIX.
   it.skipIf(process.platform === 'win32')('skips a symlink that points at a file', async () => {

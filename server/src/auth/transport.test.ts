@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
+import { setCookieHeader } from '../test-support.js';
 import { createSessionStore } from './sessions.js';
 import {
   createAuthGate,
@@ -135,8 +136,7 @@ describe('the auth transport', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
 
-    const setCookie = response.headers['set-cookie'];
-    const value = Array.isArray(setCookie) ? setCookie.join('\n') : (setCookie ?? '');
+    const value = setCookieHeader(response);
     // Page JS cannot read it, it only travels over HTTPS, and it never rides a
     // cross-site request — the three properties the slice is built on.
     expect(value).toContain('HttpOnly');
@@ -146,6 +146,104 @@ describe('the auth transport', () => {
     expect(value).toContain('Max-Age=604800');
     // The value is the store's token, not a claim: no signing, no `=` inside it.
     expect(value).not.toContain('Signature=');
+  });
+
+  /**
+   * The public origin decides one thing: whether the browser will keep the
+   * session cookie at a bare `http://` address (spec-07 §"The public origin").
+   * Every case here reads the `Set-Cookie` line the wire carries, and no case
+   * reaches for a helper inside the transport — that header *is* the contract
+   * with the browser.
+   */
+  describe('the session cookie follows the declared public origin', () => {
+    async function loginOn(app: FastifyInstance) {
+      return app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { password: TEST_PASSWORD },
+      });
+    }
+
+    it('drops Secure on login when the declared origin is http:', async () => {
+      const app = makeApp({ publicOrigin: 'http://203.0.113.10:3001' });
+
+      const response = await loginOn(app);
+
+      expect(response.statusCode).toBe(200);
+      const value = setCookieHeader(response);
+      // The browser drops a `Secure` cookie from a non-loopback `http://`
+      // origin, which is the whole bug: the login would answer 200 and the
+      // next request would arrive with no cookie at all.
+      expect(value).not.toContain('Secure');
+      // Nothing else about the cookie moves.
+      expect(value).toContain('HttpOnly');
+      expect(value).toContain('SameSite=Strict');
+      expect(value).toContain('Path=/');
+      expect(value).toContain('Max-Age=604800');
+    });
+
+    it('drops Secure on the clear-cookie too, so logout matches login', async () => {
+      const app = makeApp({ publicOrigin: 'http://203.0.113.10:3001' });
+      const cookie = await login(app);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/auth/logout',
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const value = setCookieHeader(response);
+      expect(value).toContain('Max-Age=0');
+      // A clear-cookie that carried `Secure` where the login's did not would be
+      // ignored by the same browser, leaving the session token in place.
+      expect(value).not.toContain('Secure');
+    });
+
+    it('keeps Secure for a declared https: origin, and for an undeclared one', async () => {
+      const proxied = makeApp({ publicOrigin: 'https://clodeck.example.com' });
+      const undeclared = makeApp({ publicOrigin: null });
+      const absent = makeApp();
+
+      // The proxied route is where the app sees plain HTTP and the browser has
+      // HTTPS: this variable is the only thing that can tell the two apart, and
+      // a proxied deployment must lose nothing to the direct route's arrival.
+      expect(setCookieHeader(await loginOn(proxied))).toContain('Secure');
+      expect(setCookieHeader(await loginOn(undeclared))).toContain('Secure');
+      expect(setCookieHeader(await loginOn(absent))).toContain('Secure');
+    });
+
+    it('reads the scheme, never the host', async () => {
+      // A LAN address and a tunnelled loopback address declare the same thing
+      // about the browser's rule; only the scheme is asked (spec-07). Matching
+      // hosts would break both routes and buy nothing.
+      for (const origin of [
+        'http://203.0.113.10:3001',
+        'http://clodeck.lan:8080',
+        'http://localhost:3001',
+      ]) {
+        const app = makeApp({ publicOrigin: origin });
+
+        expect(setCookieHeader(await loginOn(app)), origin).not.toContain('Secure');
+      }
+    });
+
+    it('never fails open on a malformed value, and names what it ignored', async () => {
+      // A forgotten scheme and a scheme no browser reaches the app on: both are
+      // typos, and a typo must not be able to turn `Secure` off. Refusing to
+      // boot over one was considered and rejected — a safe fallback plus a loud
+      // line is recoverable, a dead server is not.
+      for (const malformed of ['203.0.113.10:3001', 'ftp://example.com', 'clodeck.example.com']) {
+        const warnings: string[] = [];
+        const app = makeApp({ publicOrigin: malformed, warn: (message) => warnings.push(message) });
+
+        expect(setCookieHeader(await loginOn(app)), malformed).toContain('Secure');
+        // The line speaks the operator's vocabulary: the variable they set, and
+        // what they set it to.
+        expect(warnings.join('\n'), malformed).toContain('CLODECK_PUBLIC_URL');
+        expect(warnings.join('\n'), malformed).toContain(malformed);
+      }
+    });
   });
 
   it('answers 401 to a wrong password and issues no cookie', async () => {
@@ -282,8 +380,7 @@ describe('the auth transport', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
-    const setCookie = response.headers['set-cookie'];
-    const value = Array.isArray(setCookie) ? setCookie.join('\n') : (setCookie ?? '');
+    const value = setCookieHeader(response);
     expect(value).toContain('Max-Age=0');
 
     // The token is gone from the store, not merely unset in a browser.
@@ -381,6 +478,28 @@ describe('the auth transport', () => {
       await expect(handshake(app, { cookie }, `http://127.0.0.1:${String(port)}`)).resolves.toEqual({
         ok: true,
       });
+    });
+
+    it('is unaffected by a declared public origin', async () => {
+      // Deliberate: the handshake check compares `Origin`'s host to `Host` and
+      // ignores the scheme, and the new variable does not reach it (spec-07).
+      // It admits every host the browser actually reached — a bare LAN origin
+      // and a proxied one alike — and it stays spoof-resistant, which coupling
+      // it to one declared hostname would not.
+      for (const publicOrigin of ['http://203.0.113.10:3001', 'https://clodeck.example.com']) {
+        const app = makeApp({ publicOrigin });
+        const port = await portOf(app);
+        const cookie = await login(app);
+
+        await expect(
+          handshake(app, { cookie }, `http://127.0.0.1:${String(port)}`),
+          publicOrigin,
+        ).resolves.toEqual({ ok: true });
+
+        const foreign = await handshake(app, { cookie }, 'http://evil.example');
+        expect(foreign.ok, publicOrigin).toBe(false);
+        expect(foreign.error, publicOrigin).toContain('403');
+      }
     });
   });
 });

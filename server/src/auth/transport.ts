@@ -80,6 +80,13 @@ export interface AuthOptions {
   verifyPassword(password: string): Promise<boolean>;
   /** Where sessions live. In-memory today; the interface is the seam. */
   sessions: SessionStore;
+  /**
+   * The origin a browser reaches the app at — `CLODECK_PUBLIC_URL` — or
+   * `null`/absent when the operator declared none (spec-07 §"The public
+   * origin"). Like `webRoot` it is configuration rather than a seam: there is
+   * nothing behind it to fake, and it decides exactly one flag on one cookie.
+   */
+  publicOrigin?: string | null;
   /** Login brute-force tuning — test-facing overrides; the defaults live here. */
   loginLimit?: LoginLimit;
   /** Where a refused login is reported. Defaults to the console. */
@@ -93,6 +100,10 @@ export interface AuthOptions {
 export function registerAuthRoutes(api: FastifyInstance, options: AuthOptions): void {
   const warn = options.warn ?? warnToConsole;
   const limiter = createLoginLimiter(options.loginLimit ?? DEFAULT_LOGIN_LIMIT);
+  // Decided once, at boot: the declared origin is a deployment fact, not a
+  // per-request one, and a malformed value is worth one loud line rather than
+  // one per login.
+  const secure = sessionCookieIsSecure(options.publicOrigin, warn);
 
   api.post<{ Body: unknown }>('/auth/login', async (request, reply) => {
     const password = readPassword(request.body);
@@ -112,7 +123,7 @@ export function registerAuthRoutes(api: FastifyInstance, options: AuthOptions): 
 
     limiter.recordSuccess(request.ip);
     const session = options.sessions.create(DEFAULT_PRINCIPAL);
-    setSessionCookie(reply, session.id);
+    setSessionCookie(reply, session.id, secure);
     return reply.send({ ok: true });
   });
 
@@ -122,7 +133,7 @@ export function registerAuthRoutes(api: FastifyInstance, options: AuthOptions): 
     const id = readSessionId(request);
     if (id !== undefined) options.sessions.destroy(id);
 
-    clearSessionCookie(reply);
+    clearSessionCookie(reply, secure);
     return reply.send({ ok: true });
   });
 }
@@ -209,25 +220,69 @@ function readPassword(body: unknown): string | null {
 }
 
 /**
- * `Secure` is always set (decision 07): browsers exempt `http://localhost` from
- * the requirement, so the dev loop still works, and production is HTTPS via the
- * proxy. There is no off-switch to forget to turn back on.
+ * Whether the session cookie carries `Secure`.
+ *
+ * `Secure` is both the default and the fallback: undeclared, `https:`, and
+ * anything that is not an http(s) origin at all keep it — so an upgrade changes
+ * nothing, and a typo can never *silently* produce an insecure session; it
+ * produces a warning and today's cookie. Only a declared `http:` origin turns
+ * it off, which is the operator stating in so many words that browsers reach
+ * this app unencrypted.
+ *
+ * The scheme alone is compared, never the host: `http://localhost:3001` and
+ * `http://203.0.113.10:3001` say the same thing about the browser's rule, and
+ * host matching would break the tunnelled and LAN routes to buy nothing.
+ *
+ * The WebSocket handshake check is deliberately *not* a caller: it compares
+ * `Origin`'s host to the request's `Host` and ignores the scheme, because it is
+ * anti-CSRF and admits every host the browser actually reached (spec-07 §"The
+ * public origin").
  */
-function setSessionCookie(reply: FastifyReply, id: string): void {
+function sessionCookieIsSecure(publicOrigin: string | null | undefined, warn: Warn): boolean {
+  if (publicOrigin === null || publicOrigin === undefined) return true;
+
+  let scheme: string;
+  try {
+    scheme = new URL(publicOrigin).protocol;
+  } catch {
+    scheme = '';
+  }
+
+  if (scheme === 'https:') return true;
+  if (scheme === 'http:') return false;
+
+  warn(
+    `ignoring CLODECK_PUBLIC_URL "${publicOrigin}": it is not an http(s) origin, ` +
+      'so the session cookie stays Secure',
+  );
+  return true;
+}
+
+/**
+ * The cookie's flags. `Secure` is the one the declared public origin decides
+ * (spec-07); `HttpOnly`, `SameSite=Strict`, `Path=/` and the idle window are
+ * the slice's contract with the browser and do not move.
+ */
+function setSessionCookie(reply: FastifyReply, id: string, secure: boolean): void {
   reply.setCookie(SESSION_COOKIE, id, {
     path: '/',
     httpOnly: true,
-    secure: true,
+    secure,
     sameSite: 'strict',
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
 }
 
-function clearSessionCookie(reply: FastifyReply): void {
+/**
+ * Clearing a cookie only works if every attribute matches the one that was set
+ * — a browser looks up a cookie by name, path *and* `Secure` — so this takes the
+ * same flag the login did rather than deciding its own.
+ */
+function clearSessionCookie(reply: FastifyReply, secure: boolean): void {
   reply.setCookie(SESSION_COOKIE, '', {
     path: '/',
     httpOnly: true,
-    secure: true,
+    secure,
     sameSite: 'strict',
     maxAge: 0,
   });
