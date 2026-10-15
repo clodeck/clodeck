@@ -1,13 +1,14 @@
 # Handoff — clodeck: the loop's own tooling is under the typecheck and the suite
 
 **Updated:** 2026-10-15
-**Where the tree is:** **`main` is at `739dca5`** — *Merge ticket 72: the loop's tooling comes under
-the typecheck and the suite* — with tickets **59, 66, 71 and 72** merged `--no-ff` and their branches
-deleted, on top of the ticket-loop runbook (`8b69ba1`). The 72 branch was cut from `docs/handoff-71`,
-so merging it brought that branch's commits with it and `docs/handoff-71` is gone too. This session's
-last change is a docs branch, **`docs/handoff-72`**, holding this file; **the user asked for it to be
-merged as well, so by the time you read this on `main` it already is.** Nothing is pushed: `main` is
-**7 commits ahead of `origin/main`** at the time of writing.
+**Where the tree is:** with tickets **59, 66, 71 and 72** merged `--no-ff` and their branches deleted, on
+top of the ticket-loop runbook (`8b69ba1`). **`739dca5`** is *Merge ticket 72: the loop's tooling comes
+under the typecheck and the suite*, and **the merge immediately after it is the one that put this file
+on `main`** — read `git log --oneline -3` rather than trusting a SHA written here, since the handoff
+cannot name its own merge commit. The 72 branch was cut from `docs/handoff-71`, so merging it brought
+that branch's commits with it and `docs/handoff-71` is gone too; `docs/handoff-72` and
+`docs/handoff-72-main-sha` went the same way. Nothing is pushed: `main` is **9 commits ahead of
+`origin/main`**.
 
 ## What this phase is
 
