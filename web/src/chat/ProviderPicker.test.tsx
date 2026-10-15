@@ -17,12 +17,23 @@ import type { ProfilesState } from './useProfiles';
  */
 
 const PROFILES: ProviderProfileSummary[] = [
-  { name: 'default', model: 'claude-opus-5-5' },
-  { name: 'FAST', model: 'claude-haiku-5-5' },
-  { name: 'BARE' },
+  { name: 'default', model: 'claude-opus-5-5', shape: 'tier' },
+  { name: 'FAST', model: 'claude-haiku-5-5', shape: 'tier' },
+  { name: 'BARE', shape: 'tier' },
+  // A provider: it names a host of its own, so its model belongs to that host and
+  // a project that pins its own endpoint may not be offered it (decision 9).
+  { name: 'VENDOR', model: 'vendor-model-1', shape: 'provider' },
 ];
 
-const READY: ProfilesState = { status: 'ready', profiles: PROFILES };
+const READY: ProfilesState = { status: 'ready', profiles: PROFILES, pinned: false };
+
+/** The same server, in a project whose own file declares its endpoint. */
+const PINNED: ProfilesState = {
+  status: 'ready',
+  profiles: PROFILES,
+  pinned: true,
+  endpoint: 'https://gateway.example/anthropic',
+};
 
 afterEach(() => {
   // No vitest globals, so testing-library's auto-cleanup is not registered.
@@ -65,7 +76,37 @@ describe('the provider picker', () => {
 
     // A profile with no model of its own says so, rather than showing a blank.
     expect(screen.getByRole('option', { name: 'BARE · the endpoint decides' })).toBeTruthy();
-    expect(screen.getAllByRole('option')).toHaveLength(3);
+    // An unpinned project is offered everything, provider-shaped profiles
+    // included: the endpoint and the credential on offer are the server's own.
+    expect(screen.getByRole('option', { name: 'VENDOR · vendor-model-1' })).toBeTruthy();
+    expect(screen.getAllByRole('option')).toHaveLength(4);
+  });
+
+  it('says a project pins its provider, and offers such a project only tiers', () => {
+    renderPicker(PINNED);
+
+    // The pin is stated in what it does — the endpoint and the credential stay
+    // the project's — and the endpoint the file declares is shown with it, since
+    // the user can read the same file in the drawer (decision 14).
+    expect(screen.getByText('pinned by this project · https://gateway.example/anthropic')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /running on/ }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'server environment · claude-opus-5-5',
+      'FAST · claude-haiku-5-5',
+      'BARE · the endpoint decides',
+    ]);
+    // A vendor's model name means nothing at another vendor's endpoint, so the
+    // profile that named its own host is not on this menu at all.
+    expect(screen.queryByRole('option', { name: /VENDOR/ })).toBeNull();
+  });
+
+  it('says a pinned project is pinned even when the file names no endpoint of its own', () => {
+    // A project that pins its credential and inherits the endpoint is pinned all
+    // the same, and the line says so without an endpoint to show.
+    renderPicker({ status: 'ready', profiles: PROFILES, pinned: true });
+
+    expect(screen.getByText('pinned by this project')).toBeTruthy();
   });
 
   it('chooses a profile by its name, and closes', () => {

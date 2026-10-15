@@ -6,13 +6,15 @@ import {
   type ApprovalResponsePayload,
   type PermissionMode,
   type ProtocolVersion,
+  type ResolvedProvider,
   type ResumePayload,
   type SDKMessage,
   type SessionState,
 } from '@clodeck/shared';
 
 import { logToConsole, type Log } from '../logging.js';
-import type { ResolvedProfile } from '../profiles.js';
+import type { RunProfile } from '../profiles.js';
+import type { ProjectPin } from '../project-pin.js';
 import type { SdkProvider, SdkRun } from '../sdk/provider.js';
 import type { EmitDraft, EventDraft } from './events.js';
 
@@ -33,11 +35,11 @@ export interface TurnManager {
   subscribe(projectId: string, emit: EmitDraft): () => void;
   /**
    * Start a turn on an idle project, on the provider the caller resolved. The
-   * run carries the trio itself, so this is also where a turn's provider is
+   * run carries the keys itself, so this is also where a turn's provider is
    * recorded: the line below is the only answer to "what did that turn run on"
-   * that survives the turn.
+   * that survives the turn — including when a project's pin narrowed it.
    */
-  sendPrompt(projectId: string, cwd: string, prompt: string, profile: ResolvedProfile): void;
+  sendPrompt(projectId: string, cwd: string, prompt: string, profile: RunProfile): void;
   /** Interrupt the active run. False when the project has no active turn. */
   interrupt(projectId: string): Promise<boolean>;
   /** Change the active run's permission mode. False when there is no active turn. */
@@ -117,9 +119,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // Recorded as the run starts, and only now: a send the busy check above
       // turned away ran nothing, and a line for it would answer "what did that
       // turn run on" about a turn that never was.
-      log(
-        `turn on profile ${profile.name} · model ${profile.provider.model ?? 'the endpoint decides'} · ${cwd}`,
-      );
+      log(`turn on profile ${profile.name} · ${describeRun(profile)} · ${cwd}`);
 
       state.status = 'running';
       state.turnId = randomUUID();
@@ -138,9 +138,12 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
         active = provider.query({
           cwd,
           prompt,
-          // The resolved trio, not the name: the run carries what it runs on, so
-          // an operator renaming or removing a profile mid-turn cannot move it.
-          provider: profile.provider,
+          // The keys the run carries, not the name: an operator renaming or
+          // removing a profile mid-turn cannot move it, and a project's pin has
+          // already had its say (`applyPin`). `null` sends no keys at all, so
+          // `Options.env` stays unset and the project's own environment decides
+          // everything — which is what a pin that named no model asked for.
+          ...(profile.sent === null ? {} : { provider: profile.sent }),
           ...resumeInput(target),
           // Gated tools come back through the callback the whole stack shares.
           canUseTool: (request) => park(state, request),
@@ -196,6 +199,49 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       run(projectId).resume = target;
     },
   };
+}
+
+/**
+ * What the run's environment carries from clodeck, and what the project's pin kept
+ * instead.
+ *
+ * Two halves, because a choice and its outcome stopped being one thing the moment
+ * a project could pin a provider: a line naming only the profile would report a
+ * provider the turn never used. The model is named by value — it is the half a
+ * reader can act on — and the endpoint and the credential only by name, so the
+ * record of every turn is not a place this server writes a secret down.
+ */
+function describeRun(profile: RunProfile): string {
+  const parts = [
+    `model ${profile.sent?.model ?? 'the endpoint decides'}`,
+    `sent: ${keyNames(profile.sent)}`,
+  ];
+
+  const kept = keptKeys(profile.pin);
+  if (kept.length > 0) parts.push(`kept by the project's pin: ${kept.join(', ')}`);
+
+  return parts.join(' · ');
+}
+
+/** The provider keys a value carries, named the ADR's way. `nothing` when it carries none. */
+function keyNames(provider: ResolvedProvider | null): string {
+  if (provider === null) return 'nothing';
+
+  const names: string[] = [];
+  if (provider.baseUrl !== undefined) names.push('endpoint');
+  if (provider.authToken !== undefined) names.push('credential');
+  if (provider.model !== undefined) names.push('model');
+  return names.length === 0 ? 'nothing' : names.join(', ');
+}
+
+/** The keys a pin can keep. Never the model: the model travels free (ADR 0002). */
+function keptKeys(pin: ProjectPin | null): string[] {
+  if (pin === null) return [];
+
+  const names: string[] = [];
+  if (pin.baseUrl !== undefined) names.push('endpoint');
+  if (pin.authToken !== undefined) names.push('credential');
+  return names;
 }
 
 /** The protocol's resume payload, as the provider's input fields. */

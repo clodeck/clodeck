@@ -35,7 +35,10 @@ import { useSessions } from './useSessions';
 export function ChatPanel({ project }: { project: Project }): ReactElement {
   const { view, connection, sendPrompt, interrupt, respond, resume, dismissError } = useChat(project);
   const sessions = useSessions(project);
-  const profiles = useProfiles();
+  // Per project, not per app: the list is the deployment's, but which of it a
+  // session may choose from is the project's — a project that pins its provider
+  // is offered its tiers alone (ADR 0002).
+  const profiles = useProfiles(project.id);
   const [browserOpen, setBrowserOpen] = useState(false);
 
   /**

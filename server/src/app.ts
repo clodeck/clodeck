@@ -128,7 +128,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         gated.addHook('onRequest', createAuthGate(options.auth.sessions));
 
         registerProjectRoutes(gated, { projects: options.projects });
-        registerProfileRoutes(gated, { profiles: options.profiles });
+        registerProfileRoutes(gated, { projects: options.projects, profiles: options.profiles });
         registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
         registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
         registerFileRoutes(gated, { projects: options.projects });

@@ -1,4 +1,4 @@
-import { mkdir, realpath } from 'node:fs/promises';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
@@ -554,6 +554,9 @@ describe('the /ws event bus', () => {
       ANTHROPIC_AUTH_TOKEN: 'server-credential',
       ANTHROPIC_MODEL: 'claude-opus-5-5',
       CLODECK_PROVIDER_FAST_MODEL: 'claude-haiku-5-5',
+      // A profile that names a host of its own — a *provider* — so the pin's own
+      // case has one to be asked for and refused.
+      CLODECK_PROVIDER_VENDOR_BASE_URL: 'https://vendor.example/anthropic',
     };
 
     /** An app whose profiles are that environment — read once, as boot does. */
@@ -563,6 +566,36 @@ describe('the /ws event bus', () => {
     ): ReturnType<typeof makeApp> {
       const profiles = createProviderProfiles(ENV, () => undefined);
       return makeApp(options, log === undefined ? { profiles } : { profiles, log });
+    }
+
+    /**
+     * A project directory, with a `.claude/settings.json` holding `settings` —
+     * which is what makes a project pin its provider. Called without one, it
+     * makes a project that pins nothing at all, settings file included.
+     */
+    async function project(name: string, settings?: unknown): Promise<string> {
+      const dir = path.join(root, name);
+      await mkdir(path.join(dir, '.claude'), { recursive: true });
+      if (settings !== undefined) {
+        await writeFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings));
+      }
+      return realpath(dir);
+    }
+
+    /** One send on `profile`, from a socket bound to `cwd`. */
+    async function send(
+      cwd: string,
+      profile: string,
+      log?: (line: string) => void,
+    ): Promise<FakeProvider> {
+      const { app, provider, cookie } = await withProfiles({}, log);
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello', profile } });
+      await provider.waitForQueryInput(1);
+      return provider;
     }
 
     it('runs the turn on the chosen profile: its endpoint, its credential and its model', async () => {
@@ -643,6 +676,74 @@ describe('the /ws event bus', () => {
       expect(lines[0]).toContain('FAST');
       expect(lines[0]).toContain('claude-haiku-5-5');
       expect(lines[0]).toContain(cwd);
+    });
+
+    it('sends the model alone in a project that pins its provider, however the client asks', async () => {
+      // The project declares its own endpoint and credential …
+      const cwd = await project('pinned', {
+        env: {
+          ANTHROPIC_BASE_URL: 'https://vendor.example/anthropic',
+          ANTHROPIC_AUTH_TOKEN: 'project-credential',
+        },
+      });
+
+      // … and the client asks for the *provider*-shaped profile, the one whose
+      // endpoint and credential are its own. A tampered client is the case the
+      // rule is enforced for, so this is a request the server must survive
+      // without ever producing a mixed pair.
+      const provider = await send(cwd, 'VENDOR');
+      await provider.waitForQueryInput(1);
+
+      // The model travels free; the endpoint and the credential both stay the
+      // project's. Sending the profile's pair here is what the ADR forbids, and
+      // `provider` being the trio minus its two would be the leak.
+      expect(provider.queryInputs[0]?.provider).toEqual({ model: 'claude-opus-5-5' });
+    });
+
+    it('sends the whole trio in a project that declares only a model, since a model is not a pin', async () => {
+      const cwd = await project('model-only', { env: { ANTHROPIC_MODEL: 'project-model' } });
+      const provider = await send(cwd, 'FAST');
+
+      // The file's model is what the project asks for by default, and the run's
+      // is what the session chose: `Options.env` outranks the file for a key it
+      // names, which is exactly why the model can travel while the pair cannot.
+      expect(provider.queryInputs[0]?.provider).toEqual({
+        baseUrl: 'https://gateway.example/anthropic',
+        authToken: 'server-credential',
+        model: 'claude-haiku-5-5',
+      });
+    });
+
+    it('records what a pinned project’s turn sent and what its pin kept, and never a credential', async () => {
+      const cwd = await project('pinned-log', { env: { ANTHROPIC_AUTH_TOKEN: 'project-credential' } });
+      const lines: string[] = [];
+      await send(cwd, 'FAST', (line) => lines.push(line));
+
+      // "What did that turn run on" has two halves once a project can outrank a
+      // choice, and the line carries both: the model it went out with, and the
+      // keys the file kept — with the reason, in one phrase.
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('FAST');
+      expect(lines[0]).toContain('claude-haiku-5-5');
+      expect(lines[0]).toContain('sent: model');
+      expect(lines[0]).toContain("kept by the project's pin: credential");
+      // Named, never quoted: the record of every turn is not a place this server
+      // writes a secret down.
+      expect(lines[0]).not.toContain('project-credential');
+      expect(lines[0]).not.toContain('server-credential');
+    });
+
+    it('records an unpinned turn as sending the whole trio, with no pin to report', async () => {
+      // No `.claude` directory and no settings file: the project that pins
+      // nothing, which is ticket 68's case and still behaves as it did.
+      await mkdir(path.join(root, 'plain'));
+      const cwd = await realpath(path.join(root, 'plain'));
+      const lines: string[] = [];
+      await send(cwd, 'FAST', (line) => lines.push(line));
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('sent: endpoint, credential, model');
+      expect(lines[0]).not.toContain('pin');
     });
   });
 
