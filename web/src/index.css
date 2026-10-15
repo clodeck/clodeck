@@ -22,6 +22,9 @@
   --color-ink: #e7edf3;
   --color-ink-dim: #8b98a8;
   --color-accent: #c96442;
+  /* The assistant tile's second stop (ticket 51) — the prototype's
+     `linear-gradient(150deg, var(--accent), #8f4327)` (`styles.css:118`). */
+  --color-accent-deep: #8f4327;
   --color-ok: #4ea87a;
   --color-err: #d95f5f;
   /* The code view's palette (ticket 45), taken from the prototype's class set:

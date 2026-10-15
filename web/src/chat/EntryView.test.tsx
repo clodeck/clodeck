@@ -2,7 +2,7 @@
 import { cleanup, getByText, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { EntryView } from './EntryView';
+import { EntryView, StreamingBubble } from './EntryView';
 import type { ToolEntry, ToolResultView } from './reducer';
 
 /**
@@ -102,6 +102,61 @@ describe('the tool card status badge', () => {
     expect(resultBody(container)?.open).toBe(false);
   });
 });
+
+/**
+ * The assistant's tile (ticket 51). Its presence on the assistant's own text and
+ * its absence everywhere else are the same rule seen twice: the transcript lists
+ * entries, not turns, so the tile marks the one entry kind that is the assistant
+ * speaking.
+ */
+describe('the assistant tile', () => {
+  it('marks an assistant message', () => {
+    const { container } = render(<EntryView entry={{ kind: 'assistant', text: 'hello' }} />);
+
+    expect(tiles(container)).toHaveLength(1);
+  });
+
+  it('leaves a user turn to its `You` label and its bubble', () => {
+    const { container } = render(<EntryView entry={{ kind: 'user', text: 'hello' }} />);
+
+    expect(tiles(container)).toHaveLength(0);
+    expect(getByText(container, 'You')).toBeDefined();
+  });
+
+  it('leaves the entries that belong to the message above them bare', () => {
+    const thinking = render(<EntryView entry={{ kind: 'thinking', text: 'hmm' }} />);
+    expect(tiles(thinking.container)).toHaveLength(0);
+
+    const notice = render(<EntryView entry={{ kind: 'notice', text: 'Interrupted' }} />);
+    expect(tiles(notice.container)).toHaveLength(0);
+
+    const tool = render(<EntryView entry={toolEntry({ result: okResult })} />);
+    expect(tiles(tool.container)).toHaveLength(0);
+  });
+
+  it('is decorative, and a long message does not stretch it', () => {
+    const { container } = render(
+      <EntryView entry={{ kind: 'assistant', text: 'a long answer '.repeat(50) }} />,
+    );
+
+    const tile = tiles(container)[0];
+    expect(tile?.getAttribute('aria-hidden')).toBe('true');
+    expect(tile?.textContent).toBe('');
+    expect(tile?.className).toContain('h-[26px]');
+    expect(tile?.className).toContain('shrink-0');
+  });
+
+  it('heads the message that is still streaming, not only the settled entry', () => {
+    const { container } = render(<StreamingBubble text="half an ans" />);
+
+    expect(tiles(container)).toHaveLength(1);
+  });
+});
+
+/** Every tile the transcript is currently drawing. */
+function tiles(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>('[data-assistant-tile]')];
+}
 
 /** The `Result` disclosure, or null while the card has no result. */
 function resultBody(container: HTMLElement): HTMLDetailsElement | null {

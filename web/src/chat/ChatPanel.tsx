@@ -3,7 +3,7 @@ import { useState, type ReactElement } from 'react';
 
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
-import { EntryView, formatInput } from './EntryView';
+import { EntryView, StreamingBubble, formatInput } from './EntryView';
 import type { ChatView, TurnResult } from './reducer';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
@@ -175,15 +175,6 @@ function ResumeBanner({ target, sessionTitle }: { target: ResumePayload; session
     <p className="rounded border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] text-ink" role="status">
       The next message continues <span className="font-semibold text-accent">{label}</span>
       {forked && ' in a new fork'}.
-    </p>
-  );
-}
-
-function StreamingBubble({ text }: { text: string }): ReactElement {
-  return (
-    <p className="mt-3 text-sm whitespace-pre-wrap text-ink">
-      {text}
-      <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent align-text-bottom" />
     </p>
   );
 }
