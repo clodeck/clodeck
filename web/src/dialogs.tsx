@@ -19,16 +19,19 @@ import { useState, type ReactElement, type ReactNode } from 'react';
  * why a refusal comes back as the `error` prop and leaves the dialog open.
  *
  * The rule is a prop rather than a default because the two callers have
- * different ones: a file name is a drawer name (`isValidName`), while a project
+ * different ones: a file name is a drawer name (`nameRefusal`), while a project
  * name is that *and* non-dot (discovery skips dot-directories, so such a project
- * would never be listed).
+ * would never be listed). The rule answers with a reason, not a bare `false`, so
+ * the dialog can say why the confirm is dead in the box it is sitting over —
+ * the server's own refusal still lands in the same line, for the refusals the
+ * client cannot see coming.
  */
 export function NameDialog({
   title,
   confirmLabel,
   initial,
   error,
-  isValid,
+  refusal,
   onSubmit,
   onCancel,
 }: {
@@ -36,13 +39,20 @@ export function NameDialog({
   confirmLabel: string;
   initial: string;
   error: string | null;
-  isValid: (name: string) => boolean;
+  refusal: (name: string) => string | null;
   onSubmit: (name: string) => Promise<void>;
   onCancel: () => void;
 }): ReactElement {
   const [value, setValue] = useState(initial);
   const name = value.trim();
-  const valid = isValid(name);
+  const refused = refusal(name);
+  const valid = refused === null;
+  // The client's refusal is about the box's *current* content, so it speaks for
+  // it while there is anything to refuse; otherwise the caller's `error` — the
+  // server's word on the last submit — keeps the line. An empty box says
+  // nothing: there is nothing to explain yet, and the dead confirm is the whole
+  // of it.
+  const message = refused !== null && name !== '' ? refused : error;
 
   return (
     <Overlay label={title}>
@@ -61,7 +71,9 @@ export function NameDialog({
           placeholder="name"
           className="mt-3 w-full rounded border border-line bg-canvas px-2 py-1 font-mono text-[12px] text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
         />
-        {error !== null && <p className="mt-2 font-mono text-[11px] break-words text-err">{error}</p>}
+        {message !== null && (
+          <p className="mt-2 font-mono text-[11px] break-words text-err">{message}</p>
+        )}
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"

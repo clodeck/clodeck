@@ -343,13 +343,43 @@ export function movedPath(open: string, path: string, dest: string): string {
 }
 
 /**
- * Whether a name is safe to offer as a new file/folder/rename target: a single
- * non-empty segment, never `.`/`..`, no separator, no NUL. This is the panel's
- * cheap refusal; the server re-validates through its own `name()` brand.
+ * The server's own cap on one name segment in **bytes** — the host fs's 255,
+ * enforced in `scoped-fs.ts` (`MAX_NAME_BYTES`, `name()`). Adopted, not invented:
+ * a name the panel offers has to be one the server will not refuse for its
+ * length, so the two ends agree on which names those are.
+ */
+export const MAX_NAME_BYTES = 255;
+
+/** UTF-8 bytes, counted the way the server's `Buffer.byteLength(name, 'utf8')` counts them. */
+const utf8 = new TextEncoder();
+
+/**
+ * Why a name is not safe to offer as a new file/folder/rename target, or `null`
+ * when it is: a single non-empty segment, never `.`/`..`, no separator, no NUL,
+ * and no longer than the server's {@link MAX_NAME_BYTES}. The cap is in bytes,
+ * as the server measures it, so a multi-byte name gets fewer characters.
+ *
+ * This is the panel's cheap refusal; the server re-validates through its own
+ * `name()` brand. It answers with the *reason*, not a bare `false`, so the dialog
+ * can say why rather than leaving the confirm dead — the composer's hint is the
+ * same idea, a thing said instead of a control gone quiet.
+ */
+export function nameRefusal(name: string): string | null {
+  if (name === '') return 'a name cannot be empty';
+  if (name === '.' || name === '..') return '`.` and `..` are not names';
+  if (name.includes('/') || name.includes('\\')) return 'a name cannot contain a separator';
+  if (name.includes('\0')) return 'a name cannot contain a NUL';
+  if (utf8.encode(name).length > MAX_NAME_BYTES) return `a name is at most ${String(MAX_NAME_BYTES)} bytes`;
+  return null;
+}
+
+/**
+ * The same rule as a yes/no: what the boundary tests assert in, a name accepted
+ * or refused. The dialogs take {@link nameRefusal} instead — a dead confirm has
+ * to say why, and `false` cannot.
  */
 export function isValidName(name: string): boolean {
-  if (name === '' || name === '.' || name === '..') return false;
-  return !name.includes('/') && !name.includes('\\') && !name.includes('\0');
+  return nameRefusal(name) === null;
 }
 
 /* -------------------------------------------------------------------------- */
