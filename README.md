@@ -116,6 +116,9 @@ Nothing else: no database, no global tooling.
 Two processes, one browser tab, on the machine you are sitting at. Four steps to a signed-in browser,
 then two more: step 5 is how the app is deployed, and step 6 runs it without an API key.
 
+**Prefer to be walked through it?** `bash scripts/setup-clodeck.sh` asks for each value, writes them
+down, and starts nothing until you say so — see [Or let the wizard do it](#or-let-the-wizard-do-it).
+
 ### 1. Install
 
 ```sh
@@ -221,6 +224,29 @@ The server then answers from a scripted fake Agent SDK provider: the whole chat 
 tool cards, the approval modal, history and resume — is exercisable offline, and every other surface is
 the real one. It still needs `UI_PASSWORD`: the gate is installed exactly the same way. Use it for UI
 work, and for a first look at the app before wiring a key.
+
+### Or let the wizard do it
+
+`scripts/setup-clodeck.sh` is steps 1–6 *with* you rather than *to* you: it checks the checkout and
+the Node version, asks for the projects root and the login password, walks the provider profiles
+([below](#provider-profiles)), and generates a launcher. It is a bash script — on Windows that means
+Git Bash, which comes with Git for Windows.
+
+```sh
+bash scripts/setup-clodeck.sh
+```
+
+It adds two things the steps above leave implicit, both because **the server reads real environment
+variables and nothing else** — there is no dotenv in this repo:
+
+- **`.env`** — every value it captured, in one place. `docker compose` reads that file by itself;
+  nothing else does, which is what the launcher is for.
+- **`start-clodeck.ps1`** and **`start-clodeck.sh`** — a launcher that loads `.env` into the
+  environment and runs `npm run serve`. Both are gitignored, as `.env` is: they belong to the
+  machine, not to the repo.
+
+Re-running it is safe. Every prompt offers the value already saved and Enter keeps it, so a second
+run is how you add a tier or correct one path.
 
 ## Run it on a server
 
@@ -758,6 +784,7 @@ Every command runs from the repo root.
 | `npm run dev:fake` | The same, but the server runs the scripted fake Agent SDK provider instead of the real one — the whole chat surface with no API key and no network. It still needs `UI_PASSWORD`: the gate is installed the same way, so an unset password is fail-closed here too. |
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
 | `npm run serve` | **The deployment command:** a preflight that stops — plainly, before anything is built — when `UI_PASSWORD` or `PROJECTS_ROOT` is missing, then `npm run build`, then the server, serving the client it just built. |
+| `bash scripts/setup-clodeck.sh` | Walks you through the configuration — projects root, password, provider profiles — then writes `.env` and the launcher `npm run serve` needs to see it. See [Or let the wizard do it](#or-let-the-wizard-do-it). |
 | `npm start --workspace @clodeck/server` | Runs the server from `dist/`, serving the client directory it resolves (or the `WEB_ROOT` you set). Reach for `serve` unless a service manager is starting it for you. |
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
