@@ -5,6 +5,7 @@ import { LoginScreen } from './auth/LoginScreen';
 import { useAuth } from './auth/useAuth';
 import { ChatPanel } from './chat/ChatPanel';
 import { FilePanel } from './files/FilePanel';
+import { Icon } from './icons';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { TerminalPanel } from './terminal/TerminalPanel';
 import { ToastProvider } from './toast/ToastProvider';
@@ -227,7 +228,7 @@ function Rail({ tab, onTab }: { tab: DrawerTab; onTab: (tab: DrawerTab) => void 
         active={tab === 'terminal'}
         onClick={() => { onTab('terminal'); }}
       />
-      <RailButton icon="files" label="Files" active={tab === 'files'} onClick={() => { onTab('files'); }} />
+      <RailButton icon="folder" label="Files" active={tab === 'files'} onClick={() => { onTab('files'); }} />
     </nav>
   );
 }
@@ -238,7 +239,7 @@ function RailButton({
   active,
   onClick,
 }: {
-  icon: 'chat' | 'terminal' | 'files';
+  icon: 'chat' | 'terminal' | 'folder';
   label: string;
   active: boolean;
   onClick: () => void;
@@ -254,37 +255,8 @@ function RailButton({
         active ? `${CHROME_TONE.current} text-accent` : CHROME_TONE.resting
       }`}
     >
-      <RailIcon name={icon} />
+      <Icon name={icon} />
     </button>
-  );
-}
-
-/** Three strokes each; decorative, so the button's `aria-label` is the name. */
-function RailIcon({ name }: { name: 'chat' | 'terminal' | 'files' }): ReactElement {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-[18px] w-[18px]"
-    >
-      {name === 'chat' && (
-        <path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h8a2.5 2.5 0 0 1 2.5 2.5v5A2.5 2.5 0 0 1 14 14H8.5l-4 2.5V14A2.5 2.5 0 0 1 3.5 11.5z" />
-      )}
-      {name === 'terminal' && (
-        <>
-          <path d="M4.5 6.5 8 10l-3.5 3.5" />
-          <path d="M11 13.5h4.5" />
-        </>
-      )}
-      {name === 'files' && (
-        <path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h3l1.5 2h5.5A1.5 1.5 0 0 1 16.5 8.5v5A1.5 1.5 0 0 1 15 15H5a1.5 1.5 0 0 1-1.5-1.5z" />
-      )}
-    </svg>
   );
 }
 

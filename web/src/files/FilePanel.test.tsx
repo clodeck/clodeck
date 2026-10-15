@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { MAX_UPLOAD_BYTES, type Project } from '@clodeck/shared';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, type Project } from '@clodeck/shared';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -242,6 +242,54 @@ describe('FilePanel in the drawer', () => {
     // The code head shows the path the bytes belong to.
     expect(within(code).getByText('README.md')).toBeTruthy();
     expect(screen.queryByText('no file selected')).toBeNull();
+  });
+});
+
+describe('the toolbar is icons, and every action keeps its name', () => {
+  it('draws five labelled icon buttons on one row', () => {
+    stubFiles();
+    renderPanel();
+
+    const toolbar = screen.getByRole('group', { name: 'File actions' });
+    const buttons = within(toolbar).getAllByRole('button');
+    expect(buttons).toHaveLength(5);
+    // One row: nothing is allowed to wrap to a second line at 300px.
+    expect(toolbar.className).not.toContain('flex-wrap');
+
+    for (const button of buttons) {
+      // The picture is decorative...
+      expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      // ...so the name is the label, and the label is the name the role query
+      // computes — a future icon cannot arrive unlabelled.
+      const name = button.getAttribute('aria-label') ?? '';
+      expect(name.trim()).not.toBe('');
+      expect(within(toolbar).getByRole('button', { name })).toBe(button);
+      // A fixed square, so the row's hit area is the tool's, not the glyph's.
+      expect(button.className).toContain('h-8');
+      expect(button.className).toContain('w-8');
+    }
+  });
+
+  it('moves the folder, the upload cap and the toggle target into the tooltips', async () => {
+    stubFiles();
+    renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    // At the root the create tooltips say where a create lands...
+    expect(screen.getByRole('button', { name: 'New File' }).getAttribute('title')).toBe('New file in root');
+    expect(screen.getByRole('button', { name: 'New Folder' }).getAttribute('title')).toBe('New folder in root');
+    // ...the upload tooltip keeps the cap...
+    expect(screen.getByRole('button', { name: 'Upload' }).getAttribute('title')).toBe(`Upload files (max ${String(MAX_UPLOAD_MB)} MB each)`);
+    // ...and the toggle says what it switches to.
+    expect(screen.getByRole('button', { name: 'List' }).getAttribute('title')).toBe('Flat list of this folder');
+
+    // An active folder is named in the create tooltips.
+    fireEvent.click(screen.getByTitle('Expand folder'));
+    expect(screen.getByRole('button', { name: 'New File' }).getAttribute('title')).toBe('New file in src');
+
+    // The toggle's target flips with the view.
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    expect(screen.getByRole('button', { name: 'Tree' }).getAttribute('title')).toBe('Tree view');
   });
 });
 

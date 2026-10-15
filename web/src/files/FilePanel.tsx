@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { NameDialog, Overlay } from '../dialogs';
+import { Icon, type IconName } from '../icons';
 import { useToast } from '../toast/ToastProvider';
 import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
@@ -154,6 +155,9 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   // The folder create/upload land in, read off the view model: `''` is the root.
   const activeDir = viewer.status === 'ready' ? viewer.active : '';
   const activeLabel = viewer.status === 'ready' ? (viewer.active === '' ? 'root' : viewer.active) : null;
+  // The create tooltips' `… in <folder>`, said once: the folder a create lands
+  // in, and nothing while the listing is not ready to name one.
+  const createIn = activeLabel === null ? '' : ` in ${activeLabel}`;
   // The code column's state, which is `none` until a file is opened and whenever
   // the tree itself has nothing to show.
   const preview = viewer.status === 'ready' ? viewer.preview : noPreview;
@@ -281,9 +285,9 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
       {/* The tree column: the toolbar and the breadcrumb it acts in, then the
           tree itself. It is the only column with a fixed width. */}
       <div className="flex w-[300px] shrink-0 flex-col border-r border-line">
-        {/* The breadcrumb gets its own line: four labelled buttons plus a path do
-            not fit across 300px, and a squeezed path is the one thing here the
-            reader cannot do without (it is where new file/folder land). */}
+        {/* The breadcrumb gets its own line: the toolbar is one row of five
+            icons, and a squeezed path is the one thing here the reader cannot do
+            without (it is where new file/folder land). */}
         <header className="shrink-0 border-b border-line px-3 py-2">
           {/* The trail to the folder create and upload land in — and, in the flat
               list, the way back up out of a folder. The tree reads the same trail
@@ -298,17 +302,38 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
               label={`New file, new folder and upload land in: ${activeLabel}`}
             />
           )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <ToolbarButton onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}>New File</ToolbarButton>
-            <ToolbarButton onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}>New Folder</ToolbarButton>
-            <ToolbarButton onClick={() => { fileInput.current?.click(); }}>Upload</ToolbarButton>
-            <ToolbarButton onClick={actions.refresh}>Refresh</ToolbarButton>
+          {/* Five icons on one line: the labels live in each button's name and
+              tooltip, and the tooltip is where the context the old text buttons
+              carried — the folder a create lands in, the upload cap, the view
+              the toggle switches to — is said. The row is a labelled `group`,
+              as the tree's drop area is, so the five actions are announced as
+              one set rather than five loose buttons. */}
+          <div role="group" aria-label="File actions" className="mt-1.5 flex items-center gap-1">
             <ToolbarButton
-              onClick={() => { setView(view === 'tree' ? 'list' : 'tree'); }}
+              icon="filePlus"
+              label="New File"
+              title={`New file${createIn}`}
+              onClick={() => { setPrompt({ mode: 'create-file' }); setPromptError(null); }}
+            />
+            <ToolbarButton
+              icon="folderPlus"
+              label="New Folder"
+              title={`New folder${createIn}`}
+              onClick={() => { setPrompt({ mode: 'create-folder' }); setPromptError(null); }}
+            />
+            <ToolbarButton
+              icon="upload"
+              label="Upload"
+              title={`Upload files (max ${String(MAX_UPLOAD_MB)} MB each)`}
+              onClick={() => { fileInput.current?.click(); }}
+            />
+            <ToolbarButton icon="refresh" label="Refresh" title="Refresh the tree" onClick={actions.refresh} />
+            <ToolbarButton
+              icon={view === 'tree' ? 'list' : 'folder'}
+              label={view === 'tree' ? 'List' : 'Tree'}
               title={view === 'tree' ? 'Flat list of this folder' : 'Tree view'}
-            >
-              {view === 'tree' ? 'List' : 'Tree'}
-            </ToolbarButton>
+              onClick={() => { setView(view === 'tree' ? 'list' : 'tree'); }}
+            />
           </div>
         </header>
 
@@ -1363,23 +1388,36 @@ function Note({ tone, children }: { tone?: 'accent'; children: ReactNode }): Rea
 /* Small pieces                                                               */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A toolbar action as an icon: the picture is decorative, so `label` is the
+ * button's accessible name (and the tests' handle on it) while `title` carries
+ * the context the visible text used to. The 32px square is narrower across than
+ * the widest text button it replaced and half again as tall — those were 21px,
+ * under any sane target size — so the target is the icon idiom the prototype's
+ * `.icon-btn` and ticket 49's rail already use, and the height is the dimension
+ * that improved. Five of them fit the 300px column on one line, where the labels
+ * wrapped to two.
+ */
 function ToolbarButton({
-  children,
-  onClick,
+  icon,
+  label,
   title,
+  onClick,
 }: {
-  children: string;
+  icon: IconName;
+  label: string;
+  title: string;
   onClick: () => void;
-  title?: string;
 }): ReactElement {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-label={label}
       title={title}
-      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+      className="flex h-8 w-8 items-center justify-center rounded text-ink-dim hover:bg-white/5 hover:text-ink"
     >
-      {children}
+      <Icon name={icon} />
     </button>
   );
 }
