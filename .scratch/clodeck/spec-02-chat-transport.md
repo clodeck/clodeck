@@ -111,5 +111,5 @@ SDK ro faghat be `server` add mikonim va mirror ro bar-ash pin mikonim (assignab
 
 - In slice faghat wiring ast: SDK provider, bus, history, va chat-client — na dobare-tarhi-e chiz-i ke wayfinder ya slice-01 tasmim gerefte. Har jaa be tasmim-e wayfinder este'ad mide, ba shomare-ye ticket va § eshare kon (mesl-e "wayfinder 04 §2").
 - Ticket-ha az **`06`** edame mikonand (01–05 ghablan estefade shode). Ye split-e tabi'i (baraye `/to-tickets`): (06) SDK dep + pin + widen-e mirror; (07) `SdkProvider` interface + fake; (08) bus/`/ws` + control messages + approvals; (09) history REST + `SessionSummary`/`SessionMessage`; (10) client chat + renderer + approval modal; (11) client history/resume + reconnect/snapshot.
-- `main.ts` hanooz `HOST` loopback default mikonad; hich key-handling dar server nist (SDK az env mikhanad).
+- `main.ts` hanooz `HOST` loopback default mikonad; hich key-handling dar server nist (SDK az env mikhanad). **Superseded 2026-10-15:** az ticket 66 be ba'd server credential-e profile-e entekhab-shode ra az environment-e khodesh *mikhanad* — vali hanooz hich vaght store, persist ya invent nemikone. `docs/adr/0002-provider-credentials-travel-with-their-endpoint.md`.
 - `buildApp` signature be `{ projects, provider }` tabdil mishe; test-ha-ye mojood-e `app.test.ts` be provider-e fake update mishavand (mechanical).

@@ -1,8 +1,8 @@
 # Clodeck
 
 A single-user web UI that puts Claude Code behind a browser, on a dedicated server that also holds
-every project directory. This glossary names the vocabulary of *getting it running and reaching it* —
-the part of the product an operator meets before they ever sign in.
+every project directory. This glossary names the vocabulary of *getting it running, powering it, and
+reaching it* — the part of the product an operator meets before they ever sign in.
 
 ## Language
 
@@ -29,3 +29,27 @@ _Avoid_: tunnel mode, SSH mode
 The origin a browser reaches the app at. Not necessarily the origin the app process itself sees — a
 proxy terminating TLS makes the two differ, which is why the app cannot infer it.
 _Avoid_: base URL, public URL, domain, external URL
+
+**Provider**:
+An API endpoint a session can be run against, together with the credential and the model that go to it.
+clodeck speaks exactly one API shape — the Anthropic Messages API — so any other vendor arrives through
+a translation proxy the operator runs.
+_Avoid_: backend, vendor, LLM, model (a model is not a provider)
+
+**Provider profile**:
+A named patch over the server's environment, exported as `CLODECK_PROVIDER_<NAME>_*`, that a session may
+run on. It may declare any subset of the endpoint, the credential and the model; keys it leaves unset
+are inherited. The reserved **default** profile is the server's own environment.
+_Avoid_: config, preset, connection, account
+
+**Tier**:
+A provider profile that declares only a model — the cheap-or-strong choice available inside a project
+whose endpoint and credential are fixed by the project. Not a separate concept: a tier *is* a
+model-only profile.
+_Avoid_: model, level, class, quality setting
+
+**Pinned project**:
+A project whose `.claude/settings.json` declares the provider's endpoint or its credential. Its pin
+outranks a session's choice, because the endpoint and its credential travel together — which is why the
+effective provider is always shown.
+_Avoid_: locked project, fixed project, hardcoded provider
