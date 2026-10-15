@@ -492,8 +492,10 @@ describe("the open file's write state is one chip", () => {
     fireEvent.click(await screen.findByRole('button', { name: 'main.ts' }));
 
     // One control states the state the file is in — and is how it is switched.
+    // The word is the state, so the chip is pressed: `false` here announced the
+    // opposite of the word, telling assistive tech the file is writable.
     const chip = await screen.findByRole('button', { name: 'read-only' });
-    expect(chip.getAttribute('aria-pressed')).toBe('false');
+    expect(chip.getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(chip);
     // Editing names the new state, beside the write and its undo.

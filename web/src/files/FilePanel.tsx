@@ -1216,7 +1216,7 @@ function CodeActions({
         <>
           {/* Truncation is a caveat about the bytes, not the write state — so it
               takes its own inert element rather than the state's slot, and the
-              chip beside the toggle keeps saying `read-only`. */}
+              chip keeps saying `read-only` beside it. */}
           {preview.truncated && <Note>truncated</Note>}
           {/* Markdown gets a second way to read the same bytes; every other
               file type has only the source, so it gets no such control. */}
@@ -1354,7 +1354,11 @@ function MarkdownToggle({ previewing, onToggle }: { previewing: boolean; onToggl
  * (`variant-a.js:98-103`) — and, when the state can be switched, *is* the switch.
  * The word is the state, not the action, and `aria-pressed` carries it for
  * assistive tech, so the control says what is true rather than what a click will
- * do. The tone is the level scale's: the resting chip is a surface a step above
+ * do. Because the word *is* the state, the switchable chip is always pressed:
+ * carrying the write state there instead announced the opposite of the word
+ * beside it — a control called `read-only`, unpressed, which reads as writable
+ * (ticket 53's review). The tone is the level scale's: the resting chip is a
+ * surface a step above
  * the head, the writable one the prototype's translucent accent (`styles.css:70-77`).
  *
  * Where there is nothing to switch the chip is a plain element, the same word
@@ -1413,7 +1417,7 @@ function WriteStateChip({
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={writable}
+      aria-pressed={true}
       title={title}
       className={`${surface} hover:opacity-90`}
     >
