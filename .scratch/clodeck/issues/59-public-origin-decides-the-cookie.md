@@ -16,29 +16,29 @@ expression exists.
 
 **Status:** resolved
 
-- [ ] The **public origin** comes from `CLODECK_PUBLIC_URL` (trimmed); unset or blank means *undeclared*.
+- [x] The **public origin** comes from `CLODECK_PUBLIC_URL` (trimmed); unset or blank means *undeclared*.
       Environment-only, like the password and the web root — the config file stays `projectsRoot`-only.
-- [ ] **A declared `http:` origin produces a session cookie with no `Secure`** — on login *and* on the
+- [x] **A declared `http:` origin produces a session cookie with no `Secure`** — on login *and* on the
       clear-cookie at logout, so the two match. `HttpOnly`, `SameSite=Strict`, `Path=/` and the 7-day
       idle window are untouched.
-- [ ] **A declared `https:` origin, and an undeclared one, both keep `Secure`.** An operator who upgrades
+- [x] **A declared `https:` origin, and an undeclared one, both keep `Secure`.** An operator who upgrades
       and sets nothing sees no change at all — the undeclared case is not the insecure one.
-- [ ] **A malformed value never fails open:** the cookie stays `Secure` and a warning names the variable
+- [x] **A malformed value never fails open:** the cookie stays `Secure` and a warning names the variable
       and the offending value. The server still boots — refusing to start over a URL typo was considered
       and rejected, because a safe fallback plus a loud line is recoverable and a dead server is not.
-- [ ] **The value is compared by scheme, never by host.** A LAN IP and a tunnelled
+- [x] **The value is compared by scheme, never by host.** A LAN IP and a tunnelled
       `http://localhost:3001` behave exactly as any other declared origin of that scheme. Matching hosts
       would break the tunnelled and LAN-IP routes and buy nothing.
-- [ ] **The WebSocket handshake check is not touched.** It still compares `Origin`'s host to the request's
+- [x] **The WebSocket handshake check is not touched.** It still compares `Origin`'s host to the request's
       `Host` and deliberately ignores the scheme. A test pins it with the new variable declared: a
       same-origin upgrade is still admitted and a cross-origin one is still refused.
-- [ ] The origin reaches the auth transport through the existing `auth` seam; `buildApp`'s `AppOptions`
+- [x] The origin reaches the auth transport through the existing `auth` seam; `buildApp`'s `AppOptions`
       gains no field. The public origin is configuration (there is nothing behind it to fake), the same
       posture the static slice took for the web root.
-- [ ] Tests assert the external contract where it already lives — the auth transport suite's login and
+- [x] Tests assert the external contract where it already lives — the auth transport suite's login and
       logout assertions: the `Set-Cookie` header under each of the three declared states, and the
       clear-cookie on logout matching. No private helper is tested.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Note for whoever picks this up:** ticket 60 edits the same config object and resolver neighbourhood in
 the same file. Both are blocker-free and can run together, but expect one trivial conflict there.

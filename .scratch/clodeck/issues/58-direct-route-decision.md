@@ -71,18 +71,18 @@ Distilled from a grilling session; each is a decision the user owns, taken 2026-
       cannot infer the origin itself, the cleartext consequence, and the rejected alternatives (the
       boolean, `X-Forwarded-Proto`, self-signed-only).
 - [x] This ticket — the record the code tickets read.
-- [ ] `AGENTS.md` §"Standing decisions" — the auth line ("single-account login over HTTPS") gains the
+- [x] `AGENTS.md` §"Standing decisions" — the auth line ("single-account login over HTTPS") gains the
       direct route.
-- [ ] `README.md:234` `### The one rule: HTTPS, or localhost` — the heading is no longer a rule. It
+- [x] `README.md:234` `### The one rule: HTTPS, or localhost` — the heading is no longer a rule. It
       becomes the direct route's entry with its cost stated, and the tunnel becomes the alternative.
-- [ ] `README.md:227-232` the situation table — the direct route leads it for "no domain".
-- [ ] `README.md:194` — the "Optional" heading that hid the deploy path is re-shelved.
-- [ ] `README.md:524` `### Why a plain-HTTP address cannot hold a login` and `README.md:561` "The fix
+- [x] `README.md:227-232` the situation table — the direct route leads it for "no domain".
+- [x] `README.md:194` — the "Optional" heading that hid the deploy path is re-shelved.
+- [x] `README.md:524` `### Why a plain-HTTP address cannot hold a login` and `README.md:561` "The fix
       is not to weaken the cookie" — both become false and are rewritten.
-- [ ] `.scratch/web-claude-ui/issues/07-auth-permissions.md` and its line in
+- [x] `.scratch/web-claude-ui/issues/07-auth-permissions.md` and its line in
       `.scratch/web-claude-ui/map.md` — a **superseded** pointer. The wayfinder map is closed and is not
       rewritten; what must not survive is a reader taking its decision for current.
-- [ ] `.scratch/clodeck/spec-05-auth.md:100` (`No COOKIE_SECURE off-switch in MVP`) — the same
+- [x] `.scratch/clodeck/spec-05-auth.md:100` (`No COOKIE_SECURE off-switch in MVP`) — the same
       superseded pointer.
 
 The last four are deliberately left to the code tickets, not done here: they name behaviour that does
