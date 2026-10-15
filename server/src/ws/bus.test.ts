@@ -7,7 +7,9 @@ import { WebSocket } from 'ws';
 
 import type { ApprovalRequestPayload, ServerEvent, SDKMessage } from '@clodeck/shared';
 
+import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
+import { createProviderProfiles } from '../profiles.js';
 import {
   createSandbox,
   createTestApp,
@@ -44,14 +46,19 @@ describe('the /ws event bus', () => {
    * An app, its provider, and the `cookie` header its socket handshakes need —
    * logged in through the real route, because the gate fronts `/ws` and has no
    * bypass (spec-05 §Testing).
+   *
+   * `overrides` is how a suite that is *about* something else the app holds —
+   * the profiles, the run log — says so without a second factory.
    */
   async function makeApp(
     options: FakeProviderOptions = {},
+    overrides: Partial<AppOptions> = {},
   ): Promise<{ app: FastifyInstance; provider: FakeProvider; cookie: string }> {
     const provider = createFakeProvider(options);
     const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       provider,
+      ...overrides,
     });
     apps.push(app);
     return { app, provider, cookie: await login(app) };
@@ -447,12 +454,15 @@ describe('the /ws event bus', () => {
     const client = await connect(port, cookie, idFor(cwd));
     await client.next(); // the snapshot
 
-    // Unparseable JSON, an unknown type, and a payload missing a required field
-    // all land on the same answer.
+    // Unparseable JSON, an unknown type, a payload missing a required field, and
+    // a profile that is not a name all land on the same answer.
     const malformed: unknown[] = [
       'this is not json',
       { v: 1, id: 'c1', type: 'no_such_type', payload: {} },
       { v: 1, id: 'c2', type: 'send_prompt', payload: {} },
+      // A profile is a name and nothing else; a richer object is a frame this
+      // server does not understand rather than a name it can refuse.
+      { v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'hi', profile: { name: 'FAST' } } },
     ];
     for (const [index, frame] of malformed.entries()) {
       if (typeof frame === 'string') client.sendRaw(frame);
@@ -462,7 +472,7 @@ describe('the /ws event bus', () => {
     }
 
     // Nothing above closed or wedged the socket.
-    client.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'still here' } });
+    client.send({ v: 1, id: 'c4', type: 'send_prompt', payload: { prompt: 'still here' } });
     const started = await client.nextMatching((event) => event.kind === 'stream_status');
     expect(started).toMatchObject({ payload: { status: 'turn_started' } });
     await expect(provider.waitForQueryInput(1)).resolves.toMatchObject({ prompt: 'still here' });
@@ -535,6 +545,105 @@ describe('the /ws event bus', () => {
     await expect(client.nextMatching((event) => event.kind === 'stream_status')).resolves.toMatchObject(
       { payload: { status: 'turn_started' } },
     );
+  });
+
+  describe('the provider a turn runs on', () => {
+    /** A server with a provider of its own, and one extra tier declared beside it. */
+    const ENV: NodeJS.ProcessEnv = {
+      ANTHROPIC_BASE_URL: 'https://gateway.example/anthropic',
+      ANTHROPIC_AUTH_TOKEN: 'server-credential',
+      ANTHROPIC_MODEL: 'claude-opus-5-5',
+      CLODECK_PROVIDER_FAST_MODEL: 'claude-haiku-5-5',
+    };
+
+    /** An app whose profiles are that environment — read once, as boot does. */
+    function withProfiles(
+      options: FakeProviderOptions = {},
+      log?: (line: string) => void,
+    ): ReturnType<typeof makeApp> {
+      const profiles = createProviderProfiles(ENV, () => undefined);
+      return makeApp(options, log === undefined ? { profiles } : { profiles, log });
+    }
+
+    it('runs the turn on the chosen profile: its endpoint, its credential and its model', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await withProfiles();
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello', profile: 'FAST' } });
+      await provider.waitForQueryInput(1);
+
+      // The tier inherits the endpoint and the credential, and brings its own
+      // model: one source per key, and the whole trio resolved before the run.
+      expect(provider.queryInputs[0]?.provider).toEqual({
+        baseUrl: 'https://gateway.example/anthropic',
+        authToken: 'server-credential',
+        model: 'claude-haiku-5-5',
+      });
+    });
+
+    it('runs a send that names no profile on the reserved default — the server’s own environment', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await withProfiles();
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+      await provider.waitForQueryInput(1);
+
+      expect(provider.queryInputs[0]?.provider).toEqual({
+        baseUrl: 'https://gateway.example/anthropic',
+        authToken: 'server-credential',
+        model: 'claude-opus-5-5',
+      });
+    });
+
+    it('refuses an unknown or stale name visibly, and starts no run at all', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await withProfiles();
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello', profile: 'GONE' } });
+
+      const error = await client.nextMatching((event) => event.kind === 'error');
+      expect(error).toMatchObject({ projectId: idFor(cwd), payload: { code: 'unknown_profile' } });
+      // The client is told which profile it asked for — never quietly given the
+      // default, which would be a turn on a provider nobody chose.
+      expect(error.kind === 'error' ? error.payload.message : '').toContain('GONE');
+
+      // Nothing ran, and the project is not wedged: the next send starts a turn.
+      client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'again', profile: 'FAST' } });
+      await expect(provider.waitForQueryInput(1)).resolves.toMatchObject({ prompt: 'again' });
+      expect(provider.queryInputs).toHaveLength(1);
+    });
+
+    it('records which profile and model every run used', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const lines: string[] = [];
+      const { app, provider, cookie } = await withProfiles({}, (line) => lines.push(line));
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello', profile: 'FAST' } });
+      await provider.waitForQueryInput(1);
+
+      // One line per run, and it names both halves of "what did that turn run
+      // on" — the choice a person made, and the model it came to.
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('FAST');
+      expect(lines[0]).toContain('claude-haiku-5-5');
+      expect(lines[0]).toContain(cwd);
+    });
   });
 
   /** The id the wire carries for a directory: base64url of its canonical path. */

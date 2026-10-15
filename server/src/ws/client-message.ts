@@ -28,7 +28,11 @@ export function parseClientMessage(raw: string): ClientIntent | null {
       const payload = asObject(message['payload']);
       const prompt = payload?.['prompt'];
       if (typeof prompt !== 'string') return null;
-      return { type: 'send_prompt', payload: { prompt } };
+      // Absent is the default profile; anything else present must be a name, so
+      // a client cannot ask for a profile with, say, an object.
+      const profile = payload?.['profile'];
+      if (profile !== undefined && typeof profile !== 'string') return null;
+      return { type: 'send_prompt', payload: profile === undefined ? { prompt } : { prompt, profile } };
     }
     case 'interrupt':
       return { type: 'interrupt' };

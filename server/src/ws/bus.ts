@@ -5,6 +5,7 @@ import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 
 import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
 import type { ProjectDiscovery } from '../discovery.js';
+import { UnknownProfileError, type ProviderProfiles } from '../profiles.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
 import { WS_OPEN, textOf } from './frames.js';
@@ -25,7 +26,13 @@ import type { TurnManager } from './turn-manager.js';
 
 export function registerWsBus(
   app: FastifyInstance,
-  options: { projects: ProjectDiscovery; turns: TurnManager; auth: AuthOptions },
+  options: {
+    projects: ProjectDiscovery;
+    turns: TurnManager;
+    /** The boot-time profile list a `send_prompt` names one from. */
+    profiles: ProviderProfiles;
+    auth: AuthOptions;
+  },
 ): void {
   // `@fastify/websocket` is registered once in the app root (see `app.ts`); its
   // `websocket: true` handling is an `onRoute` hook, so it has already loaded by
@@ -43,7 +50,7 @@ export function registerWsBus(
 async function openConnection(
   socket: WebSocket,
   request: FastifyRequest,
-  options: { projects: ProjectDiscovery; turns: TurnManager },
+  options: { projects: ProjectDiscovery; turns: TurnManager; profiles: ProviderProfiles },
 ): Promise<void> {
   const emit = createEmitter(socket);
 
@@ -89,7 +96,7 @@ async function dispatchFrame(
   context: {
     projectId: string;
     cwd: string;
-    options: { turns: TurnManager };
+    options: { turns: TurnManager; profiles: ProviderProfiles };
     emit: EmitDraft;
   },
 ): Promise<void> {
@@ -104,7 +111,15 @@ async function dispatchFrame(
   try {
     switch (intent.type) {
       case 'send_prompt':
-        context.options.turns.sendPrompt(context.projectId, context.cwd, intent.payload.prompt);
+        // The name is resolved here, before anything starts: an unknown one
+        // throws, the run is never created, and the client is told which name it
+        // asked for — never quietly given the default.
+        context.options.turns.sendPrompt(
+          context.projectId,
+          context.cwd,
+          intent.payload.prompt,
+          context.options.profiles.resolve(intent.payload.profile),
+        );
         break;
       case 'interrupt':
         if (!(await context.options.turns.interrupt(context.projectId))) emitNoActiveTurn(context);
@@ -130,7 +145,13 @@ async function dispatchFrame(
         context.options.turns.setResumeTarget(context.projectId, intent.target);
         break;
     }
-  } catch {
+  } catch (error) {
+    // A stale name is the one failure the user can act on, so it is reported as
+    // itself — with the name they asked for — rather than as a generic failure.
+    if (error instanceof UnknownProfileError) {
+      context.emit(errorDraft(context.projectId, 'unknown_profile', error.message));
+      return;
+    }
     // One control message failing must not break the chain for the frames behind it.
     context.emit(errorDraft(context.projectId, 'internal', 'the control message failed'));
   }

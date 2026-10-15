@@ -107,8 +107,13 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
  * The one place "unset" is defined: an exported-but-empty variable is a shell
  * accident rather than a declaration, and every reader here has to agree about
  * that or the same deployment would mean two things.
+ *
+ * Exported because the provider profiles read the same `ANTHROPIC_*` variables
+ * this module reads (`profiles.ts`): "unset" has to mean one thing in both, or a
+ * blank `ANTHROPIC_MODEL` would be unset for the deployment and set for a
+ * profile.
  */
-function envValue(env: NodeJS.ProcessEnv, name: string): string | null {
+export function envValue(env: NodeJS.ProcessEnv, name: string): string | null {
   const value = env[name]?.trim();
   return value === undefined || value === '' ? null : value;
 }

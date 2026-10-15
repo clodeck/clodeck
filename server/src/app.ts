@@ -5,7 +5,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import type { ProjectDiscovery } from './discovery.js';
 import { registerFileRoutes } from './files/transport.js';
+import type { Log } from './logging.js';
 import { registerProjectRoutes } from './projects.js';
+import { registerProfileRoutes, type ProviderProfiles } from './profiles.js';
 import type { SdkProvider } from './sdk/provider.js';
 import { registerSessionRoutes } from './sessions.js';
 import { registerStaticClient } from './static.js';
@@ -24,6 +26,13 @@ export interface AppOptions {
    * scripted fake, with no API key and no network (spec-02 §Testing).
    */
   provider: SdkProvider;
+  /**
+   * The profiles a session may choose between, read once at boot and handed
+   * over whole: the route serves the list this value was built from, and a
+   * `send_prompt` resolves its name against the same one, so neither can see a
+   * set the other does not (spec-08 §"The provider module").
+   */
+  profiles: ProviderProfiles;
   /**
    * The only pty the routes are given (spec-03 §"The pty facade"). node-pty is a
    * native binding, so — like the SDK — it is injected here and the whole app
@@ -65,6 +74,13 @@ export interface AppOptions {
    * start.
    */
   trustedProxies: string | null;
+  /**
+   * Where a line about a run goes — the profile and model a turn actually used,
+   * which is the only record of a choice that is otherwise client state
+   * (spec-08 §"Testing"). Defaults to the console, so `main.ts` says nothing
+   * about it and only a suite that asserts the line injects one.
+   */
+  log?: Log;
 }
 
 /**
@@ -112,6 +128,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
         gated.addHook('onRequest', createAuthGate(options.auth.sessions));
 
         registerProjectRoutes(gated, { projects: options.projects });
+        registerProfileRoutes(gated, { profiles: options.profiles });
         registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
         registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
         registerFileRoutes(gated, { projects: options.projects });
@@ -123,7 +140,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   registerWsBus(app, {
     projects: options.projects,
-    turns: createTurnManager(options.provider),
+    turns: createTurnManager(options.provider, { log: options.log }),
+    profiles: options.profiles,
     auth: options.auth,
   });
   // The raw-byte sibling of `/ws`, on the same instance — no second server.

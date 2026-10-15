@@ -11,6 +11,8 @@ import {
   type SessionState,
 } from '@clodeck/shared';
 
+import { logToConsole, type Log } from '../logging.js';
+import type { ResolvedProfile } from '../profiles.js';
 import type { SdkProvider, SdkRun } from '../sdk/provider.js';
 import type { EmitDraft, EventDraft } from './events.js';
 
@@ -29,8 +31,13 @@ export interface TurnManager {
   snapshot(projectId: string): EventDraft;
   /** Attach a socket's emitter for live events; the returned function detaches it. */
   subscribe(projectId: string, emit: EmitDraft): () => void;
-  /** Start a turn on an idle project. */
-  sendPrompt(projectId: string, cwd: string, prompt: string): void;
+  /**
+   * Start a turn on an idle project, on the provider the caller resolved. The
+   * run carries the trio itself, so this is also where a turn's provider is
+   * recorded: the line below is the only answer to "what did that turn run on"
+   * that survives the turn.
+   */
+  sendPrompt(projectId: string, cwd: string, prompt: string, profile: ResolvedProfile): void;
   /** Interrupt the active run. False when the project has no active turn. */
   interrupt(projectId: string): Promise<boolean>;
   /** Change the active run's permission mode. False when there is no active turn. */
@@ -41,8 +48,14 @@ export interface TurnManager {
   setResumeTarget(projectId: string, target: ResumePayload): void;
 }
 
-export function createTurnManager(provider: SdkProvider): TurnManager {
+export interface TurnManagerOptions {
+  /** Where each run's profile and model are recorded. Defaults to the console. */
+  log?: Log;
+}
+
+export function createTurnManager(provider: SdkProvider, options: TurnManagerOptions = {}): TurnManager {
   const projects = new Map<string, ProjectRun>();
+  const log = options.log ?? logToConsole;
 
   function run(projectId: string): ProjectRun {
     const existing = projects.get(projectId);
@@ -88,7 +101,7 @@ export function createTurnManager(provider: SdkProvider): TurnManager {
       };
     },
 
-    sendPrompt(projectId, cwd, prompt) {
+    sendPrompt(projectId, cwd, prompt, profile) {
       const state = run(projectId);
       // A second send would drive the model twice; the turn in flight owns the
       // project until it ends.
@@ -100,6 +113,13 @@ export function createTurnManager(provider: SdkProvider): TurnManager {
         });
         return;
       }
+
+      // Recorded as the run starts, and only now: a send the busy check above
+      // turned away ran nothing, and a line for it would answer "what did that
+      // turn run on" about a turn that never was.
+      log(
+        `turn on profile ${profile.name} · model ${profile.provider.model ?? 'the endpoint decides'} · ${cwd}`,
+      );
 
       state.status = 'running';
       state.turnId = randomUUID();
@@ -118,6 +138,9 @@ export function createTurnManager(provider: SdkProvider): TurnManager {
         active = provider.query({
           cwd,
           prompt,
+          // The resolved trio, not the name: the run carries what it runs on, so
+          // an operator renaming or removing a profile mid-turn cannot move it.
+          provider: profile.provider,
           ...resumeInput(target),
           // Gated tools come back through the callback the whole stack shares.
           canUseTool: (request) => park(state, request),
