@@ -111,7 +111,7 @@ Nothing else: no database, no global tooling.
 ## Quickstart
 
 Two processes, one browser tab, on the machine you are sitting at. Four steps to a signed-in browser,
-and two more you can take later.
+then two more: step 5 is how the app is deployed, and step 6 runs it without an API key.
 
 ### 1. Install
 
@@ -348,6 +348,7 @@ WantedBy=multi-user.target
 ```sh
 # /etc/clodeck/clodeck.env — chmod 600, root-owned
 PROJECTS_ROOT=/srv/clodeck-projects
+# optional: unset, the server finds the build by walking up from its working directory, and logs it
 WEB_ROOT=/home/clodeck/clodeck/web/dist
 UI_PASSWORD_FILE=/home/clodeck/.config/clodeck/password
 ANTHROPIC_API_KEY=sk-ant-...
@@ -554,21 +555,22 @@ and `Ctrl-C` closes it. Then open the URL in the table above. Notes:
 
 If you want the direct route's reachability without the cleartext, and you have no domain, Caddy can
 issue the certificate from its **own local authority** instead of Let's Encrypt — the
-[`tls internal`](https://caddyserver.com/docs/caddyfile/directives/tls#tls) directive, on the same
-compose stack. The caveat is the whole story: no browser trusts that authority, so every device needs
-its root CA **installed** before the warning goes away — Caddy's root CA lands in the `caddy-data`
-volume and has to be copied onto each client. On iOS, installing the profile is only half of it: the
-certificate then has to be trusted under **Settings → General → About → Certificate Trust Settings**,
-and a warning clicked through is not enough. A laptop tolerates a warning; the phone bookmark this
-route exists for does not.
+[`tls internal`](https://caddyserver.com/docs/caddyfile/directives/tls#tls) directive, one line added
+to the compose stack's Caddyfile. The caveat is the whole story: no browser trusts that authority, so
+every device needs its root CA **installed** before the warning goes away — Caddy's root CA lands in
+the `caddy-data` volume and has to be copied onto each client. On iOS, installing the profile is only
+half of it: the certificate then has to be trusted under **Settings → General → About → Certificate
+Trust Settings**, and a warning clicked through is not enough. A laptop tolerates a warning; the
+phone bookmark this route exists for does not.
 [Docker Compose with a domain](#docker-compose-with-a-domain) stays the route with nothing to install
 anywhere.
 
 ```caddyfile
-# Caddyfile — the site address needs no public domain: any name that resolves to this
-# machine works, so a LAN name in each device's hosts file is enough. The certificate
-# comes from Caddy's own CA, so nothing is requested from Let's Encrypt.
-https://clodeck.lan {
+# The compose Caddyfile with that one line added. The site address still needs no
+# public domain — `CLODECK_DOMAIN` can be any name that resolves to this machine,
+# so a LAN name in each device's hosts file is enough — and Caddy now serves it
+# over HTTPS with a certificate from its own CA, asking nothing of Let's Encrypt.
+{$CLODECK_DOMAIN} {
 	tls internal
 	reverse_proxy app:3001 {
 		health_uri /healthz

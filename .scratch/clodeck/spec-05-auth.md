@@ -97,7 +97,8 @@ export interface SessionStore {
 
 - `@fastify/cookie` is the single new server dependency, registered at app root (before the gate, so `request.cookies` is parsed by the time the gate's `onRequest` runs).
 - One cookie, name `clodeck_session`, flags: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, `Max-Age=604800` (the 7-day idle window). No signed cookie — the value is an opaque token, not something to verify.
-- **`Secure` is always on** (decision 07 mandates "HTTPS only"). The dev loop still works because browsers exempt `http://localhost` from the `Secure` requirement; prod is HTTPS via Caddy. No `COOKIE_SECURE` off-switch in MVP. **Superseded 2026-10-15:** the flag follows the scheme of the declared public origin (`CLODECK_PUBLIC_URL`) — unset keeps exactly this behaviour — so a bare `http://` origin can hold a login, in cleartext, warned about at startup and on the login screen. See `docs/adr/0001-session-cookie-follows-public-origin.md` and `spec-07-direct-route.md`.
+- **`Secure` is always on** (decision 07 mandates "HTTPS only"). The dev loop still works because browsers exempt `http://localhost` from the `Secure` requirement; prod is HTTPS via Caddy. No `COOKIE_SECURE` off-switch in MVP.
+  - **Superseded 2026-10-15:** the bold claim above is no longer unconditional. The flag follows the scheme of the declared public origin (`CLODECK_PUBLIC_URL`) — unset keeps exactly this behaviour — so a bare `http://` origin can hold a login, in cleartext, warned about at startup and on the login screen. See `docs/adr/0001-session-cookie-follows-public-origin.md` and `spec-07-direct-route.md`.
 
 ### Routes + the gate
 
