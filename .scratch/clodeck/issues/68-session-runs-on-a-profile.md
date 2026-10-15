@@ -28,8 +28,9 @@ dārad va hich chizi dar yek run taghir nemikonad.
 - [ ] Picker ru **avvalin send**-e session ghofl mishavad. Surface migo **alān** chi dar hāl-e ejrā ast va
       hich vaght ede'a nemikone ke yek session *hamān* profile ast.
 - [ ] Yek session-e jadid dar yek project ru profile-i shoroo mishavad ke **ākharin bār dar hamān project**
-      estefāde shod (faghat client state; bā hich chizi ke remember shode nist → default). *In yek
-      inference-e `flag`-shode ast: dar grilling taeen nashod; age default-e har session rā mikhāhi, bego.*
+      estefāde shod — remember-shode dar browser state, va bā hich chiz-e remember-nashode → **default**
+      (environment-e server). *Tasmim-e user, 2026-10-15: re-pick-e dast-i dar har session-e jadid
+      workflow-e cheap/strong rā mikoshad. Hanooz hich chiz ru disk neveshte nemishavad.*
 - [ ] Har run dar log **migo** kodām profile va kodām model estefāde shod, pas "in turn vaghean ru chi raft"
       ba'd az vāghe'e javāb-pazir ast.
 - [ ] **Hich chiz persist nemishavad:** na file-e jadid, na store-e jadid. Entekhāb dar client mimānad.
