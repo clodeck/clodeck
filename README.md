@@ -603,6 +603,7 @@ Every command runs from the repo root.
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
 | `npm run e2e` | Runs the Playwright suite in `web/e2e/` against a dev loop that is already up (see [Development](#development)). |
+| `npm run sandcastle` | Drains the ticket queue under `.scratch/clodeck/issues/` — one pass per ticket, each on its own branch in its own container, implement then review. It never merges and never pushes, so the branches wait for you. See [`.sandcastle/README.md`](.sandcastle/README.md). |
 
 `dev`, `test`, `build` and `typecheck` all build `shared` first, because `server` and `web` resolve it
 through its built `exports` (`shared/dist`) — a clean clone has nothing to import until that happens.
@@ -799,6 +800,8 @@ before a socket exists.
 
 - [`AGENTS.md`](AGENTS.md) — working conventions for this repo: language, git flow, and how the local
   issue tracker is laid out.
+- [`.sandcastle/README.md`](.sandcastle/README.md) — the ticket loop: what one pass does, and the
+  checklist for running it on another machine.
 - [`.scratch/clodeck/`](.scratch/clodeck) — the current build effort: spec, tickets, handoff.
 - [`.scratch/web-claude-ui/`](.scratch/web-claude-ui) — the wayfinder spec and the verified visual
   prototype the UI follows.

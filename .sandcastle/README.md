@@ -1,0 +1,130 @@
+# The ticket loop
+
+`.sandcastle/main.mts`, run by `npm run sandcastle`, drains this effort's tickets: **one ticket per
+pass — its own branch, its own container, its own pair of agents**. The container is what buys the
+clean context: every `sandbox.run()` spawns a fresh `claude`, so ticket N+1 never sees ticket N's
+conversation.
+
+A pass is two agents on one branch:
+
+1. **implement** — one agent, `implement-prompt.md`, on `clodeck/<id>-<slug>`, closing the ticket's
+   status line in the same commit as the change.
+2. **review** — a second agent, `review-prompt.md`, on the same branch: the ticket's checklist against
+   the diff, then clarity and correctness, applying what it finds.
+3. **the branch is left behind for you.** The loop never merges and never pushes —
+   `.githooks/pre-push` refusing a push from inside the container is a guarantee, where asking an
+   agent not to push would only be a request.
+
+Which ticket is next is decided **on the host**, before any container exists: `scripts/tickets.mjs`
+reads `**Status:**` and `**Blocked by:**` out of `.scratch/clodeck/issues/*.md` and prints the tickets
+that are `ready-for-agent` with every blocker `resolved`. A ticket whose branch already exists is
+skipped — a status only reaches the host when its branch is merged, so an unmerged branch is the one
+thing standing between the loop and redoing the same ticket.
+
+`MAX_TICKETS` in `main.mts` caps a single run at six passes. Each pass is a container, an `npm ci` and
+two agents, so that constant is the dial that decides what a run costs.
+
+## Setting the loop up on another machine
+
+The loop runs on the host; only the agents run in the container. That is what splits the work in two.
+
+**Before you clone.** The loop reads the clone it is run from, and a clone is only as good as the
+remote it came from: `git status -sb` must say `## main...origin/main` with nothing ahead of it. A
+push left for later is work the new machine does not have.
+
+**On the host** — the clone, the toolchain, and the container runtime:
+
+| What | Why |
+|---|---|
+| The repo, **in a directory named `clodeck`** | The image's name comes from the repo directory's name (`sandcastle:clodeck`) and the loop looks that image up at run time. A clone in `clodeck-loop/` looks for `sandcastle:clodeck-loop` and finds nothing. |
+| Node ≥ 22.12, plus `python3 make g++` | The host runs the loop itself under `tsx`, so it needs `node_modules` — and on Linux `npm ci` compiles `node-pty`. The image carries the same toolchain for the same reason. |
+| Docker, and your user in the `docker` group | Every pass is a container. |
+| `git config user.name` and `user.email` | `main.mts` reads both from the host's git config and refuses to start without them: the image ships no gitconfig, so the agent could not commit at all. |
+| **`.sandcastle/.env`** | Gitignored, so a clone has none. See below — this is the step that fails quietly. |
+
+`.sandcastle/.env` forwards **only the keys that appear in it**. A key that exists in the host's
+environment alone is *not* passed into the container, which is why the file lists the provider's three
+keys explicitly and why an empty value (falling back to the host's environment) is the shape the
+example uses:
+
+```sh
+ANTHROPIC_BASE_URL=…       # the gateway or the API host
+ANTHROPIC_AUTH_TOKEN=…     # its token
+ANTHROPIC_MODEL=…          # a model that endpoint actually serves — passed straight to `claude --model`
+```
+
+A Claude subscription or an Anthropic key instead is `CLAUDE_CODE_OAUTH_TOKEN` (from
+`claude setup-token`) or `ANTHROPIC_API_KEY`, in the same file.
+
+**The whole checklist, in order:**
+
+```sh
+git clone <this repo> clodeck && cd clodeck
+npm ci
+git config user.name "…" && git config user.email "…"      # if the machine has neither
+cp .sandcastle/.env.example .sandcastle/.env               # then fill in the provider's keys
+npx sandcastle docker build-image                          # once, and again after any Dockerfile change
+npm run sandcastle
+```
+
+**Build the image as the user who will run the loop.** On Linux and macOS
+`sandcastle docker build-image` passes `--build-arg AGENT_UID=$(id -u)` — the container's `agent` is
+your uid, so files it writes into the bind-mounted worktree are yours — and the provider checks that
+match at run time. A build under `sudo` and a run under your own account is a uid mismatch, and the
+error names it: `UID mismatch: image … was built with UID 0, but the expected UID is 1000`.
+
+**Keep this clone for the loop.** Two things read the host's checked-out branch: the review agent's
+diff base (the built-in `TARGET_BRANCH` is whatever branch the host has checked out) and
+`git worktree add`, which branches each new ticket off `HEAD`. Leave the clone on `main`, and do the
+interactive work — a dev server, `npm run dev`, a stray `git switch` — in a second clone. That is also
+what makes it reasonable to run the loop on a machine you are not editing on: nothing about it needs
+your attention while it runs, and a machine with more cores to spare is exactly the machine to give it.
+
+**A Linux host is the faster one.** The Windows-specific repairs in `main.mts` were mostly about the
+bind mount crossing a Windows drive — the ~100× inflation of each test file's first run, and
+`node_modules` symlinks Linux made and Windows could not delete back. On a native filesystem those
+become no-ops (`core.autocrlf` is unset, so it is not passed in at all) and the install and the suite
+simply run at their own speed.
+
+## More than one lane at a time
+
+**Not today**, and the infra is not the reason. Containers are named `sandcastle-<uuid>` and worktrees
+are per-branch (`.sandcastle/worktrees/clodeck-67-provider-seam-per-run`), so two passes cannot collide
+there. The ticket *choice* is the reason: `nextTicket()` scans the ready list and takes the first
+ticket whose branch does not exist, with nothing serialising it. Two runs started together both take
+that same ticket, and the second either dies on `Branch '…' is already checked out in worktree …` or —
+worse, because it is silent — finds that worktree clean, reuses it, and puts a second agent into the
+same files.
+
+What it would take is a way to name the ticket per process, so each lane claims a different one:
+
+```sh
+npm run sandcastle -- --ticket 67      # not built yet: nextTicket() always searches
+npm run sandcastle -- --ticket 65      # a second shell, a second lane
+```
+
+Budget for it as a resource decision rather than a correctness one: each lane is a container, an
+`npm ci` and two agents, and two or three at once is comfortable on a server. The merges stay yours,
+one branch at a time, `--no-ff`, which is the real cost — the more lanes, the longer the queue of
+branches waiting to be read and merged.
+
+**The tracker limits parallelism more than the infra does.** A `**Blocked by:**` chain is serial by
+construction — 67 → 68 → 69 → 70 cannot overlap — and two tickets can look independent while still
+colliding in a merge. The tracker is also looser than it reads: it takes only the ids *before the first
+parenthesis* on a `Blocked by:` line, so a ticket whose prose says it needs another one can still be
+printed as ready. Pick lanes from different parts of the codebase, and read the tickets rather than
+trusting the queue's shape.
+
+## When a pass commits nothing
+
+Every way this setup can fail silently has one symptom — *the agent started and then did nothing* — and
+`main.mts` carries the repair for each one next to the reason for it: the hooks copied out of the
+worktree (a CRLF shebang is not executable, and the failure names a file that is sitting right there),
+`core.autocrlf` and `safe.directory` (a Linux container inherits neither from Git for Windows), the
+author identity, the model argument (`claudeCode()` always emits `--model`, so an argument-less call
+emits `--model undefined`), and clearing `node_modules` from inside the container before `close()`.
+
+So when a pass produces no commits, read `.sandcastle/logs/` for that run first, then check in this
+order: is `claude` on PATH in the image, are the provider's keys in `.sandcastle/.env`, did a real
+model reach `claudeCode()`, was the worktree left dirty by its own setup, and can the container's git
+commit at all.
