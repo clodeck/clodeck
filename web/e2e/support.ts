@@ -25,10 +25,23 @@ export const password: string = requireEnv('UI_PASSWORD');
 
 /** Log in through the app's own door, and wait for the workspace behind it. */
 export async function login(page: Page): Promise<void> {
+  await signIn(page);
+  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
+}
+
+/**
+ * The login round trip on its own — the box filled, Enter pressed — without the
+ * wait for the workspace that follows it.
+ *
+ * Split out for the one spec whose *point* is that the session survives the
+ * round trip rather than what the app draws afterwards (`direct-route.spec.ts`):
+ * asserting the session before the workspace appears is what makes a red run
+ * read as "401" instead of as a project button that never came.
+ */
+export async function signIn(page: Page): Promise<void> {
   await page.goto('/');
   await page.fill('#password', password);
   await page.press('#password', 'Enter');
-  await expect(page.getByRole('button', { name: 'demo' })).toBeVisible();
 }
 
 /**
