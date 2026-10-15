@@ -9,6 +9,7 @@
  * - `protocol.ts` — the ServerEvent / ClientMessage envelopes.
  * - `sdk.ts` — structural mirrors of the Agent SDK messages the client renders
  *   (no dependency on the SDK itself; that stays server-only).
+ * - `provider.ts` — the provider a run executes on (endpoint, credential, model).
  * - `session.ts` — the session-history shapes the two REST endpoints serve.
  * - `files.ts` — the file-drawer shapes the file-viewer endpoints serve.
  * - `auth.ts` — the `Principal` an authenticated session resolves to.
@@ -20,5 +21,6 @@ export * from './auth.js';
 export * from './files.js';
 export * from './project.js';
 export * from './protocol.js';
+export * from './provider.js';
 export * from './sdk.js';
 export * from './session.js';

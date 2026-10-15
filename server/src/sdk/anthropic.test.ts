@@ -6,17 +6,22 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 import type { ApprovalRequestPayload } from '@clodeck/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { normalizeSessionInfo, normalizeSessionMessage, toSdkCanUseTool } from './anthropic.js';
+import {
+  normalizeSessionInfo,
+  normalizeSessionMessage,
+  providerEnv,
+  toSdkCanUseTool,
+} from './anthropic.js';
 
 /**
  * The real provider is the only module that loads the SDK, so its translations
- * are the ones the fake cannot stand in for: the two history normalizations and
- * the `canUseTool` shape bridge. They are pure, so they are tested directly —
- * fixtures are plain data cast once to the SDK's own types, the way
- * `mirror.test.ts` casts them; re-running our own code to build an expectation
- * would only prove the cast.
+ * are the ones the fake cannot stand in for: the two history normalizations, the
+ * `canUseTool` shape bridge, and the environment a run's subprocess gets. They
+ * are pure, so they are tested directly — fixtures are plain data cast once to
+ * the SDK's own types, the way `mirror.test.ts` casts them; re-running our own
+ * code to build an expectation would only prove the cast.
  */
 
 function info(fields: Record<string, unknown>): SDKSessionInfo {
@@ -200,5 +205,46 @@ describe('toSdkCanUseTool', () => {
     expect(await deny('Read', {}, sdkOptions())).toEqual({ behavior: 'deny', message: 'not that file' });
     // The SDK's deny arm requires a message, so a silent deny still says something.
     expect((await silentDeny('Read', {}, sdkOptions())) as { message: string }).toHaveProperty('message');
+  });
+});
+
+describe('providerEnv', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('sets no env at all when the run carries no provider', () => {
+    // Today's behaviour, kept: `toSdkOptions` has nothing to assign, so the
+    // subprocess inherits the environment this process was started with.
+    expect(providerEnv(undefined)).toBeNull();
+  });
+
+  it('leaves the ambient environment standing and overrides the three provider keys', () => {
+    vi.stubEnv('CLODECK_AMBIENT_MARKER', 'kept');
+    vi.stubEnv('ANTHROPIC_MODEL', 'the-ambient-model');
+
+    const env = providerEnv({
+      baseUrl: 'https://gateway.example',
+      authToken: 'a-token',
+      model: 'deepseek-flash',
+    });
+
+    // `Options.env` replaces the subprocess environment, so every variable the
+    // provider has no opinion about has to survive the spread.
+    expect(env?.['CLODECK_AMBIENT_MARKER']).toBe('kept');
+    expect(env?.['PATH']).toBe(process.env['PATH']);
+    expect(env?.['ANTHROPIC_BASE_URL']).toBe('https://gateway.example');
+    expect(env?.['ANTHROPIC_AUTH_TOKEN']).toBe('a-token');
+    expect(env?.['ANTHROPIC_MODEL']).toBe('deepseek-flash');
+  });
+
+  it('leaves a key the provider does not carry at its ambient value', () => {
+    // A profile may declare only an endpoint and its credential; the model is
+    // then the endpoint's own decision, not an empty one sent on its behalf.
+    vi.stubEnv('ANTHROPIC_MODEL', 'the-ambient-model');
+
+    const env = providerEnv({ baseUrl: 'https://gateway.example', authToken: 'a-token' });
+
+    expect(env?.['ANTHROPIC_MODEL']).toBe('the-ambient-model');
   });
 });

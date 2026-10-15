@@ -14,6 +14,7 @@ import {
 import type {
   ApprovalResponsePayload,
   ContentBlock,
+  ResolvedProvider,
   SDKMessage,
   SessionMessage,
   SessionSummary,
@@ -27,9 +28,11 @@ import type { ApprovalCallback, SdkProvider, SdkRun, SdkRunInput } from './provi
  *
  * Everything crossing back out of here is a shared type — the mirrored message
  * stream, the two history shapes, the approval payloads — so the SDK can be
- * swapped and no consumer changes. The API key is never read, stored or passed:
- * the SDK takes it from the process environment, and setting `Options.env`
- * would *replace* that environment wholesale rather than merge into it.
+ * swapped and no consumer changes. A credential crosses *in*, on a run's
+ * `provider`, and `providerEnv` is the only way `Options.env` is ever set: the
+ * server reads what the operator exported into its own environment, and never
+ * invents, stores or persists one
+ * (`docs/adr/0002-provider-credentials-travel-with-their-endpoint.md`).
  */
 
 /**
@@ -39,6 +42,12 @@ import type { ApprovalCallback, SdkProvider, SdkRun, SdkRunInput } from './provi
  */
 export type TranscriptTurn = Omit<SdkSessionMessage, 'type'> & { type: 'user' | 'assistant' };
 
+/**
+ * The boot-time instance is the reserved **default** profile: it starts every
+ * run with no provider of its own, so each one runs on the server's own
+ * environment. A run that carries a provider travels through `providerEnv`
+ * instead, and an operator who has declared no profile sees no change at all.
+ */
 export function createAnthropicProvider(): SdkProvider {
   return {
     query(input) {
@@ -87,12 +96,48 @@ function toSdkOptions(input: SdkRunInput, abortController: AbortController): Opt
     abortController,
   };
 
+  // Absent a provider, `env` stays unset and the subprocess inherits the
+  // environment this process was started with — the default profile.
+  const env = providerEnv(input.provider);
+  if (env !== null) options.env = env;
+
   if (input.resume !== undefined) options.resume = input.resume;
   if (input.forkSession !== undefined) options.forkSession = input.forkSession;
   if (input.continueLatest === true) options.continue = true;
   if (input.canUseTool !== undefined) options.canUseTool = toSdkCanUseTool(input.canUseTool);
 
   return options;
+}
+
+/**
+ * The environment one run's subprocess gets: `null` when the run carries no
+ * provider, so no `env` is set and the subprocess inherits `process.env`.
+ *
+ * `Options.env` **replaces** the subprocess environment rather than merging into
+ * it — the SDK says so where it declares the field — so the ambient variables
+ * are spread in first and the provider's keys are laid over them. Set without
+ * that spread, a provider would take `PATH`, `HOME` and every other inherited
+ * variable down with it. The spread lives *here* so that no caller can set
+ * `Options.env` without it.
+ *
+ * Exported, and a function of `process.env` alone, so this — the one place a
+ * credential enters the SDK — is tested directly rather than verified by
+ * reading.
+ */
+export function providerEnv(
+  provider: ResolvedProvider | undefined,
+): Record<string, string | undefined> | null {
+  if (provider === undefined) return null;
+
+  const env: Record<string, string | undefined> = { ...process.env };
+
+  // Only the keys the provider carries: one set to `undefined` would blank an
+  // ambient value instead of leaving it standing.
+  if (provider.baseUrl !== undefined) env['ANTHROPIC_BASE_URL'] = provider.baseUrl;
+  if (provider.authToken !== undefined) env['ANTHROPIC_AUTH_TOKEN'] = provider.authToken;
+  if (provider.model !== undefined) env['ANTHROPIC_MODEL'] = provider.model;
+
+  return env;
 }
 
 /**

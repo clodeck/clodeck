@@ -2,6 +2,7 @@ import type {
   ApprovalRequestPayload,
   ApprovalResponsePayload,
   PermissionMode,
+  ResolvedProvider,
   SDKMessage,
   SessionMessage,
   SessionSummary,
@@ -39,6 +40,12 @@ export interface SdkRunInput {
   continueLatest?: boolean;
   /** Defaults to `'default'` at the real provider (gated tools ask through `canUseTool`). */
   permissionMode?: PermissionMode;
+  /**
+   * The provider this run executes on, already resolved. Absent means the
+   * server's own environment — the reserved **default** profile, and the only
+   * behaviour there was before a run could choose one.
+   */
+  provider?: ResolvedProvider;
   canUseTool?: ApprovalCallback;
   signal?: AbortSignal;
 }

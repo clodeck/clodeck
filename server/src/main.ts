@@ -12,6 +12,9 @@ const DEFAULT_PORT = 3001;
 const config = loadConfig();
 const app = buildApp({
   projects: createProjectDiscovery(config.projectsRoot),
+  // The boot-time instance is the reserved **default** profile: it starts every
+  // run without a provider of its own, so each one runs on this process's
+  // environment. A run that chooses a profile rides on `SdkRunInput.provider`.
   provider: createAnthropicProvider(),
   // The one place the real node-pty binding is reached; tests inject the fake.
   spawner: createNodePtySpawner(),
