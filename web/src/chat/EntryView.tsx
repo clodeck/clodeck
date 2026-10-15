@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
 
 import type { ChatEntry, ToolEntry, ToolResultView } from './reducer';
 
@@ -22,7 +22,7 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
         </div>
       );
     case 'assistant':
-      return <p className="text-sm whitespace-pre-wrap text-ink">{entry.text}</p>;
+      return <AssistantMessage>{entry.text}</AssistantMessage>;
     case 'thinking':
       // Collapsible: reasoning is available but does not dominate the transcript.
       return (
@@ -36,6 +36,72 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
     case 'tool':
       return <ToolCard entry={entry} />;
   }
+}
+
+/**
+ * An assistant message: the tile at its head, its text beside it.
+ *
+ * Every assistant message wears the tile — a live one and a stored one, both of
+ * which come through here — and only the assistant's *own text* does. A tool
+ * card, a thinking block and a notice go without: they belong to the message
+ * above them. The prototype hangs the avatar on `turn-assistant` and nothing
+ * else (`common.js:207-209`), but our transcript lists *entries*, not turns, and
+ * a turn is not a node we render — so the assistant's text is the closest thing
+ * this view model has to the prototype's turn, and "why is there no tile on the
+ * tool card?" is answered by that: a card is not a speaker.
+ *
+ * `className` is the caller's own spacing; every other part of the head is here,
+ * so the two callers cannot drift apart.
+ */
+function AssistantMessage({ children, className = '' }: { children: ReactNode; className?: string }): ReactElement {
+  return (
+    <div className={`flex items-start gap-3 ${className}`}>
+      <AssistantTile />
+      <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap text-ink">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * The tile: 26px, radius 7px, the accent gradient, the mark (`styles.css:113-118`
+ * and `ICONS.logo` at `common.js:34`). Fixed size and `shrink-0`, so a long
+ * message does not stretch it.
+ *
+ * Decorative: `aria-hidden`, no text inside, and it changes nothing a screen
+ * reader reads — "assistant" is a fact about who is speaking, and the message's
+ * own wording already carries everything that has to be announced. The user
+ * turn's `You` label is the one that speaks, and it stays as it is.
+ *
+ * `data-assistant-tile` is the handle the rendered test aims at, as
+ * `data-chat-column` is ticket 50's.
+ */
+function AssistantTile(): ReactElement {
+  return (
+    <span
+      aria-hidden="true"
+      data-assistant-tile=""
+      className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-linear-to-br from-accent to-accent-deep text-white"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+        <path d="M12 2.5 21.5 12 12 21.5 2.5 12z" />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * The assistant message being written. It wears the same head — the same
+ * component, not a look-alike — because the live text and the settled entry are
+ * two different elements: a tile added to the entry alone would appear for the
+ * first time the moment a turn finished.
+ */
+export function StreamingBubble({ text }: { text: string }): ReactElement {
+  return (
+    <AssistantMessage className="mt-3">
+      {text}
+      <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent align-text-bottom" />
+    </AssistantMessage>
+  );
 }
 
 /** Where a tool call stands — derived from the entry, never stored on it. */
