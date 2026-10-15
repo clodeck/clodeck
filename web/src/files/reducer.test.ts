@@ -12,7 +12,9 @@ import {
   insidePath,
   isValidName,
   joinPath,
+  MAX_NAME_BYTES,
   movedPath,
+  nameRefusal,
   noPreview,
   parentPath,
   previewError,
@@ -106,6 +108,28 @@ describe('path handling', () => {
     for (const bad of ['', '.', '..', 'a/b', 'a\\b', 'a\0b']) {
       expect(isValidName(bad)).toBe(false);
     }
+  });
+
+  it('refuses a name over the server’s byte cap, and counts bytes rather than characters', () => {
+    // The server's `Buffer.byteLength > 255`: 255 is the last name it mints, so
+    // the client adopts that number rather than inventing a second cap.
+    expect(MAX_NAME_BYTES).toBe(255);
+    expect(isValidName('a'.repeat(255))).toBe(true);
+    expect(isValidName('a'.repeat(256))).toBe(false);
+    expect(nameRefusal('a'.repeat(256))).toContain('255 bytes');
+
+    // `é` is two bytes and `中` three, so each gets fewer characters than the
+    // cap — the two ends have to agree, and agree in bytes.
+    expect(isValidName('é'.repeat(127))).toBe(true);
+    expect(isValidName('é'.repeat(128))).toBe(false);
+    expect(isValidName('中'.repeat(85))).toBe(true);
+    expect(isValidName('中'.repeat(86))).toBe(false);
+  });
+
+  it('says why a name is refused, and nothing about one that is not', () => {
+    expect(nameRefusal('notes.txt')).toBeNull();
+    expect(nameRefusal('a/b')).toContain('separator');
+    expect(nameRefusal('')).toContain('empty');
   });
 });
 

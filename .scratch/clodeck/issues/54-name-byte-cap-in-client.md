@@ -7,7 +7,7 @@ dialog that should never have offered it. Make the client's rule the server's ru
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A name the server would refuse for its length leaves the confirm button disabled instead of enabling
       a request that cannot succeed.

@@ -3,7 +3,7 @@ import { useState, type ReactElement } from 'react';
 
 import { NameDialog } from './dialogs';
 import { useToast } from './toast/ToastProvider';
-import { isValidProjectName, type ProjectsState } from './useProjects';
+import { projectNameRefusal, type ProjectsState } from './useProjects';
 
 interface ProjectSwitcherProps {
   state: ProjectsState;
@@ -121,7 +121,7 @@ export function ProjectSwitcher({
           confirmLabel="Create"
           initial=""
           error={createError}
-          isValid={isValidProjectName}
+          refusal={projectNameRefusal}
           onSubmit={submitCreate}
           onCancel={() => { setCreating(false); }}
         />

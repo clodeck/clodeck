@@ -198,6 +198,12 @@ describe('creating a project from the sidebar', () => {
     fireEvent.change(name, { target: { value: '.hidden' } });
     expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(true);
 
+    // …and the server's byte cap, which a project name shares with a file name:
+    // the same 256 bytes it would reject, refused here rather than sent and
+    // bounced back as a 400.
+    fireEvent.change(name, { target: { value: 'a'.repeat(256) } });
+    expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(true);
+
     fireEvent.change(name, { target: { value: 'beta' } });
     expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(false);
 

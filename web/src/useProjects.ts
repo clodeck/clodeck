@@ -1,7 +1,7 @@
 import type { Project } from '@clodeck/shared';
 import { useCallback, useEffect, useState } from 'react';
 
-import { isValidName } from './files/reducer';
+import { nameRefusal } from './files/reducer';
 
 /**
  * The switcher's data state. `loading` is a state of its own — distinct from
@@ -125,14 +125,20 @@ async function createProject(name: string): Promise<Project> {
 }
 
 /**
- * Whether a name is safe to offer as a new project: the drawer's own rule — one
- * clean segment — plus discovery's, which is not a *name* rule at all: the scan
- * skips dot-directories, so a `.foo` project would be a directory the user could
- * create and then never see. Re-used from `isValidName` rather than restated, so
- * the two refusals stay one rule and one addition.
+ * Why a name is not safe to offer as a new project, or `null` when it is: the
+ * drawer's own rule — one clean segment, the byte cap included — plus discovery's,
+ * which is not a *name* rule at all: the scan skips dot-directories, so a `.foo`
+ * project would be a directory the user could create and then never see.
+ * Re-used from `nameRefusal` rather than restated, so the two refusals stay one
+ * rule and one addition — neither caller holds its own copy of the cap.
  */
+export function projectNameRefusal(name: string): string | null {
+  return nameRefusal(name) ?? (name.startsWith('.') ? 'a project name cannot start with a dot' : null);
+}
+
+/** The same rule as a yes/no, for a caller that only needs the verdict. */
 export function isValidProjectName(name: string): boolean {
-  return isValidName(name) && !name.startsWith('.');
+  return projectNameRefusal(name) === null;
 }
 
 /**

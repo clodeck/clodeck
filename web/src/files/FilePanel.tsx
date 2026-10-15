@@ -19,8 +19,8 @@ import { isMarkdown, renderMarkdown } from './markdown';
 import {
   assertNever,
   baseName,
-  isValidName,
   joinPath,
+  nameRefusal,
   noPreview,
   parentPath,
   previewPath,
@@ -363,7 +363,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           confirmLabel={prompt.mode === 'rename' ? 'Rename' : 'Create'}
           initial={prompt.mode === 'rename' ? prompt.initial : ''}
           error={promptError}
-          isValid={isValidName}
+          refusal={nameRefusal}
           onSubmit={submitPrompt}
           onCancel={() => { setPrompt(null); }}
         />
