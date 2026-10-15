@@ -34,7 +34,7 @@ const LOCKED_REASON = 'a turn has already run in this session, so the profile is
 
 /** Why a pinned project's choice is a model and nothing else (ADR 0002, in the user's words). */
 const PINNED_REASON =
-  'this project pins its endpoint and credential in .claude/settings.json, so a session can only choose the model';
+  'this project pins its provider in .claude/settings.json, so a session can only choose the model';
 
 interface ProviderPickerProps {
   state: ProfilesState;

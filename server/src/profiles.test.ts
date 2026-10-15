@@ -289,14 +289,12 @@ describe('the send rule', () => {
         const { sent } = applyPin({ name, provider }, pin);
         const holds = keys.includes('ANTHROPIC_BASE_URL') || keys.includes('ANTHROPIC_AUTH_TOKEN');
 
-        // One of two answers, for every profile against every subset. An empty
-        // pair is not a third: it is the project's `env` outranking a key the
-        // profile does not name at all.
-        const expected = holds
-          ? provider.model === undefined
-            ? null
-            : { model: provider.model }
-          : provider;
+        // One of two answers, for every profile against every subset: the whole
+        // trio, or — in a pinned project — the model alone, or nothing at all
+        // when the profile names no model. An empty pair is not a third answer:
+        // it is the project's `env` outranking a key the profile does not name.
+        const modelOnly = provider.model === undefined ? null : { model: provider.model };
+        const expected = holds ? modelOnly : provider;
         expect(sent, `${name} against [${keys.join(', ')}]`).toEqual(expected);
 
         // The pair itself, in the only two states it is allowed: both keys the

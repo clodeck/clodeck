@@ -214,17 +214,17 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 function describeRun(profile: RunProfile): string {
   const parts = [
     `model ${profile.sent?.model ?? 'the endpoint decides'}`,
-    `sent: ${keyNames(profile.sent)}`,
+    `sent: ${sentKeyNames(profile.sent)}`,
   ];
 
-  const kept = keptKeys(profile.pin);
+  const kept = keptKeyNames(profile.pin);
   if (kept.length > 0) parts.push(`kept by the project's pin: ${kept.join(', ')}`);
 
   return parts.join(' · ');
 }
 
-/** The provider keys a value carries, named the ADR's way. `nothing` when it carries none. */
-function keyNames(provider: ResolvedProvider | null): string {
+/** The provider keys a run carries, named the ADR's way. `nothing` when it carries none. */
+function sentKeyNames(provider: ResolvedProvider | null): string {
   if (provider === null) return 'nothing';
 
   const names: string[] = [];
@@ -234,8 +234,8 @@ function keyNames(provider: ResolvedProvider | null): string {
   return names.length === 0 ? 'nothing' : names.join(', ');
 }
 
-/** The keys a pin can keep. Never the model: the model travels free (ADR 0002). */
-function keptKeys(pin: ProjectPin | null): string[] {
+/** The keys a pinned project keeps. Never the model: the model travels free (ADR 0002). */
+function keptKeyNames(pin: ProjectPin | null): string[] {
   if (pin === null) return [];
 
   const names: string[] = [];

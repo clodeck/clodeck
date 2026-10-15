@@ -48,6 +48,15 @@ describe('the keys a settings file declares', () => {
     expect(readPin({ env: { ANTHROPIC_MODEL: 'vendor-model-1' } })).toEqual({ model: 'vendor-model-1' });
   });
 
+  it('reads past an env value that could not have come from an environment', () => {
+    // A number or a nested object inside `env` is not something a shell could
+    // have exported, so that key declares nothing — while a string beside it
+    // still declares, rather than the whole block being thrown away.
+    expect(readPin({ env: { ANTHROPIC_BASE_URL: 42, ANTHROPIC_MODEL: 'vendor-model-1' } })).toEqual({
+      model: 'vendor-model-1',
+    });
+  });
+
   it('treats a blank value as no declaration, by the one definition of unset the server has', () => {
     expect(readPin({ env: { ANTHROPIC_BASE_URL: '  ', ANTHROPIC_MODEL: '' } })).toEqual(NO_PIN);
   });
