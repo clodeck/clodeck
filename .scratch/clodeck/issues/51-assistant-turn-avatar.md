@@ -30,8 +30,8 @@ that back.
 
 **Landed as:** one `AssistantMessage` (`web/src/chat/EntryView.tsx:56`) — the tile and the text in one row,
 so the head is defined once and drawn by both callers. `AssistantTile` (`:78`) is the prototype's
-`.avatar`: `h-[26px] w-[26px] shrink-0`, `rounded-[7px]`, `bg-linear-to-br from-accent to-accent-deep`, the
-mark (`ICONS.logo`, `common.js:34`) inside, `aria-hidden` and empty. The gradient's second stop needed a
+`.avatar`: `h-[26px] w-[26px] shrink-0`, `rounded-[7px]`, `bg-linear-[150deg] from-accent to-accent-deep`,
+the mark (`ICONS.logo`, `common.js:34`) inside, `aria-hidden` and empty. The gradient's second stop needed a
 token, so `--color-accent-deep: #8f4327` (`web/src/index.css:27`) joins the palette with the prototype's own
 value (`styles.css:118`) — no hex leaves `index.css`.
 
@@ -48,9 +48,38 @@ asserted to still be there), none on the thinking block, the notice or the tool 
 the handle the test aims at, as `data-chat-column` is ticket 50's; whether the 26px tile reads as the
 prototype's is the browser's to say, since jsdom computes no boxes.
 
+## Code review
+
+Two axes over the branch, both landing on the same two sentences. One fix:
+
+1. **The gradient's angle.** Bullet 1 asks for *the accent gradient*, the prototype draws
+   `linear-gradient(150deg, …)` (`styles.css:118`) — the very line `index.css` quotes beside the new token —
+   and the first version rendered `bg-linear-to-br`, which is 135°. Fifteen degrees, in the one place the
+   ticket asks to be faithful to. It is `bg-linear-[150deg]` now, and the built stylesheet was read back to
+   check it: `linear-gradient(150deg, var(--color-accent), var(--color-accent-deep))`. The tile's docblock
+   also stops restating its own markup and says why the angle is that one.
+
+Declined on purpose:
+
+- **`text-white` on the mark.** The palette owns no white, and this is the only raw Tailwind colour left in
+  `web/src`; the repo's own on-accent token is `text-canvas`. Kept white because the prototype's mark is
+  `color:#fff` on the same gradient, and `text-canvas` would invert it to dark-on-accent — a different
+  design, not a stricter palette. Bullet 6's rule is about hex literals, and this is not one.
+- **The class-string assertion** (`EntryView.test.tsx:145`, `h-[26px]` / `shrink-0` to prove a long message
+  does not stretch the tile). jsdom computes no boxes, so it cannot fail for the behaviour it names; it is
+  the same trade `FilePanel.test.tsx` makes, and the browser check above is where the box is really judged.
+- **`className` on `AssistantMessage`** — passed by one caller today (`StreamingBubble`'s `mt-3`) with the
+  other passing nothing, which the Shape rule would call an abstraction with one user. It is the caller's
+  spacing and nothing else, and the head cannot be split from it without the two callers drifting.
+- **A third module for the head.** The review's real point stands: this file now changes both when the
+  transcript renders differently and when the live bubble does. Extracting `AssistantMessage` +
+  `StreamingBubble` into their own module would answer it, and is worth doing when a third caller appears —
+  not as a rename of two functions into a file of their own.
+
 ## Reference
 
 Prototype: `prototype/common.js:207-209` (`turnEl` puts the avatar on `turn-assistant` only) and
-`prototype/styles.css:113-118` (`.avatar` — 26px, radius 7px, the accent gradient, centred); the mark is
-`ICONS.logo` at `common.js:34`. Product: `web/src/chat/EntryView.tsx:24-25` (the assistant arm) and
-`web/src/chat/ChatPanel.tsx:170-177` (`StreamingBubble`). Parity item: P2 #8.
+`prototype/styles.css:113-118` (`.avatar` — 26px, radius 7px, the accent gradient at 150°, centred); the mark
+is `ICONS.logo` at `common.js:34`. Product: `web/src/chat/EntryView.tsx:24-25` (the assistant arm), `:56`
+(`AssistantMessage`), `:78` (`AssistantTile`) and `:98` (`StreamingBubble`, which moved here from
+`ChatPanel.tsx`). Parity item: P2 #8.

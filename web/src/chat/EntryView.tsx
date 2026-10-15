@@ -8,6 +8,10 @@ import type { ChatEntry, ToolEntry, ToolResultView } from './reducer';
  * `ChatPanel` and the read-only `SessionHistory` transcript render through here
  * — the point of the shared `ContentBlock` mirror is that there is exactly one
  * renderer, not two that drift (spec-02 §"Session history & resume (REST)").
+ *
+ * The live bubble lives here for that same reason (ticket 51): its head and a
+ * settled assistant entry's are one component rather than two that agree today,
+ * which is the only version of "the same head" a switch between them can keep.
  */
 
 export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
@@ -63,9 +67,10 @@ function AssistantMessage({ children, className = '' }: { children: ReactNode; c
 }
 
 /**
- * The tile: 26px, radius 7px, the accent gradient, the mark (`styles.css:113-118`
- * and `ICONS.logo` at `common.js:34`). Fixed size and `shrink-0`, so a long
- * message does not stretch it.
+ * The prototype's `.avatar` (`styles.css:113-118`) with its mark (`ICONS.logo`,
+ * `common.js:34`), at `150deg` — the angle the prototype's own gradient is drawn
+ * at, which the palette comment in `index.css` quotes for the same reason. Fixed
+ * size and `shrink-0`, so a long message does not stretch it.
  *
  * Decorative: `aria-hidden`, no text inside, and it changes nothing a screen
  * reader reads — "assistant" is a fact about who is speaking, and the message's
@@ -80,7 +85,7 @@ function AssistantTile(): ReactElement {
     <span
       aria-hidden="true"
       data-assistant-tile=""
-      className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-linear-to-br from-accent to-accent-deep text-white"
+      className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-linear-[150deg] from-accent to-accent-deep text-white"
     >
       <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
         <path d="M12 2.5 21.5 12 12 21.5 2.5 12z" />
