@@ -116,29 +116,20 @@ Docs only — no code, no test, and the pre-commit hook stays green because no p
 
 ## Ticket split (for `/to-tickets`)
 
-A **chain**, not a fan — each waits on the one before it.
+**Vertical** slices, na layer slices: har ticket yek masir-e kāmel ast va ru khodesh demoable ast. Chāhār
+ticket, yek chain — va az `67` shomāre-gozāri shodan, na az `66a`: `scripts/tickets.mjs`'s `FILE_NAME`
+(`/^(\d+)-(.+)\.md$/`) faghat name-hā-ye adadi rā mikhānad, pas yek `66a` **silent** az tracker miyoftād.
 
-- **(67) Profiles resolve from the environment** — read `CLODECK_PROVIDER_<NAME>_*` at boot; the reserved
-  default; patch semantics with inheritance from the server environment; resolution to a complete trio;
-  an unknown or stale name refused **visibly**. A pure function of the environment plus its tests.
-  *Blockers: none.*
-- **(68) A run carries a provider** — `SdkRunInput` (`server/src/sdk/provider.ts:30`) gains the resolved
-  provider; `createAnthropicProvider()` stops being a boot-time singleton; `Options.env` is set as
-  `{ ...process.env, ...trio }`, since it replaces. The boot-time instance becomes the **default
-  profile**, so an operator who configures nothing sees no change. The profile list (names, models, which
-  are tier-shaped) becomes readable by the client — names and models only (decision 14). *Blockers: 67.*
-- **(69) The project's pin is honoured** — read `<project>/.claude/settings.json` through the existing
-  scoped read; classify which of the three keys it declares; apply the endpoint-and-credential-together
-  rule (decision 8); expose what a session in that project will actually run on. Security-critical: a
-  test must pin that a project declaring **one** key never produces a mixed pair. *Blockers: 68.*
-- **(70) The picker, by the composer, and the running-on line** — the profile/tier list where the prompt
-  is typed, filtered to tiers in a pinned project, locked at the session's first send, with *"running on
-  X now"* always visible. *Blockers: 69.*
-- **(71) The operator's docs catch up** — the README's configuration table gains the `CLODECK_PROVIDER_*`
-  block with the default stated; the proxy requirement is spelled out (a non-Anthropic vendor arrives
-  through a translation proxy, and clodeck's renderer depends on that proxy emitting `stream_event`,
-  `tool_use`, `can_use_tool` and `result` faithfully); the provider section points at ADR 0002. *Blockers:
-  70.*
+- **(67) The provider seam takes its options per run** — prefactor, bedoone taghir-e raftār; instance-e
+  boot-time be default profile tabdil mishavad. *Blockers: none.*
+- **(68) A session runs on a profile I pick, end to end** — resolver + run + route + picker kenār-e
+  composer, ghofl ru avvalin send, khatt-e "running on". *Blockers: 67.*
+- **(69) A project that pins its provider keeps it** — pin, ghāede-ye endpoint-credential, filter-e tier,
+  hāl-e pinned, va test-e hasht-hāle. *Blockers: 68.*
+- **(70) The operator's docs catch up** — README. *Blockers: 69.*
+
+Criteria-hā-ye har ticket dar `.scratch/clodeck/issues/67…70-*.md` ast, va split-e kāmel dar
+`.scratch/clodeck/spec-08-provider-profiles.md`.
 
 ## Further notes
 

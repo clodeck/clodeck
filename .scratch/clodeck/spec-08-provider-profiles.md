@@ -222,17 +222,15 @@ bekoshad.
   `127.0.0.1` ke `{method, url, model, authKind, authLength}` rā log mikone va 500 midahad, be alāve-ye
   yek script ke `query()` rā bā daghighan option-hā-ye `toSdkOptions` sedā mizanad va `model`-e
   message-e `system`/`init` rā print mikone. Yek variable avaz mishavad: `settingSources`.
-- **Ticket split** (barāye `/to-tickets`) — yek **chain**, na fan:
-  - (67) **Profile-hā az environment resolve mishan** — `listProfiles` / `resolveProfile`, name-e reserve,
-    patch + inheritance, rad-e name-e nashenās. *Blocker: hich.*
-  - (68) **Yek run yek provider haml mikone** — `SdkRunInput`, factory be jāye singleton, `env`-e
-    export-shode bā spread, profile-e default, va route-i ke name/model midahad. *Blocker: 67.*
-  - (69) **Pin-e project eht erām mishavad** — khāndane az `ScopedFs`, `readPin`, `envFor`, va log line-e
-    har run. *Blocker: 68.*
-  - (70) **Picker kenār-e composer va khatt-e "running on"** — list, filter-e tier dar pin, ghofl ru
-    avvalin send. *Blocker: 69.*
-  - (71) **Docs-e operator** — README: block-e `CLODECK_PROVIDER_*`, default, va niyāz-e proxy barāye
-    vendor-e gheyr-Anthropic (va inke renderer be `stream_event`, `tool_use`, `can_use_tool`, `result`-e
-    sālem az proxy vābastast). *Blocker: 70.*
+- **Ticket split** (barāye `/to-tickets`) — **vertical** slices, na layer slices: har ticket yek masir-e
+  kāmel az environment tā safhe ast va ru khodesh demoable ast. Chāhār ticket, yek chain — va az `67`
+  shomāre-gozāri shodan, na az `66a`: `scripts/tickets.mjs`'s `FILE_NAME` faghat name-hā-ye `NN-`-e adadi
+  rā mikhānad, pas yek name-e gheyr-adadi **silent** az tracker miyoftād.
+  - (67) **The provider seam takes its options per run** — prefactor, bedoone taghir-e raftār. *Blocker: hich.*
+  - (68) **A session runs on a profile I pick, end to end** — resolver + run + route + picker kenār-e
+    composer. *Blocker: 67.*
+  - (69) **A project that pins its provider keeps it** — pin, ghāede-ye endpoint-credential, filter-e tier,
+    hāl-e pinned, va test-e hasht-hāle. *Blocker: 68.*
+  - (70) **The operator's docs catch up** — README. *Blocker: 69.*
 - **In slice hich chiz-i rā dobāre tarh nemikonad:** har jā be tasmim-e 66 yā ADR 0002 este'ād midahad,
   ba shomāre eshāre kon.
