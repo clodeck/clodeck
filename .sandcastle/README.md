@@ -22,6 +22,15 @@ skipped — a status only reaches the host when its branch is merged, so an unme
 thing standing between the loop and redoing the same ticket. `--ticket` hands that choice to the
 operator instead: see [More than one lane at a time](#more-than-one-lane-at-a-time).
 
+That choice lives in **`.sandcastle/queue.mts`**, apart from `main.mts` — which reads git config and
+creates a sandbox as it loads, so it cannot be imported, and nothing in it is worth a unit test. The
+tracker and the branch list reach `queue.mts` as two small ports, which is what lets a test answer
+both: `.sandcastle/*.test.mts` and `scripts/*.test.mts` run under `npm test`, beside the workspaces'
+own suites, and `npm run typecheck` covers the same two directories (`tsconfig.tooling.json`).
+`scripts/tickets.mjs` reads whatever directory it is handed — every function there takes one, and
+`CLODECK_ISSUES_DIR` moves the default for the command line too — which is how a test drives it over a
+fixture directory instead of over this effort's own tickets.
+
 `MAX_TICKETS` in `main.mts` caps a single run at six passes, when nobody pinned one. Each pass is a
 container, an `npm ci` and two agents, so that constant is the dial that decides what a run costs.
 

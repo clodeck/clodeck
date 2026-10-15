@@ -14,8 +14,10 @@
   "scripts": {
     "build:shared": "npm run build --workspace @clodeck/shared",
     "build": "npm run build:shared && npm run build --workspace @clodeck/server && npm run build --workspace @clodeck/web",
-    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
-    "test": "npm run build:shared && npm run test --workspaces --if-present",
+    "typecheck:tooling": "tsc --project tsconfig.tooling.json",
+    "typecheck": "npm run build:shared && npm run typecheck:tooling && npm run typecheck --workspaces --if-present",
+    "test:tooling": "vitest run",
+    "test": "npm run build:shared && npm run test:tooling && npm run test --workspaces --if-present",
     "e2e": "npm run e2e --workspace @clodeck/web",
     "sandcastle": "tsx .sandcastle/main.mts",
     "dev": "npm run build:shared && concurrently --raw -k \"npm run dev --workspace @clodeck/server\" \"npm run dev --workspace @clodeck/web\"",
@@ -24,7 +26,10 @@
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.12.0",
+    "@types/node": "^24.19.1",
     "concurrently": "^10.0.6",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }
