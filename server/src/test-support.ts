@@ -89,6 +89,20 @@ export async function login(app: FastifyInstance): Promise<string> {
   return cookie;
 }
 
+/**
+ * A response's `Set-Cookie` header as text, joined if the server sent several.
+ * The cookie contract is asserted against these flags, so reading them off the
+ * wire is the one piece of plumbing every cookie case in the server's suites
+ * shares.
+ */
+export function setCookieHeader(response: {
+  headers: Record<string, string | string[] | number | undefined>;
+}): string {
+  const setCookie = response.headers['set-cookie'];
+  if (Array.isArray(setCookie)) return setCookie.join('\n');
+  return typeof setCookie === 'string' ? setCookie : '';
+}
+
 export interface Sandbox {
   /** The realpath'd temp directory. Fixtures that must stay *outside* the root live here. */
   dir: string;

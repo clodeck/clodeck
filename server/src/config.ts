@@ -17,6 +17,14 @@ export interface ServerConfig {
    * — the dev loop, where Vite serves it (spec-06 §"Ticket 27").
    */
   webRoot: string | null;
+  /**
+   * The origin a browser reaches the app at, or null when the operator has not
+   * declared one (spec-07 §"The public origin"). Declaring it is what lets a
+   * deployment with no domain keep a session: its scheme decides whether the
+   * session cookie can be `Secure`, which the app otherwise cannot know — a
+   * proxy terminating TLS makes the app's own origin and the browser's differ.
+   */
+  publicOrigin: string | null;
 }
 
 export interface LoadConfigOptions {
@@ -42,6 +50,10 @@ const CONFIG_FILE_NAME = 'clodeck.config.json';
  * `WEB_ROOT` is env-only for the same reason: it names the build artifact the
  * image produced (spec-06 §"Ticket 27"), which is not a thing an operator keeps
  * in a convenience file.
+ *
+ * `CLODECK_PUBLIC_URL` — the origin a browser reaches the app at — is the third
+ * of that kind (spec-07). It is a deployment fact rather than a preference, and
+ * it is the one nothing else in the process can supply.
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const env = options.env ?? process.env;
@@ -51,18 +63,45 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     projectsRoot: projectsRoot(env, options.configPath, warn),
     uiPassword: uiPassword(env, warn),
     webRoot: webRoot(env),
+    publicOrigin: publicOrigin(env),
   };
+}
+
+/**
+ * An environment variable's value, trimmed, or null when it is unset or blank.
+ * The one place "unset" is defined: an exported-but-empty variable is a shell
+ * accident rather than a declaration, and every reader here has to agree about
+ * that or the same deployment would mean two things.
+ */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | null {
+  const value = env[name]?.trim();
+  return value === undefined || value === '' ? null : value;
+}
+
+/**
+ * The origin a browser reaches the app at, or null when nothing is declared.
+ * Environment-only, like the other two deployment facts: it describes *this*
+ * deployment — its address, its TLS — not a preference, and it must be readable
+ * before the app has an address of its own.
+ *
+ * It is deliberately not validated here. Reading the environment is this
+ * function's whole job; whether the value can decide a cookie's flag is the
+ * cookie's business (see `auth/transport.ts`), which is where a typo is
+ * reported.
+ */
+function publicOrigin(env: NodeJS.ProcessEnv): string | null {
+  return envValue(env, 'CLODECK_PUBLIC_URL');
 }
 
 /**
  * The built client's directory, or null. Environment-only, like the password:
  * it names a build artifact the image produced, not a preference an operator
- * would keep in a config file. A blank value counts as unset — an unset
- * `WEB_ROOT` is what keeps the Vite dev loop's behavior unchanged.
+ * would keep in a config file. An unset `WEB_ROOT` is what keeps the Vite dev
+ * loop's behavior unchanged.
  */
 function webRoot(env: NodeJS.ProcessEnv): string | null {
-  const fromEnv = env['WEB_ROOT']?.trim();
-  return fromEnv === undefined || fromEnv === '' ? null : path.resolve(fromEnv);
+  const fromEnv = envValue(env, 'WEB_ROOT');
+  return fromEnv === null ? null : path.resolve(fromEnv);
 }
 
 function projectsRoot(
@@ -70,8 +109,8 @@ function projectsRoot(
   configPathOption: string | undefined,
   warn: Warn,
 ): string | null {
-  const fromEnv = env['PROJECTS_ROOT']?.trim();
-  if (fromEnv !== undefined && fromEnv !== '') {
+  const fromEnv = envValue(env, 'PROJECTS_ROOT');
+  if (fromEnv !== null) {
     return path.resolve(fromEnv);
   }
 
@@ -87,11 +126,11 @@ function projectsRoot(
  * the operator's next symptom would be "the password I set does not work".
  */
 function uiPassword(env: NodeJS.ProcessEnv, warn: Warn): string | null {
-  const fromEnv = env['UI_PASSWORD']?.trim();
-  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
+  const fromEnv = envValue(env, 'UI_PASSWORD');
+  if (fromEnv !== null) return fromEnv;
 
-  const file = env['UI_PASSWORD_FILE']?.trim();
-  if (file === undefined || file === '') return null;
+  const file = envValue(env, 'UI_PASSWORD_FILE');
+  if (file === null) return null;
 
   let contents: string;
   try {
