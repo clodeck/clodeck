@@ -2,6 +2,8 @@ import { buildApp } from './app.js';
 import { createAuthOptions } from './auth/options.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
+import { warnToConsole } from './logging.js';
+import { cleartextOriginWarning } from './public-origin.js';
 import { createAnthropicProvider } from './sdk/anthropic.js';
 import { createNodePtySpawner } from './terminal/node-pty-spawner.js';
 
@@ -36,3 +38,11 @@ const host = process.env['HOST'] ?? '127.0.0.1';
 
 await app.listen({ port, host });
 console.log(`clodeck server listening on http://${host}:${port}`);
+
+// The one thing about a declared plain-HTTP origin that a running server has to
+// say out loud (spec-07 §"The warnings"). It is logged here rather than by the
+// auth transport, which says the other words about this variable, because it
+// describes the process that was just started rather than a cookie — and because
+// a malformed origin already has a line there.
+const cleartextWarning = cleartextOriginWarning(config.publicOrigin);
+if (cleartextWarning !== null) warnToConsole(cleartextWarning);

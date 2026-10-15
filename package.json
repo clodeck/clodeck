@@ -14,6 +14,7 @@
   "scripts": {
     "build:shared": "npm run build --workspace @clodeck/shared",
     "build": "npm run build:shared && npm run build --workspace @clodeck/server && npm run build --workspace @clodeck/web",
+    "serve": "npm run preflight --workspace @clodeck/server && npm run build && npm start --workspace @clodeck/server",
     "typecheck:tooling": "tsc --project tsconfig.tooling.json",
     "typecheck": "npm run build:shared && npm run typecheck:tooling && npm run typecheck --workspaces --if-present",
     "test:tooling": "vitest run",
