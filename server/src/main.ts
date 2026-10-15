@@ -27,6 +27,11 @@ const app = buildApp({
   // a build this checkout made, so null here means there was none to serve — the
   // dev loop, where Vite serves the client instead (spec-07 §"The web root").
   webRoot: config.webRoot,
+  // The proxies the operator put in front of this deployment, so the login
+  // limiter counts failures against the browser's address rather than the
+  // proxy's (ticket 65). Unset — the direct and tunnelled routes — trusts
+  // nothing, exactly as before.
+  trustedProxies: config.trustedProxies,
 });
 
 // Loopback by default. It is defense in depth now, not the boundary: the gate

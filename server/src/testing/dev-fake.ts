@@ -98,6 +98,9 @@ const app = buildApp({
   // working directory is served from this port too, which the loop never sees —
   // its browser talks to Vite (spec-07 §"The web root").
   webRoot: config.webRoot,
+  // The same config seam as `main.ts` here too — the fake stands in for a real
+  // provider, not for the deployment around it (ticket 65).
+  trustedProxies: config.trustedProxies,
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from

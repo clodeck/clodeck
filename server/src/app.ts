@@ -45,6 +45,26 @@ export interface AppOptions {
    * fake.
    */
   webRoot: string | null;
+  /**
+   * The proxies whose `X-Forwarded-For` the app believes, as the loader checked
+   * and normalized it (`CLODECK_TRUSTED_PROXIES`), or `null` for "trust nothing"
+   * (ticket 65). Configuration, not a seam, and the same shape as `webRoot`: it
+   * is a fact about this deployment that nothing behind it can supply. It
+   * reaches `request.ip` — the address every address-keyed decision reads, and
+   * today that is the login limiter alone. Fastify's `trustProxy` reaches two
+   * more: `request.host` and `request.protocol` follow a trusted peer's
+   * `X-Forwarded-Host` and `-Proto`. Both are inert here — the handshake guard
+   * compares the raw `Host` header, and the cookie's flag follows the declared
+   * public origin rather than the request — but a later decision that read
+   * either would be deciding on a header a declared peer can set.
+   *
+   * It arrives here already usable on purpose: Fastify compiles the value while
+   * building the server and throws on one it cannot read, so a misdeclared list
+   * is turned into a warning and "trust nothing" by `trusted-proxies.ts`, at the
+   * door every config comes through, rather than into a server that will not
+   * start.
+   */
+  trustedProxies: string | null;
 }
 
 /**
@@ -60,7 +80,10 @@ export interface AppOptions {
  * scope itself, with the gated routes one scope deeper.
  */
 export function buildApp(options: AppOptions): FastifyInstance {
-  const app = Fastify({ logger: false });
+  // `undefined` is Fastify's "nothing is trusted", which is the absence of a
+  // list rather than an empty one: `request.ip` stays the peer address, exactly
+  // as it was before the variable existed.
+  const app = Fastify({ logger: false, trustProxy: options.trustedProxies ?? undefined });
 
   // Registered exactly once, here: Fastify throws if the same plugin is added
   // twice, and both `/ws` and `/ws/terminal` need its `websocket: true` handling.

@@ -231,7 +231,7 @@ variables — the difference is only in how the browser gets to it.
 | A server, no domain, just you | [The direct route](#the-direct-route) — a bare `http://<ip>:<port>` origin any browser can bookmark, with the password and every session byte **in cleartext** ([Linux](#linux-server) / [Windows](#windows-server) / [Docker](#docker) show the install) |
 | A server, no domain, and you want encryption | [The SSH tunnel](#the-ssh-tunnel) — nothing to install, but no phone and no bookmark — or [Caddy's internal certificate](#the-encrypted-alternative-caddys-internal-certificate) — a real `https:` origin, at the price of installing a root CA on every device |
 | A server with a domain you own | [Docker Compose with a domain](#docker-compose-with-a-domain) — real HTTPS from any browser |
-| A server behind your own proxy | Bind the app to `127.0.0.1:3001`, terminate TLS in that proxy, and set `CLODECK_PUBLIC_URL` to the origin the browser uses |
+| A server behind your own proxy | Bind the app to `127.0.0.1:3001`, terminate TLS in that proxy, and set `CLODECK_PUBLIC_URL` to the origin the browser uses — plus `CLODECK_TRUSTED_PROXIES=127.0.0.1/8`, so the login lockout counts failures against the browser rather than against the proxy |
 
 ### The direct route
 
@@ -483,6 +483,12 @@ whole happy path. Then `curl https://$CLODECK_DOMAIN/healthz` answers `{"status"
 | `ANTHROPIC_API_KEY` | Read by the Agent SDK from the app's environment. Compose **requires** it, but the app boots either way: a wrong key fails at the first chat turn, and the login screen, the terminal and the file drawer work regardless. |
 | `UI_PASSWORD_FILE` | A file whose trimmed contents are the login password. Compose mounts it at `/run/secrets/ui_password`; the password is never an environment variable (it would show up in `docker inspect`) and never an image layer. Defaults to `./secrets/ui_password.txt`. |
 
+**Caddy's address is declared to the app**, as `CLODECK_TRUSTED_PROXIES: 172.16.0.0/12` in the compose
+file — Docker's own pool, so this costs you nothing. It is what the login lockout keys on: without it
+every login arrives from Caddy, and five failures from anyone would lock out the one user there is
+([what the variable does](#configuration), and why, under [Security](#security)). Swapping Caddy for a
+proxy on another network means changing that value — or setting it in your own compose override.
+
 Three volumes keep state across restarts: `claude-data` (the Agent SDK's transcript store, at
 `/home/node/.claude`), and `caddy-data` / `caddy-config` (the issued certificates and the ACME account
 key — losing them means re-obtaining every certificate on the next start).
@@ -495,8 +501,9 @@ Everything is Debian (glibc) because the SDK ships a native `claude` binary; the
 
 **If you already run a reverse proxy**, skip this compose file: publish the app on the proxy's network
 (`127.0.0.1:3001:3001`), terminate TLS in front of it, and set `CLODECK_PUBLIC_URL` to the `https:`
-origin the browser uses — the one fact the app cannot see from behind a proxy. Nothing in the app
-requires Caddy.
+origin the browser uses — the one fact the app cannot see from behind a proxy. Add
+`CLODECK_TRUSTED_PROXIES` for that proxy's address (`127.0.0.1/8` when it is on the host) unless you
+want the login lockout to see one client where there are many. Nothing in the app requires Caddy.
 
 ### Day-to-day with the containers
 
@@ -640,6 +647,7 @@ Read by the **server** in every case; the client bakes in nothing but relative U
 | `HOST` | `127.0.0.1` | The server's bind address. Loopback by default as defense in depth — the auth gate, not the bind address, is what keeps the surface closed. A container sets `0.0.0.0` because its loopback reaches nobody, and [the direct route](#the-direct-route) sets it because other machines are the point of that route. |
 | `CLODECK_PUBLIC_URL` | — | The origin a browser reaches the app at — scheme, host and port, e.g. `http://203.0.113.10:3001`. It is read for its **scheme**, and that decides the session cookie's `Secure` flag: `http:` → not `Secure`, which is what lets a bare origin hold a login ([the direct route](#the-direct-route)) at the cost of cleartext on the wire; `https:` → `Secure`. Unset or blank → `Secure`, exactly as before, and a bare `http://` origin then bounces ([why](#when-the-origin-is-not-declared)). Declaring the origin the browser types is also what a deployment behind a TLS-terminating proxy wants, even though the app itself sees plain HTTP. |
 | `WEB_ROOT` | — | The built client's directory. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links. Unset → the server walks up from its working directory to the repo root and serves `web/dist` if it has been built, logging the directory it picked or the reason it picked none. No build anywhere → no client is served, which is what the Vite dev loop wants. |
+| `CLODECK_TRUSTED_PROXIES` | — | The proxies in front of this deployment, as a comma-separated list of addresses, CIDR ranges and the keywords `loopback` / `linklocal` / `uniquelocal` — `172.16.0.0/12` for the compose Caddy, `127.0.0.1/8` for a proxy on the same host. It is the address the **login lockout** keys on: without it, every login behind a proxy arrives from the proxy itself, so five failures — anyone's — lock out the one user there is. Unset or blank → nothing is trusted, which is what the direct and tunnelled routes want; a forged `X-Forwarded-For` is ignored by a peer outside the list either way, so only a client *inside* it can rotate the bucket. A value that is not a list of addresses is a startup warning rather than a failure: the server trusts nothing and says so. |
 | `ANTHROPIC_API_KEY` | — | Read by the Agent SDK from the server's environment; the server itself never reads, stores or forwards it. Only the real provider needs it — `npm run dev:fake` needs none. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the Agent SDK keeps its transcripts — the thing session history and resume are read from. The Docker image sets `/home/node/.claude` and mounts a volume there. |
 
@@ -799,6 +807,16 @@ Logins are rate-limited per address (five failures lock it out for fifteen minut
 checked before the password so a locked address cannot burn scrypt cycles). Session ids live
 server-side, so a logout or a restart invalidates them. A WebSocket upgrade is refused when its
 `Origin` is not the host it was sent to.
+
+**The address is the peer's, unless a proxy is declared.** `CLODECK_TRUSTED_PROXIES` names the hops
+whose `X-Forwarded-For` the app believes — Docker's own pool in the compose deployment, `127.0.0.1/8`
+for a proxy on the host, nothing at all on the direct and tunnelled routes. With none declared, every
+login behind a proxy shares one bucket, so five failures lock out the legitimate user along with the
+attacker; with one declared, the bucket follows the browser. The header is still only believed from a
+peer inside the list, and the key is the last hop that peer added — a client naming somebody else's
+address ahead of it changes nothing, so a forged header cannot lock out a user it does not own. A
+client *inside* a declared range can rotate its own bucket: that is the accepted cost of declaring one
+rather than trusting every private address.
 
 **The cookie's `Secure` flag follows the declared public origin** — the one fact the app cannot work
 out for itself, because behind a TLS-terminating proxy it sees plain HTTP while the browser sees

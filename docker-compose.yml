@@ -22,6 +22,11 @@ services:
       # itself never reads, stores or forwards it.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY}
       UI_PASSWORD_FILE: /run/secrets/ui_password
+      # Caddy's address on this network, so the login lockout follows the browser
+      # rather than the proxy: without it, every login arrives from Caddy's own
+      # address and five failures lock out the single legitimate user (ticket 65).
+      # Docker's own pool, so this topology needs nothing from the operator.
+      CLODECK_TRUSTED_PROXIES: 172.16.0.0/12
     secrets:
       - ui_password
     volumes:

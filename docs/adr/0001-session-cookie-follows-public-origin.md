@@ -30,6 +30,16 @@ from Caddy while the browser sees HTTPS, so the request in front of the app carr
 how the browser reached it. Reading `X-Forwarded-Proto` would mean installing `trustProxy`, which
 makes every rate-limit key and address-based decision spoofable by a header.
 
+> **Amended 2026-10-15.** `trustProxy` *is* installed now, from a **declared** trust list —
+> `CLODECK_TRUSTED_PROXIES`, the addresses the operator put in front of the deployment (ticket 65,
+> `.scratch/clodeck/issues/65-login-lockout-behind-a-proxy.md`, which carries the choice and the
+> failure modes it accepts). The paragraph above holds for the header *alone*: what it rejects is
+> believing `X-Forwarded-For` from anybody, which is `trustProxy: true`. Declared, a header from a
+> peer outside the list is still ignored, and the key is the last hop a trusted peer added — so the
+> lockout follows the browser and a client cannot burn an address it does not own. This does not
+> re-open the decision below: a proxy header answers the cookie question only where a proxy *is*, and
+> it is the direct route that needed an answer the most.
+
 A declared origin is the one input that answers the question for every deployment route at once —
 direct, tunnelled, proxied with a domain, or behind an operator's own reverse proxy — without the app
 having to guess and without trusting anything a client sends.
@@ -61,6 +71,11 @@ having to guess and without trusting anything a client sends.
 - **Trusting `X-Forwarded-Proto`.** Rejected: it requires `trustProxy`, and the address-based login
   rate limiter keys on `request.ip`, so trusting the header hands an attacker the ability to defeat the
   lockout and forge addresses.
+  - **Amended 2026-10-15:** that is the unqualified `trustProxy: true` this bullet was about, and it
+    stays rejected. The address decisions now run on a declared trust list (ticket 65 — see the
+    amendment under "Why the app cannot decide this for itself"), but the cookie decision does not
+    follow them there: a proxy header answers only where a proxy is, and the route that needed this
+    variable was the one with no proxy in front of it at all.
 - **Leaving the cookie `Secure` and documenting self-signed TLS only.** Rejected as the sole answer:
   Caddy's internal CA is a real option and is documented as the encrypted alternative, but a browser
   warns on the certificate and iOS needs the root CA *installed*, not merely clicked through. It is not

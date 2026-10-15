@@ -22,7 +22,9 @@ import {
  * The app here is assembled the way `buildApp` assembles it — exempt routes on
  * a bare `/api` scope, everything else in a nested *gated* scope, and both
  * WebSocket guards on the socket's own scope — because that structure is the
- * security boundary, not an implementation detail of the wiring.
+ * security boundary, not an implementation detail of the wiring. The trust list
+ * is part of that assembly rather than a detail of the limiter: it is what
+ * decides the address `request.ip` reports (ticket 65).
  */
 describe('the auth transport', () => {
   const TEST_PASSWORD = 'test-password';
@@ -38,7 +40,7 @@ describe('the auth transport', () => {
     await Promise.all(apps.map((app) => app.close()));
   });
 
-  function makeApp(overrides: Partial<AuthOptions> = {}): FastifyInstance {
+  function makeApp(overrides: Partial<AuthOptions> = {}, trustProxy?: string): FastifyInstance {
     const options: AuthOptions = {
       verifyPassword: (password) => Promise.resolve(password === TEST_PASSWORD),
       sessions: createSessionStore(),
@@ -46,7 +48,7 @@ describe('the auth transport', () => {
       ...overrides,
     };
 
-    const app = Fastify({ logger: false });
+    const app = Fastify({ logger: false, trustProxy });
     app.register(cookie);
     app.register(websocket);
 
@@ -298,12 +300,55 @@ describe('the auth transport', () => {
       };
     }
 
+    /**
+     * The compose deployment's two addresses: the range `docker-compose.yml`
+     * declares, and the address Caddy has on the app's network — inside it.
+     */
+    const TRUSTED_PROXIES = '172.16.0.0/12';
+    const PROXY_ADDRESS = '172.17.0.1';
+    /** Two clients the proxy reports, neither of them in a private range. */
+    const CLIENT = '198.51.100.9';
+    const OTHER_CLIENT = '203.0.113.7';
+
     async function failLogin(app: FastifyInstance, address = '127.0.0.1'): Promise<number> {
       const response = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
         payload: { password: 'wrong' },
         remoteAddress: address,
+      });
+      return response.statusCode;
+    }
+
+    /**
+     * One login as the app sees it behind a proxy: the peer is the declared
+     * proxy, and the address it reports for the client arrives in
+     * `X-Forwarded-For`. A test that needs a *sender* the list does not name —
+     * so that the header is a string and nothing more — passes it as `peer`.
+     */
+    async function failLoginThroughProxy(
+      app: FastifyInstance,
+      forwarded: string,
+      peer = PROXY_ADDRESS,
+    ): Promise<number> {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { password: 'wrong' },
+        remoteAddress: peer,
+        headers: { 'x-forwarded-for': forwarded },
+      });
+      return response.statusCode;
+    }
+
+    /** A correct password from behind the same proxy, for whichever client is named. */
+    async function loginThroughProxy(app: FastifyInstance, forwarded: string): Promise<number> {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { password: TEST_PASSWORD },
+        remoteAddress: PROXY_ADDRESS,
+        headers: { 'x-forwarded-for': forwarded },
       });
       return response.statusCode;
     }
@@ -331,6 +376,84 @@ describe('the auth transport', () => {
 
       for (let attempt = 0; attempt < 5; attempt += 1) await failLogin(app);
 
+      const other = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { password: TEST_PASSWORD },
+        remoteAddress: OTHER_ADDRESS,
+      });
+      expect(other.statusCode).toBe(200);
+    });
+
+    it('locks the client the declared proxy reports, not the proxy itself', async () => {
+      const warnings: string[] = [];
+      const app = makeApp(
+        { loginLimit: lockedClock().limit, warn: (message) => warnings.push(message) },
+        TRUSTED_PROXIES,
+      );
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect(await failLoginThroughProxy(app, CLIENT)).toBe(401);
+      }
+
+      // The run locked *that client*: the same client is refused its own right
+      // password, while a different client through the same proxy logs in — one
+      // bucket for everyone behind the proxy is the bug this fixes.
+      expect(await loginThroughProxy(app, CLIENT)).toBe(429);
+      expect(await loginThroughProxy(app, OTHER_CLIENT)).toBe(200);
+
+      // The line the operator reads names the address that failed, not Caddy's.
+      expect(warnings.join('\n')).toContain(CLIENT);
+      expect(warnings.join('\n')).not.toContain(PROXY_ADDRESS);
+    });
+
+    it('ignores a client address forged ahead of the proxy in the header', async () => {
+      const app = makeApp({ loginLimit: lockedClock().limit }, TRUSTED_PROXIES);
+
+      // Caddy appends the address it sees to whatever the client sent, so the
+      // header arrives as "<the client's claim>, <the truth>". The bucket is
+      // keyed on the truth — the last hop a trusted peer added — so naming the
+      // legitimate user in a forged prefix does not burn their address.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect(await failLoginThroughProxy(app, `${OTHER_CLIENT}, ${CLIENT}`)).toBe(401);
+      }
+      expect(await failLoginThroughProxy(app, `${OTHER_CLIENT}, ${CLIENT}`)).toBe(429);
+
+      expect(await loginThroughProxy(app, OTHER_CLIENT)).toBe(200);
+    });
+
+    it('ignores a header sent by a peer the declared list does not name', async () => {
+      const app = makeApp({ loginLimit: lockedClock().limit }, TRUSTED_PROXIES);
+
+      // The third row of the decision's table: a header that lies, from outside
+      // the list. The list is what makes a header worth reading, so from a peer
+      // it does not name it stays a string the sender chose, and the bucket is
+      // the sender's own address — five failures naming five addresses all land
+      // on it. What this pins is the difference between a list and believing
+      // every sender (`trustProxy: true`), where the last two assertions are
+      // the other way round: the sender would be the one left unlocked.
+      for (const claimed of [OTHER_CLIENT, '192.0.2.4', '192.0.2.5', '192.0.2.6', '192.0.2.7']) {
+        expect(await failLoginThroughProxy(app, claimed, CLIENT), claimed).toBe(401);
+      }
+
+      expect(await failLoginThroughProxy(app, CLIENT, CLIENT)).toBe(429);
+      // And the address the sender kept naming is untouched.
+      expect(await loginThroughProxy(app, OTHER_CLIENT)).toBe(200);
+    });
+
+    it('counts the peer itself when no proxy is declared', async () => {
+      const app = makeApp({ loginLimit: lockedClock().limit });
+
+      // The direct and tunnelled routes: the header is there for the sending,
+      // and it changes nothing — five failures from the peer lock the peer,
+      // whatever address each of them claims.
+      const claimed = ['198.51.100.9', '203.0.113.7', '192.0.2.1', '198.51.100.10', '203.0.113.8'];
+      for (const address of claimed) {
+        expect(await failLoginThroughProxy(app, address)).toBe(401);
+      }
+
+      expect(await loginThroughProxy(app, CLIENT)).toBe(429);
+      // A different peer is a different bucket, header or no header.
       const other = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
