@@ -2,6 +2,7 @@ import type { Project } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
 import { NameDialog } from './dialogs';
+import { Name } from './Name';
 import { useToast } from './toast/ToastProvider';
 import { isValidProjectName, type ProjectsState } from './useProjects';
 
@@ -107,7 +108,7 @@ export function ProjectSwitcher({
                         : 'text-ink-dim hover:bg-white/5 hover:text-ink'
                     }`}
                   >
-                    {project.name}
+                    <Name>{project.name}</Name>
                   </button>
                 </li>
               ))}

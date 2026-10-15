@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { NameDialog, Overlay } from '../dialogs';
+import { Name } from '../Name';
 import { useToast } from '../toast/ToastProvider';
 import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
@@ -1058,13 +1059,13 @@ function EntryMain({
           title={view === 'list' ? `Open folder ${entry.name}` : isExpanded ? 'Collapse folder' : 'Expand folder'}
         >
           {view === 'tree' && <span className="text-ink-dim">{isExpanded ? '▾ ' : '▸ '}</span>}
-          {entry.name}/
+          <Name>{entry.name}</Name>/
         </RowButton>
       );
     case 'file':
       return (
         <RowButton onClick={onClick} title={`Preview ${entry.name}`}>
-          {entry.name}
+          <Name>{entry.name}</Name>
         </RowButton>
       );
     case 'symlink':
@@ -1077,7 +1078,7 @@ function EntryMain({
           title="symlink escaping the project — shown, not navigable"
         >
           <span className="text-ink-dim">↗ </span>
-          {entry.name}
+          <Name>{entry.name}</Name>
         </span>
       );
     default:

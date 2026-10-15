@@ -32,6 +32,12 @@ const MD_BODY = '# Guide\n\nRead **this**, not that.';
 /** A listing row's size, independent of the content body so the two cannot be confused. */
 const README_SIZE = 1536;
 
+/**
+ * The demo project's Persian file — the name whose script runs the other way
+ * (ticket 56). It is opt-in, so only the rows' direction is tested against it.
+ */
+const PERSIAN_FILE = 'یادداشت.md';
+
 /** An mtime three hours old, so a row's relative label is a fixed `3h ago`. */
 function threeHoursAgo(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
@@ -70,12 +76,17 @@ function failure(status: number, statusText: string, error: string): Response {
  * path is one of `failUploads` (a 409 on that file alone, so a batch's other
  * files still land). Every request is recorded, which is how "no request was
  * made" and "the listing re-listed once" are asserted.
+ *
+ * `rtl` adds `PERSIAN_FILE` to the root listing — a name in the other script,
+ * beside the Latin ones, rather than a listing of its own.
  */
-function stubFiles(options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean } = {}): {
+function stubFiles(
+  options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean; rtl?: boolean } = {},
+): {
   calls: Call[];
   mtime: string;
 } {
-  const { failMutations = false, failUploads = [], truncated = false } = options;
+  const { failMutations = false, failUploads = [], truncated = false, rtl = false } = options;
   const calls: Call[] = [];
   const mtime = threeHoursAgo();
 
@@ -100,6 +111,7 @@ function stubFiles(options: { failMutations?: boolean; failUploads?: string[]; t
             { type: 'file', name: 'README.md', size: README_SIZE, mtime },
             { type: 'file', name: 'GUIDE.md', size: README_SIZE, mtime },
             { type: 'file', name: 'main.ts', size: README_SIZE, mtime },
+            ...(rtl ? [{ type: 'file', name: PERSIAN_FILE, size: README_SIZE, mtime }] : []),
           ],
         };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
@@ -177,6 +189,27 @@ function rowOf(button: HTMLElement): HTMLElement {
   const row = button.parentElement;
   if (row === null) throw new Error('a row button has no row');
   return row;
+}
+
+/** The element a row draws its name on: the one that carries the direction rule. */
+function nameCell(button: HTMLElement): HTMLElement {
+  const cell = button.querySelector<HTMLElement>('[dir]');
+  if (cell === null) throw new Error(`the row "${button.textContent ?? ''}" draws its name with no rule`);
+  return cell;
+}
+
+/**
+ * Every `dir` attribute on the way up from a row's button — the trap the
+ * direction rule avoids by sitting on the name's own element and nowhere else,
+ * where the first strong character of `123-…` would decide the whole row.
+ */
+function dirsAbove(button: HTMLElement): string[] {
+  const found: string[] = [];
+  for (let element: HTMLElement | null = button; element !== null; element = element.parentElement) {
+    const dir = element.getAttribute('dir');
+    if (dir !== null) found.push(dir);
+  }
+  return found;
 }
 
 /** One of the panel's two columns, by position. */
@@ -795,5 +828,54 @@ describe('the code view', () => {
     await waitFor(() => {
       expect(screen.getByText('# Guide').className).toContain('text-code-kw');
     });
+  });
+});
+
+describe('a name reads in its own direction', () => {
+  it('carries the rule on the name, in the tree and in the flat list', async () => {
+    stubFiles({ rtl: true });
+    renderPanel();
+
+    const persian = await screen.findByRole('button', { name: PERSIAN_FILE });
+
+    // The rule is the browser's own, on the name's own element…
+    expect(nameCell(persian).getAttribute('dir')).toBe('auto');
+    // …and nowhere between the row's button and the panel: the folder `▸` and
+    // `/`, the size, the `⋯` and the panel itself keep the direction the shell
+    // is laid out in, so the script a name happens to start with cannot move a
+    // row. That is the trap the row would fall into — `dir="auto"` on the row
+    // lets the first *strong* character of `123-…` decide all of it.
+    expect(dirsAbove(persian)).toEqual([]);
+
+    // Display-only: the name reaches the DOM exactly as the listing carried it,
+    // and the row still addresses that same name.
+    expect(nameCell(persian).textContent).toBe(PERSIAN_FILE);
+    expect(persian.getAttribute('title')).toBe(`Preview ${PERSIAN_FILE}`);
+
+    // The flat list draws the same name through the same component.
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    const listed = screen.getByRole('button', { name: PERSIAN_FILE });
+    expect(nameCell(listed).getAttribute('dir')).toBe('auto');
+    expect(dirsAbove(listed)).toEqual([]);
+  });
+
+  it('draws a Latin name exactly as it did before', async () => {
+    // The Latin row is in the *same* listing as the Persian one: one row cannot
+    // change how the row beside it reads.
+    stubFiles({ rtl: true });
+    renderPanel();
+
+    const latin = await screen.findByRole('button', { name: 'README.md' });
+
+    // The rule is on this name too, and the browser's first-strong rule resolves
+    // it left-to-right — the direction it resolved before this change. What must
+    // not have moved is the row: the same name, size and `⋯`, and no direction
+    // above the name either.
+    expect(nameCell(latin).getAttribute('dir')).toBe('auto');
+    expect(dirsAbove(latin)).toEqual([]);
+    expect(nameCell(latin).textContent).toBe('README.md');
+    expect(latin.getAttribute('title')).toBe('Preview README.md');
+    expect(within(rowOf(latin)).getByText('1.5 KB')).toBeTruthy();
+    expect(within(rowOf(latin)).getByRole('button', { name: 'Actions for README.md' })).toBeTruthy();
   });
 });
