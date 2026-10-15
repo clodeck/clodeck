@@ -18,8 +18,9 @@ const app = buildApp({
   // origin rides along: its scheme is what lets a deployment with no domain
   // keep a session at all (spec-07).
   auth: await createAuthOptions(config.uiPassword, config.publicOrigin),
-  // Set by the image (spec-06 §"Ticket 27"); unset in the dev loop, where Vite
-  // serves the client instead.
+  // The image sets `WEB_ROOT` (spec-06 §"Ticket 27"); left unset it resolves to
+  // a build this checkout made, so null here means there was none to serve — the
+  // dev loop, where Vite serves the client instead (spec-07 §"The web root").
   webRoot: config.webRoot,
 });
 
