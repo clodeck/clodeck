@@ -13,7 +13,7 @@ Agent SDK turns over a WebSocket bus at `/ws`, tool cards, the approval modal, a
 resume over REST. So does the terminal: a per-project shell (node-pty behind a facade) streamed as raw
 bytes over `/ws/terminal` into an xterm.js panel. So does the file drawer: a tree that expands in
 place, with create / rename / delete / upload, and an editable preview that saves back to disk — all
-scoped to the project root. Auth fronts every one of them. And each chat turn runs on a **provider
+scoped to the project root. Auth fronts every one of them. And each chat session runs on a **provider
 profile** you pick beside the composer — the server's own environment, or any
 `CLODECK_PROVIDER_<NAME>_*` the operator declared ([Provider profiles](#provider-profiles)).
 
@@ -652,7 +652,7 @@ Read by the **server** in every case; the client bakes in nothing but relative U
 | `WEB_ROOT` | — | The built client's directory. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links. Unset → the server walks up from its working directory to the repo root and serves `web/dist` if it has been built, logging the directory it picked or the reason it picked none. No build anywhere → no client is served, which is what the Vite dev loop wants. |
 | `CLODECK_TRUSTED_PROXIES` | — | The proxies in front of this deployment, as a comma-separated list of addresses, CIDR ranges and the keywords `loopback` / `linklocal` / `uniquelocal` — `172.16.0.0/12` for the compose Caddy, `127.0.0.1/8` for a proxy on the same host. It is the address the **login lockout** keys on: without it, every login behind a proxy arrives from the proxy itself, so five failures — anyone's — lock out the one user there is. Unset or blank → nothing is trusted, which is what the direct and tunnelled routes want; a forged `X-Forwarded-For` is ignored by a peer outside the list either way, so only a client *inside* it can rotate the bucket. A value that is not a list of addresses is a startup warning rather than a failure: the server trusts nothing and says so. |
 | `CLODECK_PROVIDER_<NAME>_BASE_URL`, `_AUTH_TOKEN`, `_MODEL` | — | One provider profile, named `<NAME>`: any subset of the endpoint, the credential and the model, with the rest inherited from this server's own `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`. Read once, at boot. See [Provider profiles](#provider-profiles). |
-| `ANTHROPIC_API_KEY` | — | The default profile's credential, read by the Agent SDK from the server's environment. clodeck never stores, persists or invents one — it reads what you exported and hands it to the run. Only the real provider needs it — `npm run dev:fake` needs none. |
+| `ANTHROPIC_API_KEY` | — | The default profile's credential, read by the Agent SDK from the server's environment. A profile's credential reaches its run the same way, as `ANTHROPIC_AUTH_TOKEN`. clodeck never stores, persists or invents one — it reads what you exported and hands it to the run. Only the real provider needs it — `npm run dev:fake` needs none. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the Agent SDK keeps its transcripts — the thing session history and resume are read from. The Docker image sets `/home/node/.claude` and mounts a volume there. |
 
 **`clodeck.config.json`** is the fallback for deployments that would rather not export an environment
@@ -721,7 +721,7 @@ is only as good as what the proxy passes through unaltered — `stream_event` de
 `tool_use` blocks (the tool cards), the `can_use_tool` approval round trip those blocks trigger (the
 modal), and the trailing `result` (the turn's outcome).
 
-**The picker sits beside the composer** — under the box you type in, not up in the chat header — as one
+**The picker sits beside the composer** — above the box you type in, not up in the chat header — as one
 line reading `running on <profile> · <model>`. The choice is **per session**: a new session in a project
 opens on the profile the last one there used, and on the server's environment when nothing is
 remembered. It **locks once the session's first turn has run**, so what you are talking to cannot change
@@ -738,8 +738,8 @@ nor duplicates it: the picker says *pinned by this project* and offers **tiers o
 vendor's model name means nothing at another vendor's endpoint, and the run carries the chosen model
 while the project keeps the endpoint and the credential. The file is read per turn, through the same
 scoped file access the drawer uses, so a pin you edit takes effect on the next turn; a file that is
-missing, is not JSON, or has an `env` that is not an object means *no pin*, reported in the server's log
-rather than treated as a reason to fail.
+missing means *no pin* in silence — most projects pin nothing — and one that is not JSON, or whose `env`
+is not an object, means *no pin* with a line in the server's log. Neither is ever a reason to fail.
 
 **A credential written into a project file is readable by the model.** The drawer filters no dotfiles —
 `.claude/settings.json` is right there in the tree — and the agent's `Read` is auto-approved and scoped
