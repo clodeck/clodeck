@@ -94,8 +94,9 @@ const app = buildApp({
   // notes"). A dev loop with no login is not a dev loop; it is a rehearsal.
   // The public origin comes along for the same reason it does in `main.ts`.
   auth: await createAuthOptions(config.uiPassword, config.publicOrigin),
-  // The same config seam as `main.ts`. Unset here in practice: this loop is the
-  // dev loop, and Vite serves the client.
+  // The same config seam as `main.ts`, resolution and all: a build above the
+  // working directory is served from this port too, which the loop never sees —
+  // its browser talks to Vite (spec-07 §"The web root").
   webRoot: config.webRoot,
 });
 

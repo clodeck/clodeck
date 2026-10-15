@@ -5,7 +5,7 @@ import type { Project } from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { loadConfig } from './config.js';
+import { loadConfig, resolveWebRoot } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import {
   createSandbox,
@@ -174,14 +174,21 @@ describe('the server API', () => {
     const warnings: string[] = [];
     const warn = (message: string) => warnings.push(message);
 
-    const broken = loadConfig({ env: {}, configPath: brokenPath, warn });
-    const absent = loadConfig({ env: {}, configPath: path.join(sandbox.dir, 'absent.config.json'), warn });
+    const broken = loadConfig({ env: {}, cwd: sandbox.dir, configPath: brokenPath, warn });
+    const absent = loadConfig({
+      env: {},
+      cwd: sandbox.dir,
+      configPath: path.join(sandbox.dir, 'absent.config.json'),
+      warn,
+    });
 
     expect(broken.projectsRoot).toBeNull();
     expect(warnings.join('\n')).toContain('broken.config.json');
-    // An absent config file is the normal case, so it is not reported.
+    // An absent config file is the normal case, so it is not reported. The web
+    // root reports its own resolution on this channel too — see `config.ts` —
+    // so the config file's reports are the ones counted here.
     expect(absent.projectsRoot).toBeNull();
-    expect(warnings).toHaveLength(1);
+    expect(warnings.filter((message) => message.includes('.config.json'))).toHaveLength(1);
 
     const response = await getProjects(makeApp(broken.projectsRoot));
     expect(response.statusCode).toBe(200);
@@ -234,10 +241,15 @@ describe('the server API', () => {
   it('takes the web root from WEB_ROOT, and answers null when it is unset or blank', async () => {
     const built = path.join(sandbox.dir, 'web-dist');
     const configPath = path.join(sandbox.dir, 'absent.config.json');
+    // The working directory is a fixture with no workspace manifest and no build
+    // above it, so "unset" means "nothing to find" here as it does in the dev
+    // loop — never whatever this machine happens to have built.
+    const cwd = sandbox.dir;
+    const warn = () => undefined;
 
-    const set = loadConfig({ env: { WEB_ROOT: `  ${built}  ` }, configPath });
-    const unset = loadConfig({ env: {}, configPath });
-    const blank = loadConfig({ env: { WEB_ROOT: '   ' }, configPath });
+    const set = loadConfig({ env: { WEB_ROOT: `  ${built}  ` }, cwd, configPath, warn });
+    const unset = loadConfig({ env: {}, cwd, configPath, warn });
+    const blank = loadConfig({ env: { WEB_ROOT: '   ' }, cwd, configPath, warn });
 
     // A path, resolved the way the projects root is: the static plugin needs an
     // absolute one, and a leading space typed into a compose file is not one.
@@ -245,6 +257,28 @@ describe('the server API', () => {
     // Unset is the dev loop: Vite serves the client, this server serves none.
     expect(unset.webRoot).toBeNull();
     expect(blank.webRoot).toBeNull();
+  });
+
+  it('finds the built client an unset WEB_ROOT resolves to, and says so in the log', async () => {
+    const repo = path.join(sandbox.dir, 'repo');
+    const built = path.join(repo, 'web', 'dist');
+    await mkdir(path.join(repo, 'server'), { recursive: true });
+    await writeFile(path.join(repo, 'package.json'), JSON.stringify({ workspaces: ['web'] }));
+    await mkdir(built, { recursive: true });
+    const warnings: string[] = [];
+    const configPath = path.join(sandbox.dir, 'absent.config.json');
+
+    const config = loadConfig({
+      env: {},
+      // Where the server runs from: inside the repository, one level below the
+      // manifest that names the workspaces.
+      cwd: path.join(repo, 'server'),
+      configPath,
+      warn: (message: string) => warnings.push(message),
+    });
+
+    expect(config.webRoot).toBe(built);
+    expect(warnings.join('\n')).toContain(built);
   });
 
   it('takes the public origin from CLODECK_PUBLIC_URL, unset or blank meaning undeclared', async () => {
@@ -275,6 +309,94 @@ describe('the server API', () => {
     const config = loadConfig({ env: {}, configPath });
 
     expect(config.publicOrigin).toBeNull();
+  });
+
+  /**
+   * The resolver on its own (spec-07 §"The web root"). It is a pure function of
+   * the directory it is handed, so every tree it walks is built here, in the
+   * sandbox: a test of path resolution that read this machine's own `web/dist`
+   * would pass or fail by accident, which is the one thing it must never do.
+   */
+  describe('the web root resolver', () => {
+    /** A directory whose manifest declares workspaces, as this repository's root does. */
+    async function writeWorkspaceRoot(dir: string, workspaces: unknown): Promise<void> {
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({ private: true, workspaces }));
+    }
+
+    async function writeBuiltClient(dir: string): Promise<void> {
+      await mkdir(path.join(dir, 'web', 'dist'), { recursive: true });
+      await writeFile(path.join(dir, 'web', 'dist', 'index.html'), '<!doctype html>');
+    }
+
+    it('finds web/dist under the manifest that declares workspaces, walking up from the working directory', async () => {
+      const repo = path.join(sandbox.dir, 'repo');
+      const built = path.join(repo, 'web', 'dist');
+      await writeWorkspaceRoot(repo, ['web']);
+      await writeBuiltClient(repo);
+      // Started from a directory inside the repository, the way the server runs
+      // from `server/` rather than from the checkout root.
+      await mkdir(path.join(repo, 'server'));
+
+      const resolution = resolveWebRoot(path.join(repo, 'server'));
+
+      expect(resolution.root).toBe(built);
+      expect(resolution.reason).toContain(built);
+    });
+
+    it('walks past what is not the workspace root: a package, or a manifest that will not parse', async () => {
+      const repo = path.join(sandbox.dir, 'repo');
+      await writeWorkspaceRoot(repo, ['web']);
+      await writeBuiltClient(repo);
+      await mkdir(path.join(repo, 'server'));
+      await writeFile(path.join(repo, 'server', 'package.json'), JSON.stringify({ name: '@clodeck/server' }));
+      await mkdir(path.join(repo, 'junk'));
+      await writeFile(path.join(repo, 'junk', 'package.json'), '{ not json');
+
+      // `server/` is where the server actually runs from: a package inside the
+      // repository, not its root. `junk/` is the same answer for sillier reasons.
+      expect(resolveWebRoot(path.join(repo, 'server')).root).toBe(path.join(repo, 'web', 'dist'));
+      expect(resolveWebRoot(path.join(repo, 'junk')).root).toBe(path.join(repo, 'web', 'dist'));
+    });
+
+    it('accepts workspaces declared as a packages object', async () => {
+      const repo = path.join(sandbox.dir, 'other-repo');
+      await writeWorkspaceRoot(repo, { packages: ['web'] });
+      await writeBuiltClient(repo);
+
+      expect(resolveWebRoot(repo).root).toBe(path.join(repo, 'web', 'dist'));
+    });
+
+    it('answers none, and names the root that has no build, when the workspace root was never built', async () => {
+      const repo = path.join(sandbox.dir, 'unbuilt-repo');
+      await writeWorkspaceRoot(repo, ['web']);
+
+      const resolution = resolveWebRoot(repo);
+
+      expect(resolution.root).toBeNull();
+      expect(resolution.reason).toContain(repo);
+      expect(resolution.reason).toContain('web/dist');
+    });
+
+    it('answers none when web/dist is a file rather than a directory', async () => {
+      const repo = path.join(sandbox.dir, 'odd-repo');
+      await writeWorkspaceRoot(repo, ['web']);
+      await mkdir(path.join(repo, 'web'));
+      await writeFile(path.join(repo, 'web', 'dist'), 'not a client');
+
+      expect(resolveWebRoot(repo).root).toBeNull();
+    });
+
+    it('answers none, and names where it looked, when nothing above declares workspaces', async () => {
+      const lonely = path.join(sandbox.dir, 'lonely');
+      await mkdir(lonely);
+
+      const resolution = resolveWebRoot(lonely);
+
+      expect(resolution.root).toBeNull();
+      expect(resolution.reason).toContain(lonely);
+      expect(resolution.reason).toContain('no package manifest declaring workspaces');
+    });
   });
 
   // File symlinks need elevation or Developer Mode on Windows, so this case is
