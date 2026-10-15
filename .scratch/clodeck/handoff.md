@@ -1,63 +1,66 @@
-# Handoff — clodeck: the ticket loop can pin a ticket, so two lanes run at once
+# Handoff — clodeck: the loop's own tooling is under the typecheck and the suite
 
 **Updated:** 2026-10-15
-**Where the tree is:** **`main` is at `8d613ab`** — *Merge ticket 71: the loop can be pinned to one
-ticket* — with tickets **59, 66 and 71** merged `--no-ff` and their branches deleted, on top of the
-ticket-loop runbook (`8b69ba1`). This session's last change is a docs branch, **`docs/handoff-71`**,
-holding this file and one new ticket (72); it is committed and green and **not merged**. Nothing is
-pushed: `main` is **3 commits ahead of `origin/main`**. Merging is one command:
-
-```sh
-git switch main && git merge --no-ff docs/handoff-71
-```
+**Where the tree is:** **`main` is at `739dca5`** — *Merge ticket 72: the loop's tooling comes under
+the typecheck and the suite* — with tickets **59, 66, 71 and 72** merged `--no-ff` and their branches
+deleted, on top of the ticket-loop runbook (`8b69ba1`). The 72 branch was cut from `docs/handoff-71`,
+so merging it brought that branch's commits with it and `docs/handoff-71` is gone too. This session's
+last change is a docs branch, **`docs/handoff-72`**, holding this file; **the user asked for it to be
+merged as well, so by the time you read this on `main` it already is.** Nothing is pushed: `main` is
+**7 commits ahead of `origin/main`** at the time of writing.
 
 ## What this phase is
 
-**Ticket 71 is the loop's own ticket: the run can be told which ticket to work on, which is what makes
-two lanes possible.** Before it, `nextTicket()` scanned the ready list and took the first ticket whose
-branch did not exist, with nothing serialising that choice — two runs started together both took the
-same ticket, and the second either died on `Branch '…' is already checked out in worktree …` or, worse
-because it is silent, found that worktree clean, reused it and put a second agent into the same files.
+**Ticket 72 is the loop's own housekeeping: the two files the loop runs on were the only code in the
+repo nothing checked.** `.sandcastle/main.mts` and `scripts/tickets.mjs` sat outside every workspace
+`tsconfig` and outside `npm test`, and the bill for that was concrete — ticket 71 added `--ticket`,
+the flag two lanes depend on, and its only test was a person running it by hand; one strict-mode error
+had been sitting at `main.mts:132` because nothing compiled the file.
 
-What it looks like from outside: `npm run sandcastle -- --ticket 67 --ticket 65` works exactly those two
-tickets, in that order, one per pass; `MAX_TICKETS` stops applying, because the operator named them. Each
-id is answered **on the host, before any container exists** — the tracker's new `ready <ID>` gives the
-verdict, the branch list gives the rest — and a request that cannot be honoured prints the reason
-(`63 is blocked by 60, 61, 62`, `no ticket 999 under .scratch/clodeck/issues`, `71 was pinned twice`,
-`clodeck/71-… already exists — merge or delete it first`) and exits 1, rather than quietly working on
-something else. Without `--ticket` nothing changed.
-
-Ticket 71's own file (`.scratch/clodeck/issues/71-parallel-ticket-pinning.md`) is the spec, now
-`resolved`: its bullets are checked except the seventh, whose account sits just below them — **that one
-was run in half, and the file says which half**. Read it before touching the loop.
+What it looks like from outside: **`npm run typecheck` and `npm test` now cover the tooling**, and
+`npm test` grew a first step, `test:tooling` (2 files, 11 tests, ~180 ms) before the three workspace
+suites, which are untouched — the include patterns name `.sandcastle/*.test.mts` and
+`scripts/*.test.mts` one level deep, so nothing is collected twice and a leftover worktree cannot drag
+a copy of the repo into the run. The tracker takes the directory it reads, so its tests run over a
+fixture directory rather than over this effort's own tickets.
 
 ## What the merged branch changes
 
 | File | What it now does |
 |---|---|
-| `.sandcastle/main.mts` | `requestedTicketIds()` (strict `parseArgs`, `--ticket` repeatable) and `pinnedQueue()`, which resolves every id against the tracker and the branch list on the host and returns either the tickets or **one** refusal; `passTicket()` shifts from the pinned list or falls through to `nextTicket()`; `passes` is the pin count or `MAX_TICKETS`, and `branchTaken()` builds the already-exists sentence both paths use |
-| `scripts/tickets.mjs` | a fourth command, `ready <ID>`, printing `{ ready: true, …ticket }` or `{ ready: false, reason }`; the readiness rule moved into one `whyNotReady(ticket, status)` that `list` and `ready` share, so the queue and a pin cannot disagree about what "ready" means. `list`'s stdout and stderr are byte-identical to before |
-| `.sandcastle/README.md` | the lane section rewritten: the two-shell example, what a pinned run refuses and why, what is per-lane (containers `sandcastle-<uuid>`, worktrees and logs per branch), the finding that **`git worktree add` racing itself needs no lock**, the rule that **each lane needs a different ticket**, and the plain statement that two lanes have not been run end to end yet |
-| `.scratch/clodeck/issues/71-…` | the ticket, resolved, with its **Landed as**, the half-run account, and a **Code review** section: four fixes (three confusable names, the duplicated refusal sentence, a stack trace where a sentence belongs, a hand re-narrowing) and four declines (no unit tests; no host lock for two lanes on one ticket; the duplicate-pin guard; the README's unrun paragraph) |
+| `tsconfig.tooling.json` | new: the strict baseline (`strict`, `noUncheckedIndexedAccess`, …) over `.sandcastle/*.mts` and `scripts/`, with `allowJs` + `checkJs`. `.sandcastle/` is matched **one level deep** so `worktrees/` — a whole copy of the repo — is never typechecked |
+| `vitest.config.mts` | new: the root runner. `npm test` calls it as `test:tooling` before the workspaces; `npm run typecheck` calls `typecheck:tooling` first. Root `devDependencies` gained `vitest`, `typescript`, `@types/node` (they were only hoisted before, which is not a thing to rely on) |
+| `.sandcastle/queue.mts` | new: **the host-side choice — which tickets a run will work on — out of `main.mts`**, which reads git config and creates a sandbox as it loads and so cannot be imported. The tracker and the branch list arrive as two ports (`TicketSource`, `Branches`), each with a real implementation that shells out (`ticketTracker()`, `gitBranches()`); `pinnedQueue`, `nextTicket`, `branchOf` and the types moved here unchanged |
+| `.sandcastle/main.mts` | now the loop *only*: it builds its two ports and calls `pinnedQueue(...)` with them, and `passTicket()` asks `nextTicket(tickets, branches)`. `main.mts:132` is fixed by narrowing (`?.[1]?.trim()`), not a cast. The local report list is `waitingBranches` (the name `branches` now belongs to the port) |
+| `scripts/tickets.mjs` | every exported function takes the directory as its last argument, `CLODECK_ISSUES_DIR` moves the default, and the CLI keeps using the default. Its command line moved into `main(argv)` and **runs only when the file is the process's entry point** — until then, importing it for a test ran the CLI and called `process.exit(1)`. The "no ticket" wording is one `noTicket(id, dir)` shared by the verdict, the close and the CLI |
+| `scripts/tickets.test.mts`, `.sandcastle/queue.test.mts` | new: 11 tests, all on behaviour — the four readiness outcomes (ready / blocked / resolved / no such id), the queue's skip report, the CLI driven over a fixture directory through `CLODECK_ISSUES_DIR`, and a pinned run's four answers: the order given, and a refusal with the tracker's own reason, for a ticket pinned twice, or for a branch that is already there |
+| `.sandcastle/README.md` | the tracker paragraph gained where the choice now lives, where the tooling tests run, and how the tracker's directory is moved |
+| `.scratch/clodeck/issues/72-…` | the ticket, resolved, with a note on the import-time CLI it turned up and on the two review findings |
 
-**Evidence:** `npm run typecheck` clean; `npm test` → shared **9**, server **276** passed + 8 skipped,
-web **202** (22 files); `web/e2e/` is still the same **five** specs. Refusals verified by running:
-`--ticket 63`, `--ticket 999`, `--ticket 67 --ticket 67`, `--ticket 71` on 71's own branch,
-`--tickets 67`; `--ticket 60 --ticket 61` printed `pass 1/2 — clodeck/60-…` and then stopped at the
-Docker image check.
+**The decision the ticket asked for, with its reason:** **the tracker stays `.mjs` and is checked with
+`checkJs`.** The implement prompt runs it as `node scripts/tickets.mjs` **inside the sandbox**, where
+nothing but Node is guaranteed (the image's own comment says so), and the loop shells out to the same
+path on the host. Migrating it to TypeScript would ask a loader of both doors to buy JSDoc-type
+inference it already has.
+
+**Evidence:** `npm run typecheck` clean through the pre-commit hook; `npm test` → tooling **11**,
+shared **9**, server **276** passed + 8 skipped, web **202** (22 files) — the same three workspace
+counts as before the change. The loop's refusals were re-run after the split and are word for word
+what they were: `--ticket 9999` (`no ticket 9999 under .scratch/clodeck/issues`), `--ticket 65
+--ticket 65`, `--ticket 72` on its own branch, and a typo'd flag. The tracker CLI was driven over a
+fixture directory too, which is how the `view` message was caught naming the wrong one.
 
 ## What was **not** run, and what it costs
 
-**Two lanes have never been run end to end** — not on this machine, which has no Docker daemon and no
-built image (both lanes stopped at `Image 'sandcastle:clodeck' not found locally`), and not anywhere
-else, because the flag is new. What *was* run is the host half: two processes at once, each claiming its
-own ticket and its own branch with no collision, plus the one thing nobody had tried — four concurrent
-`git worktree add` claims of exactly Sandcastle's shape, three rounds, zero failures. **So no lock and
-no staggered start is needed**, which is the repair ticket 71 asked to be recorded either way.
-
-The first two-lane pair belongs on the machine that will host the loop. Give the lanes tickets from
-different parts of the codebase, and give them **different tickets**: the branch check is per process, so
-two lanes aimed at one ticket both pass it and then share that branch's worktree and its log.
+- **Two lanes have still never been run end to end**, and this ticket did not change that: the flag is
+  still new, and the first pair belongs on the machine that will host the loop (see the previous
+  handoff's account, kept below, and `.sandcastle/README.md`).
+- **The new suite has only ever run on this Windows host.** Every sandbox pass now runs it through the
+  pre-commit hook, inside the container — which has not happened yet, because no pass has been run
+  since. Nothing about it looks host-specific (no shell, no paths, node only) but the first pass is
+  where that gets confirmed.
+- **`npm test` grew ~200 ms** for the tooling step. That is the cost of the ticket, and it is paid on
+  every commit through the hook.
 
 ## The loop, as it stands now
 
@@ -70,22 +73,22 @@ two lanes aimed at one ticket both pass it and then share that branch's worktree
 - **`.sandcastle/README.md` is the operator's page** — setup on another machine, `.sandcastle/.env`, the
   image build, the lanes, and the failure-mode list to read when a pass commits nothing. It is more
   current than this file about the loop.
-- **The loop's own files are outside the typecheck and the suite** (`npm run typecheck` and `npm test`
-  never see `.sandcastle/main.mts` or `scripts/tickets.mjs`, and `main.mts` carries one pre-existing
-  strict-mode error at line 132). **That is ticket 72**, written by this session and waiting in the
-  queue: bring them under the typecheck, give `scripts/tickets.mjs` an injectable `ISSUES_DIR`, and put
-  a root runner in front of them. Until it lands, a change to the loop is verified by running it.
+- **The loop's own files are now inside both gates.** `main.mts` is only the loop; anything it decides
+  *before* a container exists lives in `queue.mts` and has a test. A change to the loop is still worth
+  running once — the refusals are one command each — but it no longer has to be verified *only* by
+  running it.
 
 ## Where the frontier is
 
 **Ready to start now:** **60** (the web root resolves to the built client), **61** (`npm run serve`,
 with a preflight), **62** (the login screen says the connection is not encrypted), **64** (the direct
 route, verified in a browser), **65** (the login lockout behind a proxy — the operator's decision to
-take), **67** (the provider seam takes its options per run) and **72** (this session's tooling ticket).
+take), **67** (the provider seam takes its options per run).
 **Blocked:** 63 by 60, 61, 62; 68 by 67; 69 by 68; 70 by 69.
 
-The direct-route slice (58–65) and the provider profiles (66–70) are the two live threads; the loop can
-work two of them at once now, which is the whole point of 71.
+The direct-route slice (58–65) and the provider profiles (66–70) are the two live threads, and the loop
+can work two of them at once — which is what 71 was for, and 72 is what makes trusting that loop
+cheaper.
 
 ## Dev loop (unchanged, still load-bearing)
 
@@ -105,7 +108,8 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 - **The pre-commit hook** (`.githooks/pre-commit`, wired through `core.hooksPath` by `npm install`) runs
   `npm run typecheck` and `npm test`. There is no CI; the hook is why a red tree cannot be committed.
-  `--no-verify` only if the user asks. **It does not cover the loop's own files** — see ticket 72.
+  `--no-verify` only if the user asks. **Since 72 it covers the loop's own files too** — the hook is
+  what ran the new tooling suite for the first time on the commit that added it.
 - **The browser loop is real, and it is five specs** (`web/e2e/`): `project-switch.spec.ts`,
   `file-upload.spec.ts`, `file-download.spec.ts`, `file-move.spec.ts`, `code-view.spec.ts`, sharing
   `support.ts` (typechecked too). All five need `PORT=3300 npm run dev` (or `dev:fake`) already up, plus
@@ -113,7 +117,8 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   mid-test leaves its files in `demo`, and the next run then fails on a `409` that has nothing to do
   with the code: clear `zz-*` out of `D:/work/clodeck-projects/demo` before believing a red run.
 - **A docs-only or handoff-only change is not exempt from branching** — this file travelled on
-  `docs/handoff-71`, exactly as `AGENTS.md` says.
+  `docs/handoff-72`, exactly as `AGENTS.md` says. Merging is still `--no-ff` and still the user's call,
+  except that this time they made it in advance.
 
 ## Behaviour that is still load-bearing (from 44/45/47, untouched since)
 
@@ -140,11 +145,22 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 ## Known loose ends
 
-**Two are new here:** the loop's tooling is outside the typecheck and the suite (**ticket 72**, in the
-queue), and **two lanes pinned to the same ticket still collide** — the branch check is answered per
-process, so both pass it and then share a worktree and a log. Recorded on ticket 71 and in
-`.sandcastle/README.md`; a host lock was considered and declined there, because it is not what that
-ticket was about and a lock file adds its own stale-lock failure mode.
+**Two lanes pinned to the same ticket still collide** — the branch check is answered per process, so
+both pass it and then share a worktree and a log. Recorded on ticket 71 and in `.sandcastle/README.md`;
+a host lock was considered and declined there, because it is not what that ticket was about and a lock
+file adds its own stale-lock failure mode.
+
+**The tracker's JSON is still taken on trust.** `queue.mts`'s two ports parse the subprocess's output
+with `as Ticket[]` / `as Verdict` — casts that moved out of `main.mts` unchanged. The coding standards
+rule out casts that quiet the compiler, and these are a boundary assertion rather than a silenced error,
+but the honest fix is the field-by-field narrowing `server/src/config.ts` and `ws/client-message.ts`
+already do, and testing *that* needs a runner seam this ticket did not ask for. Left deliberately, said
+so on the ticket, and worth a small ticket of its own if the loop's output ever comes from anywhere but
+this repo's own script.
+
+**The readiness rule is tested through its callers, not directly.** `whyNotReady(ticket, status)` is the
+one place "ready" is defined and `list` and a pin both go through it; the four states are asserted at
+`readyTicket`, which is the door both use. Nothing calls it that the tests do not reach.
 
 **The list below is the 2026-10-13 snapshot**, minus the four bullets that tickets 54–57 closed (the
 client's name rule had no byte cap — 54; a row's `⋯` menu opened off the scroller's edge — 55; a
