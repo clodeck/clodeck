@@ -7,8 +7,8 @@ conversation.
 
 A pass is two agents on one branch:
 
-1. **implement** — one agent, `implement-prompt.md`, on `clodeck/<id>-<slug>`, closing the ticket's
-   status line in the same commit as the change.
+1. **implement** — one agent, `implement-prompt.md`, on `clodeck/<id>-<slug>`, ticking every
+   checklist item it satisfied and closing the ticket's status line in the same commit as the change.
 2. **review** — a second agent, `review-prompt.md`, on the same branch: the ticket's checklist against
    the diff, then clarity and correctness, applying what it finds.
 3. **the branch is left behind for you.** The loop never merges and never pushes —

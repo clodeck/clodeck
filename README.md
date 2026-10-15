@@ -862,9 +862,12 @@ before a socket exists.
 ## Development
 
 - **The pre-commit hook is the only automatic check this repo has** (there is no CI). `npm install`
-  wires it — `.githooks/pre-commit`, through `core.hooksPath` — and it runs `npm run typecheck` and
-  `npm test`, so a red tree is never committed. `git commit --no-verify` skips it once. If it never
-  seems to fire, `git config core.hooksPath` should answer `.githooks`; `npm run prepare` sets it.
+  wires it — `.githooks/pre-commit`, through `core.hooksPath` — and it runs `node
+  scripts/tickets.mjs check`, `npm run typecheck` and `npm test`, so a red tree is never committed.
+  The first of the three is the tracker's own rule: a ticket that reads `resolved` while its
+  checklist still has an unticked `- [ ]` fails the commit, so the status line and the boxes cannot
+  drift apart. `git commit --no-verify` skips all three once. If the hook never seems to fire,
+  `git config core.hooksPath` should answer `.githooks`; `npm run prepare` sets it.
 - **Two traps are load-bearing, and both are commented where they live** so the next person does not
   "fix" them back:
   - `npm run dev` passes `--raw` to `concurrently` on purpose. Without it, `concurrently`'s

@@ -27,8 +27,10 @@ You are implementing ticket {{TICKET_ID}} of the clodeck effort, alone, on a bra
 3. **Plan** — the smallest change that satisfies every item in the ticket's checklist. The checklist *is* the acceptance criteria; a change that misses one is not done.
 4. **Execute** — test first where the ticket asks for a test.
 5. **Verify** — `npm run typecheck` and `npm test`, both green.
-6. **Close** — `node scripts/tickets.mjs close {{TICKET_ID}}`.
-7. **Commit** — one commit holding the change *and* the status flip.
+6. **Tick and close** — tick every checklist item this pass satisfied (`- [ ]` → `- [x]`), then
+   `node scripts/tickets.mjs close {{TICKET_ID}}`. The pre-commit hook refuses a `resolved` ticket
+   that still lists unticked items, so an unticked box says "not done" and nothing else.
+7. **Commit** — one commit holding the change, the ticks *and* the status flip.
 
 ## The commit
 
@@ -52,6 +54,7 @@ So: `<scope>(<ticket>): <what changed, and why>` — a lowercase scope, then one
 
 # Done
 
-When your change is committed and ticket {{TICKET_ID}} reads `**Status:** resolved`, output:
+When your change is committed, every item this pass satisfied is ticked, and ticket {{TICKET_ID}}
+reads `**Status:** resolved`, output:
 
 <promise>COMPLETE</promise>

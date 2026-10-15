@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { readyTicket, readyTickets } from "./tickets.mjs";
+import { readyTicket, readyTickets, unclosedTickets } from "./tickets.mjs";
 
 /**
  * The tracker and the loop that drives it, against a fixture directory rather
@@ -69,6 +69,41 @@ describe("one ticket's verdict", () => {
   });
 });
 
+/** A closed ticket whose checklist is exactly the lines given. */
+function resolved(id: number, checklist: string): string {
+  return `# ${id}: a closed ticket\n\n**Blocked by:** None\n\n**Status:** resolved\n\n${checklist}`;
+}
+
+/** The environment a command-line case runs with: this tracker, that directory. */
+function envFor(dir: string): NodeJS.ProcessEnv {
+  return { ...process.env, CLODECK_ISSUES_DIR: dir };
+}
+
+describe("the items a resolved ticket left open", () => {
+  it("names them, because a closed ticket that still lists work is not closed", () => {
+    const dir = fixture({ "30-open.md": resolved(30, "- [x] done\n- [ ] the other half\n") });
+
+    const unclosed = unclosedTickets(dir);
+
+    expect(unclosed.map(({ ticket }) => ticket.id)).toEqual(["30"]);
+    expect(unclosed[0]?.items).toEqual(["the other half"]);
+  });
+
+  it("says nothing about a ready ticket, however many boxes it has open", () => {
+    const dir = fixture({ "31-ready.md": ticketFile(31, "ready") });
+
+    expect(unclosedTickets(dir)).toEqual([]);
+  });
+
+  it("says nothing about a decision ticket, which lists no items to tick", () => {
+    const dir = fixture({
+      "32-decision.md": "# 32: a decision\n\n**Blocked by:** None\n\n**Status:** resolved\n\nProse.\n",
+    });
+
+    expect(unclosedTickets(dir)).toEqual([]);
+  });
+});
+
 describe("the queue", () => {
   it("carries every ready ticket, and a reason for each one it left out", () => {
     const dir = fixture({
@@ -94,9 +129,40 @@ describe("the tracker's command line", () => {
 
     const listed = execFileSync(process.execPath, [SCRIPT, "list", "--brief"], {
       encoding: "utf8",
-      env: { ...process.env, CLODECK_ISSUES_DIR: dir },
+      env: envFor(dir),
     });
 
     expect(listed).toBe("21  next\n");
+  });
+
+  it("fails the hook's step when a resolved ticket has an open box, naming both", () => {
+    const dir = fixture({ "30-open.md": resolved(30, "- [x] done\n- [ ] the other half\n") });
+
+    // `spawnSync` rather than `execFileSync`: the latter echoes a failing child's
+    // stderr into the suite's own output, and a green run should not read like a
+    // tracker that just refused something.
+    const failure = spawnSync(process.execPath, [SCRIPT, "check"], {
+      encoding: "utf8",
+      env: envFor(dir),
+    });
+
+    expect(failure.status).toBe(1);
+    expect(failure.stderr).toContain("30 reads resolved and still carries 1 unticked item");
+    expect(failure.stderr).toContain("- [ ] the other half");
+  });
+
+  it("passes the hook's step in silence when every closed ticket is ticked", () => {
+    const dir = fixture({
+      "30-open.md": resolved(30, "- [x] done\n"),
+      // An open box on a ticket that is still to be worked is not the check's business.
+      "31-ready.md": ticketFile(31, "ready"),
+    });
+
+    const checked = execFileSync(process.execPath, [SCRIPT, "check"], {
+      encoding: "utf8",
+      env: envFor(dir),
+    });
+
+    expect(checked).toBe("");
   });
 });
