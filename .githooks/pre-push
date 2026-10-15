@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# The ticket loop never pushes.
+#
+# Nothing in the loop needs a remote — a pass ends with a branch on this machine
+# and the merge is the user's, per AGENTS.md — and an agent that decides to
+# "finish the job" by pushing is the one mistake in this setup that could not be
+# undone locally. Refusing it here is a guarantee; asking for it in a prompt is
+# a request.
+#
+# Sandcastle sets CLODECK_SANDBOX inside the container (.sandcastle/main.mts).
+# A push from this machine by hand is unaffected: bypass deliberately with
+# `git push --no-verify`.
+
+if [ -n "$CLODECK_SANDBOX" ]; then
+  echo "pre-push: refusing to push from inside the ticket loop's sandbox." >&2
+  echo "pre-push: the branch is the deliverable — review it, then merge it yourself." >&2
+  exit 1
+fi
+
+exit 0

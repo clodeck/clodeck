@@ -36,5 +36,13 @@ export default defineConfig({
     // Vitest's default pattern collects `*.spec.*` too, which would drag the
     // Playwright specs in — and Playwright's `test` does not run under vitest.
     include: ['**/*.test.{ts,tsx}'],
+    // `vite.config.test.ts` re-imports this very file, which drags the whole
+    // plugin chain — vite, react, tailwind — back through the module loader. The
+    // first import pays whatever the filesystem charges, and 5s is the right
+    // ceiling only for a warm local `node_modules`: inside the ticket loop's
+    // sandbox the worktree is a bind mount onto a Windows drive, where that same
+    // import measured 5.9s cold and failed the suite the agent needs green
+    // before it is allowed to commit.
+    testTimeout: 20_000,
   },
 });
