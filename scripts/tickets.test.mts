@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -138,16 +138,17 @@ describe("the tracker's command line", () => {
   it("fails the hook's step when a resolved ticket has an open box, naming both", () => {
     const dir = fixture({ "30-open.md": resolved(30, "- [x] done\n- [ ] the other half\n") });
 
-    let failure: { status?: number; stderr?: string } | undefined;
-    try {
-      execFileSync(process.execPath, [SCRIPT, "check"], { encoding: "utf8", env: envFor(dir) });
-    } catch (error) {
-      failure = error as { status?: number; stderr?: string };
-    }
+    // `spawnSync` rather than `execFileSync`: the latter echoes a failing child's
+    // stderr into the suite's own output, and a green run should not read like a
+    // tracker that just refused something.
+    const failure = spawnSync(process.execPath, [SCRIPT, "check"], {
+      encoding: "utf8",
+      env: envFor(dir),
+    });
 
-    expect(failure?.status).toBe(1);
-    expect(failure?.stderr).toContain("30 reads resolved and still carries 1 unticked item");
-    expect(failure?.stderr).toContain("- [ ] the other half");
+    expect(failure.status).toBe(1);
+    expect(failure.stderr).toContain("30 reads resolved and still carries 1 unticked item");
+    expect(failure.stderr).toContain("- [ ] the other half");
   });
 
   it("passes the hook's step in silence when every closed ticket is ticked", () => {
