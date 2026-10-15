@@ -24,7 +24,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 // How many tickets one run may drain. Each pass is a container, an `npm ci` and
 // two agents, so this is the dial that decides what a run costs. Raise it once
 // you have reviewed a branch or two and trust the loop.
-const MAX_TICKETS = 3;
+const MAX_TICKETS = 6;
 
 // AGENTS.md's branch naming, `<effort>/<ticket>-<slug>`, where the effort is the
 // one under `.scratch/`.
