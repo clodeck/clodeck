@@ -7,17 +7,24 @@
 // no index to fall out of sync and no service to call, which is why this file is
 // a parser rather than a schema.
 //
-// Four commands, matching what Sandcastle's custom-tracker scaffold expects:
+// Five commands, matching what Sandcastle's custom-tracker scaffold expects:
 //
 //   list [--brief]   every ticket ready to be worked on, as JSON
 //   view <ID>        one ticket, verbatim
 //   ready <ID>       one ticket's verdict: itself, or why it cannot start
 //   close <ID>       mark one ticket resolved
+//   check            every resolved ticket that still carries an open box
 //
 // "Ready" means the status is `ready-for-agent` *and* every ticket it is blocked
 // by is `resolved`. `list` prints what it skipped and why on stderr, so a ticket
 // that is missing from the queue says where it went; `ready` gives the one
 // ticket a pinned run asked for the same answer, in JSON.
+//
+// `check` guards the other half of a ticket's state. `close` flips the status
+// line and nothing else, so the checklist is the one claim only the pass that did
+// the work can make — and the one that drifted: on 2026-10-15 five tickets
+// reached `main` with every box still open, and nothing noticed. The pre-commit
+// hook runs this, so `resolved` and "every item ticked" cannot disagree for long.
 //
 // Plain `.mjs`, and run by bare `node`: the implement prompt calls it from inside
 // the sandbox (`.sandcastle/implement-prompt.md`), where nothing but Node is
@@ -42,6 +49,9 @@ const FILE_NAME = /^(\d+)-(.+)\.md$/;
 const TITLE = /^#\s*\d+:\s*(.+?)\s*$/m;
 const STATUS = /^(\*\*Status:\*\*[ \t]*)(.+?)([ \t\r]*)$/m;
 const BLOCKED_BY = /^\*\*Blocked by:\*\*\s*(.+?)\s*$/m;
+// An unticked checklist item, and the text on its own first line — the wrapped
+// continuation is not part of what `check` prints.
+const OPEN_ITEM = /^- \[ \] *(.*)$/gm;
 
 /**
  * One ticket file, as it was read off disk.
@@ -202,6 +212,26 @@ export function closeTicket(id, dir = issuesDir()) {
   return `${id} resolved — ${ticket.title}`;
 }
 
+/**
+ * Every resolved ticket that still has a box unticked, with those items.
+ *
+ * The rule is one sentence: a ticket that reads `resolved` has every item it
+ * lists ticked. A ticket with no checklist at all — most decision tickets — has
+ * nothing to tick and is never reported.
+ *
+ * @param {string} [dir]
+ * @returns {{ ticket: Ticket, items: string[] }[]}
+ */
+export function unclosedTickets(dir = issuesDir()) {
+  return readTickets(dir)
+    .filter((ticket) => ticket.status === RESOLVED)
+    .map((ticket) => ({
+      ticket,
+      items: [...ticket.body.matchAll(OPEN_ITEM)].map((match) => match[1] ?? ""),
+    }))
+    .filter(({ items }) => items.length > 0);
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -224,6 +254,18 @@ function main(argv) {
       return;
     }
 
+    if (command === "check") {
+      const unclosed = unclosedTickets();
+      if (unclosed.length === 0) return;
+      for (const { ticket, items } of unclosed) {
+        const noun = items.length === 1 ? "unticked item" : "unticked items";
+        console.error(`tickets: ${ticket.id} reads ${RESOLVED} and still carries ${items.length} ${noun}:`);
+        for (const item of items) console.error(`  - [ ] ${item}`);
+      }
+      console.error("tickets: tick every item this pass satisfied, or leave the ticket open.");
+      process.exit(1);
+    }
+
     if (command === "view" || command === "ready" || command === "close") {
       if (id === undefined) throw new Error(`${command} needs a ticket id`);
       if (command === "view") {
@@ -238,7 +280,7 @@ function main(argv) {
       return;
     }
 
-    console.error("usage: tickets.mjs <list [--brief] | view <ID> | ready <ID> | close <ID>>");
+    console.error("usage: tickets.mjs <list [--brief] | view <ID> | ready <ID> | close <ID> | check>");
     process.exit(1);
   } catch (error) {
     console.error(`tickets: ${error instanceof Error ? error.message : error}`);

@@ -20,7 +20,7 @@ Review the changes on branch `{{BRANCH}}` for ticket {{TICKET_ID}}, and improve 
 
 1. **Understand the change**: read the ticket and the diff above to work out what was asked for and what was done.
 
-2. **Check the ticket was actually satisfied**: walk the ticket's checklist. Every item that is not met by this diff is a finding, and the most important one — a tidy implementation of the wrong change is still the wrong change.
+2. **Check the ticket was actually satisfied**: walk the ticket's checklist. Every item that is not met by this diff is a finding, and the most important one — a tidy implementation of the wrong change is still the wrong change. The ticks are part of what you are checking, and they are yours to correct where the checklist is not: an item the pass ticked that this diff does not satisfy is a finding, and an item it satisfied without ticking is one too, ticked by you in the fix commit.
 
 3. **Analyze for improvements**: look for opportunities to
    - reduce unnecessary complexity and nesting

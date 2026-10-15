@@ -1,9 +1,10 @@
 #!/bin/sh
 #
 # The repo's only automatic check. There is no CI, so without this nothing runs
-# `typecheck` or the suite between a commit and someone noticing a red tree —
-# which is exactly how a test file once sat in the working tree with
-# `npm run typecheck` failing, for a whole session.
+# `typecheck`, the suite or the tracker's own consistency check between a commit
+# and someone noticing — which is exactly how a test file once sat in the working
+# tree with `npm run typecheck` failing for a whole session, and how five tickets
+# reached `main` reading `resolved` with every checklist box still open.
 #
 # Wired by `core.hooksPath`, which the root `prepare` script sets on every
 # `npm install` (see the README's Commands table). Bypass a single commit with
@@ -16,6 +17,12 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "pre-commit: fix PATH, or commit with --no-verify." >&2
   exit 1
 fi
+
+# The tracker's own check goes first: it reads files rather than building
+# anything, so it answers in milliseconds and a ticket closed with its items
+# unticked never costs a suite run to find out.
+echo "pre-commit: node scripts/tickets.mjs check"
+node scripts/tickets.mjs check
 
 echo "pre-commit: npm run typecheck"
 npm run typecheck

@@ -35,7 +35,7 @@ dorost mikone.
       hamchonān saghf-e yek run.
 - [x] Bā `--ticket`, `MAX_TICKETS` digar entekhāb rā mahdud nemikonad — operator khodesh gofte chi kār
       beshavad. Chand `--ticket` dar yek dastoor, be tartib-e dāde-shode.
-- [ ] Do lane-e hamzaman **vāghe'an test mishavad**, na faghat az rooye code: do process, har kodām yek
+- [x] Do lane-e hamzaman **vāghe'an test mishavad**, na faghat az rooye code: do process, har kodām yek
       `--ticket`, va har kodām worktree-e khodash, container-e khodash va log-e khodash. (Nokte-ye
       nā-test-shode: `git worktree add`-e hamzaman rooye yek repo. Age git in rā serialize mikonad yā
       moshkeli dārad, rāh-e hal — start-e staggered, yā yek lock-e kuchak rooye host — dar hamān
@@ -67,6 +67,14 @@ command above rather than a script, because it belongs to the probe and not to t
 stopped at `Image 'sandcastle:clodeck' not found locally` — no container, no worktree and no log from a
 real pass was ever seen. That is the operator's first two-lane pair, on the machine that hosts the
 loop, and `.sandcastle/README.md` says so in the section this ticket rewrote.
+
+**That half ran on 2026-10-15, on the machine that hosts the loop** — the Docker daemon and the built
+image the paragraph above lacked. Two processes, each with its own `--ticket`: `63` started at
+`14:42:23Z` and `67` at `14:42:50Z`, twenty-seven seconds apart, which is two processes rather than one
+working a pin list in order. Each held its own worktree for as long as it ran — `.sandcastle/worktrees/
+clodeck-63-docs-catch-up` and `…/clodeck-67-provider-seam-per-run` were both in `git worktree list` at
+the same moment — and each wrote its own log. The pair was run again that evening with 65 and 68.
+Nothing needed the fallback the parenthetical named: no lock on the host, no staggered start.
 
 **Landed as:** `--ticket <ID>`, repeatable and worked in the order given, parsed with `parseArgs` —
 strict, so an argument nobody knows stops the run rather than quietly turning a pin into a queue drain.
