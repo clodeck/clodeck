@@ -13,7 +13,7 @@ stale one.
 
 **Blocked by:** 59, 60, 61, 62 — it documents their behaviour, all of it
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The README's **situation table** leads with the direct route for "a server, no domain, just you",
       with the cleartext cost in the same row; the **tunnelled route** stays beside it as the encrypted

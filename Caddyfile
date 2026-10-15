@@ -5,8 +5,9 @@
 # Automatic HTTPS is the reason this file is four lines and not a dozen cert
 # paths: with a reachable domain and ports 80/443 open, Caddy obtains and renews
 # the Let's Encrypt certificate itself, and a plain-HTTP request is redirected
-# to HTTPS. That is not a convenience here — the session cookie is `Secure`
-# (spec-05), so the app cannot hold a login over plain HTTP at all.
+# to HTTPS. That matters here: the session cookie is `Secure` by default, so a
+# plain-HTTP login could not hold, and this deployment declares no `http:`
+# public origin to change that (spec-07 §"The public origin").
 
 {$CLODECK_DOMAIN} {
 	# Both WebSocket upgrades (`/ws`, `/ws/terminal`) ride this proxy: Caddy
