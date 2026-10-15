@@ -1391,9 +1391,12 @@ function Note({ tone, children }: { tone?: 'accent'; children: ReactNode }): Rea
 /**
  * A toolbar action as an icon: the picture is decorative, so `label` is the
  * button's accessible name (and the tests' handle on it) while `title` carries
- * the context the visible text used to. The 32px square is a bigger hit area
- * than the text button it replaced, and five of them fit the 300px column on
- * one line where the labels wrapped.
+ * the context the visible text used to. The 32px square is narrower across than
+ * the widest text button it replaced and half again as tall — those were 21px,
+ * under any sane target size — so the target is the icon idiom the prototype's
+ * `.icon-btn` and ticket 49's rail already use, and the height is the dimension
+ * that improved. Five of them fit the 300px column on one line, where the labels
+ * wrapped to two.
  */
 function ToolbarButton({
   icon,
