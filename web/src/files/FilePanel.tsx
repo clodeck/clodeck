@@ -2,6 +2,7 @@ import { MAX_UPLOAD_MB, type FileEntry, type Project } from '@clodeck/shared';
 import {
   Fragment,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -16,6 +17,7 @@ import { useToast } from '../toast/ToastProvider';
 import { CodeView } from './code';
 import { formatModified, formatSize } from './format';
 import { isMarkdown, renderMarkdown } from './markdown';
+import { MENU_GAP, menuPlacement, type MenuPlacement, type Span } from './placement';
 import {
   assertNever,
   baseName,
@@ -921,6 +923,8 @@ function EntryRow({
     // `relative`, so the row's own menu is placed against the row. Without it
     // the menu's containing block is the whole panel, `top-full` puts it below
     // the panel, and the tree's scroller clips it away — the `⋯` opens nothing.
+    // Ticket 55 leans on the same block: the menu still hangs off this row when
+    // it opens upward, so `EntryActions` measures the row and not the panel.
     // The row carries the file's modified time as its tooltip: a title on the
     // size alone would be a hover on a few characters, and the name's own title
     // (`Preview x`) still wins where it has one.
@@ -956,9 +960,36 @@ function EntryRow({
   );
 }
 
+/** The vertical span of a box, which is all the placement rule reads from one. */
+function spanOf(element: Element): Span {
+  const box = element.getBoundingClientRect();
+  return { top: box.top, bottom: box.bottom };
+}
+
+/**
+ * The span that would clip the menu: its row's nearest scrolling ancestor — the
+ * tree column's `overflow-y-auto` scroller, past whose edge a menu is not drawn
+ * but cut off. `overflow: hidden` counts, because it clips just as hard.
+ *
+ * With no scroller above the row, the page answers. Every rendered test has no
+ * scroller — jsdom applies none of these classes — which leaves the placement on
+ * its downward default there, and the browser check to say where the boxes are.
+ */
+function clipOf(row: HTMLElement): Span {
+  for (let node = row.parentElement; node !== null; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden') return spanOf(node);
+  }
+  return spanOf(document.documentElement);
+}
+
 /**
  * A row's `⋯` and the menu it opens — the same two entries on a tree row and a
  * flat row, so both say the same thing about an entry.
+ *
+ * Which edge the menu hangs from is measured rather than assumed (ticket 55):
+ * the drawer is a 42vh strip with its own scroller, and a menu that opens below
+ * the drawer's last row is cut off by that scroller rather than overlapped.
  */
 function EntryActions({
   entry,
@@ -975,6 +1006,32 @@ function EntryActions({
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
+  const [placement, setPlacement] = useState<MenuPlacement>('below');
+  const menuPanel = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * The flip, from the boxes rather than from a rule about which rows count as
+   * low: the row's span, the span of the scroller that would clip the menu, and
+   * the menu's own height. It runs with the menu already in the DOM and before
+   * the browser paints, so the last row never shows itself clipped even for a
+   * frame. The row stays the menu's containing block either way, which is what
+   * `top-full` / `bottom-full` are measured against.
+   *
+   * Scrolling needs no listener of its own: it moves the row and the scroller
+   * together, so the room on either side is the same afterwards — and the menu
+   * rides along with the row it is placed against.
+   */
+  useLayoutEffect(() => {
+    const panel = menuPanel.current;
+    if (panel === null) return;
+    const row = panel.parentElement;
+    if (row === null) return;
+    setPlacement(menuPlacement(spanOf(row), clipOf(row), panel.getBoundingClientRect().height, MENU_GAP));
+  }, [menuOpen]);
+
+  /** The edge it hangs from, with the same 4px clearance at the row either way. */
+  const hang = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
+
   return (
     <>
       <button
@@ -997,8 +1054,9 @@ function EntryActions({
             onClick={() => { onMenu(null); }}
           />
           <div
+            ref={menuPanel}
             role="menu"
-            className="absolute top-full right-0 z-20 mt-1 flex w-32 flex-col rounded border border-line bg-panel py-1 shadow-lg"
+            className={`absolute ${hang} right-0 z-20 flex w-32 flex-col rounded border border-line bg-panel py-1 shadow-lg`}
           >
             <button
               type="button"

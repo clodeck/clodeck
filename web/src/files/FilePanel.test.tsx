@@ -617,6 +617,27 @@ describe('file rows carry their metadata', () => {
   });
 });
 
+describe('the row menu opens where it can be clicked', () => {
+  it('hangs off the row, so the flip is measured from the row and not the panel', async () => {
+    stubFiles();
+    renderPanel();
+    const actions = await screen.findByRole('button', { name: 'Actions for README.md' });
+    fireEvent.click(actions);
+
+    const row = rowOf(actions);
+    const menu = screen.getByRole('menu');
+    // `absolute` inside the row's `relative`: whichever way it opens, `top-full`
+    // and `bottom-full` measure from the row's own edges. jsdom computes no
+    // boxes, so the flip itself belongs to `placement.test.ts` and to the
+    // browser check, and what is pinned here is the box the flip is against.
+    expect(menu.parentElement).toBe(row);
+    expect(row.className).toContain('relative');
+    expect(menu.className).toContain('absolute');
+    // Left unmeasured, it opens downward — the case the rows with room keep.
+    expect(menu.className).toContain('top-full');
+  });
+});
+
 describe('dragging a file onto a folder', () => {
   it('highlights the folder under the drag, and clears it when the drag leaves', async () => {
     stubFiles();

@@ -6,7 +6,7 @@ should always be wholly visible: below the row where there is room, above it whe
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The `⋯` on the last row of the tree — and of the flat list, which shares the row — opens a menu whose
       entries are both inside the drawer and clickable. Today the menu is drawn and clipped, so the click
