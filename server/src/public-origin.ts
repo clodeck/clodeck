@@ -10,12 +10,17 @@
  */
 
 /**
- * The hosts a browser treats as a secure context, and the reason a loopback
- * origin is silent here: `localhost`, `127.0.0.1` and `[::1]` are secure
- * contexts, which is why a `Secure` session cookie works there at all (see
- * `auth/transport.ts`) and why an SSH tunnel reaches the app through one without
- * weakening anything. Bracketed exactly as `URL.hostname` spells an IPv6
- * literal, so the lookup needs no unwrapping.
+ * The loopback hosts this line excuses, matched whole — `localhost` and its two
+ * IP spellings, not a name that merely contains one. Reached at one of these the
+ * traffic stays on the machine, or is already inside an SSH tunnel, which is the
+ * one route that hands the browser a loopback origin; either way there is no
+ * cleartext hop to speak up about. Bracketed exactly as `URL.hostname` spells an
+ * IPv6 literal, so the lookup needs no unwrapping.
+ *
+ * Deliberately narrower than the browser's own potentially-trustworthy set,
+ * which also covers `127.0.0.0/8` and `*.localhost`: the spec names these three
+ * (spec-07 §"The warnings"), and a local spelling outside them costs a warning
+ * rather than silence — the direction a warning about cleartext should err in.
  */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 

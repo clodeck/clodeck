@@ -110,3 +110,34 @@ is the line 60's startup log will fill in.
 
 Both halves of the checklist that a unit test cannot reach were therefore verified by running the
 command, and none of the preflight's own behaviour depends on this machine's build.
+
+## Code review
+
+Two fixes, both in comments this branch introduced — no behaviour changed, and the suite's 13 cases are
+untouched.
+
+- **The loopback set claimed a wider rule than it is.** `public-origin.ts` said `localhost`, `127.0.0.1`
+  and `[::1]` are "the hosts a browser treats as a secure context". The browser's
+  potentially-trustworthy set is *wider* — it also covers `127.0.0.0/8` and `*.localhost` — so a reader
+  trusting that sentence would widen the set and silence the warning on a spelling spec-07 does not name.
+  The comment now says what is excused, why loopback is silent at all (the traffic stays on the machine,
+  or is already inside an SSH tunnel), and why erring narrow is the safe direction for a warning about
+  cleartext. Ticket 62's branch fixed exactly this overstatement in its own copy of the set (`608400a`).
+- **`main.ts` named the wrong module for the malformed-origin line.** It is the auth transport's
+  (`sessionCookieIsSecure` — the module `public-origin.ts` itself points a reader at), while `options.ts`
+  says at length that it decides nothing about the origin. The comment names the transport now, and the
+  local holding the line is `cleartextWarning` rather than `cleartext`, because the value is a message and
+  not a scheme.
+
+Noted, deliberately not changed:
+
+- **"Reach the app at an https: origin — a TLS-terminating proxy, or an SSH tunnel"** is one claim too
+  wide. A tunnel hands the browser `http://localhost`, which is loopback and not an `https:` origin — it is
+  the encrypted alternative for a different reason (loopback is excused, the SSH hop is what encrypts).
+  Left as it is because this is the operator-facing line the Evidence section above records verbatim, and
+  rewording it changes what the command prints; it is a wording question for ticket 63's docs pass.
+- **The client-directory line multiplies once 60 lands.** 60 prints its resolution through `warn` from
+  inside `loadConfig`, and this preflight calls `loadConfig` too — so after both merge, a `npm run serve`
+  prints the resolution from the preflight's own `loadConfig` (60's wording), then this file's own line,
+  then once more when the server boots. All of them read the same `config.webRoot`, so the checklist's
+  "cannot disagree" still holds; whoever merges 60 after 61 should settle on one wording for them.

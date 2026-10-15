@@ -14,9 +14,9 @@ import type { ServerConfig } from './config.js';
  * the safe path stays the default and the risky one stays a single setting
  * (spec-07 §"The warnings").
  *
- * "Blank counts as missing" is the loader's rule, applied there: an
- * exported-but-empty variable is already `null` by the time a config arrives
- * here (`config.ts`), and this is the door every config comes through.
+ * "Blank counts as missing" is the loader's rule, applied there: it is the one
+ * door every config comes through, and an exported-but-empty variable is already
+ * `null` by the time a config arrives here (`config.ts`).
  */
 export function preflightProblems(config: ServerConfig): string[] {
   const problems: string[] = [];

@@ -14,7 +14,7 @@ import { preflightProblems } from './preflight.js';
  *
  * Unlike the server, this is allowed to stop: a deployment command that
  * publishes a login screen refusing every value is worse than one that says why
- * it will not start. Nothing here is a flag — see `preflight.ts`.
+ * it will not start. No flag skips the check — see `preflight.ts`.
  */
 const config = loadConfig();
 const problems = preflightProblems(config);

@@ -39,8 +39,9 @@ await app.listen({ port, host });
 console.log(`clodeck server listening on http://${host}:${port}`);
 
 // The one thing about a declared plain-HTTP origin that a running server has to
-// say out loud (spec-07 §"The warnings"). It is logged here rather than in
-// `auth/options.ts` because it is a startup fact, not a socket one, and because
+// say out loud (spec-07 §"The warnings"). It is logged here rather than by the
+// auth transport, which says the other words about this variable, because it
+// describes the process that was just started rather than a cookie — and because
 // a malformed origin already has a line there.
-const cleartext = cleartextOriginWarning(config.publicOrigin);
-if (cleartext !== null) warnToConsole(cleartext);
+const cleartextWarning = cleartextOriginWarning(config.publicOrigin);
+if (cleartextWarning !== null) warnToConsole(cleartextWarning);
