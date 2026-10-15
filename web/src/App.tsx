@@ -115,7 +115,10 @@ export function Workspace({
   return (
     <ToastProvider>
       <div className="flex h-screen bg-canvas text-ink">
-        <Rail tab={drawerTab} onTab={setDrawerTab} />
+        {/* The drawer lives *inside* the stage, so Terminal and Files have
+            nothing to draw without a project; Chat is the stage's own shut
+            state and needs none. */}
+        <Rail tab={drawerTab} onTab={setDrawerTab} hasProject={selected !== null} />
 
         <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-panel">
           <header className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -203,11 +206,30 @@ function ChatStage({
  */
 const CHROME_TONE = { current: 'bg-bg-4', resting: 'text-ink-dim hover:bg-bg-3 hover:text-ink' } as const;
 
+/** Why a rail button is shut, said in its `title` (ticket 57). */
+const NO_PROJECT_REASON = 'choose a project first';
+
 /**
  * The far-left icon rail: the product's three surfaces, one at a time. Chat is
  * active while the drawer is shut, so exactly one button always reads as pressed.
+ *
+ * Terminal and Files are **disabled** until a project is selected, and that is
+ * the deliberate half of ticket 57: the tab used to be recorded anyway, so a
+ * click here did nothing visible and then opened a drawer later, once a project
+ * was picked — a selection the user had long stopped thinking about. A control
+ * that cannot do its job says so instead of quietly remembering. Chat is never
+ * disabled: shutting the drawer is the stage's own state, and needs no project.
  */
-function Rail({ tab, onTab }: { tab: DrawerTab; onTab: (tab: DrawerTab) => void }): ReactElement {
+function Rail({
+  tab,
+  onTab,
+  hasProject,
+}: {
+  tab: DrawerTab;
+  onTab: (tab: DrawerTab) => void;
+  /** Whether there is a project for the drawer's panels to be built from. */
+  hasProject: boolean;
+}): ReactElement {
   return (
     <nav
       aria-label="Workspace"
@@ -225,9 +247,16 @@ function Rail({ tab, onTab }: { tab: DrawerTab; onTab: (tab: DrawerTab) => void 
         icon="terminal"
         label="Terminal"
         active={tab === 'terminal'}
+        disabled={!hasProject}
         onClick={() => { onTab('terminal'); }}
       />
-      <RailButton icon="files" label="Files" active={tab === 'files'} onClick={() => { onTab('files'); }} />
+      <RailButton
+        icon="files"
+        label="Files"
+        active={tab === 'files'}
+        disabled={!hasProject}
+        onClick={() => { onTab('files'); }}
+      />
     </nav>
   );
 }
@@ -237,11 +266,14 @@ function RailButton({
   label,
   active,
   onClick,
+  disabled = false,
 }: {
   icon: 'chat' | 'terminal' | 'files';
   label: string;
   active: boolean;
   onClick: () => void;
+  /** Shut for want of a project; the `title` carries the reason. */
+  disabled?: boolean;
 }): ReactElement {
   return (
     <button
@@ -249,8 +281,9 @@ function RailButton({
       onClick={onClick}
       aria-label={label}
       aria-pressed={active}
-      title={label}
-      className={`flex h-9 w-9 items-center justify-center rounded ${
+      title={disabled ? `${label} — ${NO_PROJECT_REASON}` : label}
+      disabled={disabled}
+      className={`flex h-9 w-9 items-center justify-center rounded disabled:opacity-40 ${
         active ? `${CHROME_TONE.current} text-accent` : CHROME_TONE.resting
       }`}
     >

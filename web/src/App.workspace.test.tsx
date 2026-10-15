@@ -32,10 +32,10 @@ function noop(): void {
   // The layout's callbacks are not what this file is about.
 }
 
-function workspace(selectedId: string | null): ReactElement {
+function workspace(selectedId: string | null, projects: Project[] = [projectA, projectB]): ReactElement {
   return (
     <Workspace
-      state={{ status: 'ready', projects: [projectA, projectB] }}
+      state={{ status: 'ready', projects }}
       selectedId={selectedId}
       onSelect={noop}
       onRefresh={noop}
@@ -43,6 +43,11 @@ function workspace(selectedId: string | null): ReactElement {
       onLogout={() => Promise.resolve()}
     />
   );
+}
+
+/** Whether a rail button is shut for want of a project (ticket 57). */
+function unavailable(name: string): boolean {
+  return screen.getByRole('button', { name }).hasAttribute('disabled');
 }
 
 beforeEach(() => {
@@ -98,5 +103,78 @@ describe('the workspace drawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(pressed('Chat')).toBe('true');
+  });
+});
+
+/**
+ * The rail *before* a project is chosen (ticket 57). The drawer lives inside the
+ * stage and is built from a project, so a tab recorded with none selected could
+ * never be drawn: the click did nothing visible, and the drawer then opened
+ * later, after a selection the user had stopped thinking about. That recording
+ * is deliberately gone — the tests below pin both the refusal and how narrow it
+ * is, because everything else in this window (the stage's own sentence, the
+ * sidebar, the shut Chat) must read exactly as it did.
+ */
+describe('the rail with no project selected', () => {
+  it('refuses Terminal and Files when the root holds no projects at all', () => {
+    render(workspace(null, []));
+
+    expect(unavailable('Terminal')).toBe(true);
+    expect(unavailable('Files')).toBe(true);
+  });
+
+  it('refuses them just the same with projects waiting and none chosen', () => {
+    render(workspace(null));
+
+    expect(unavailable('Terminal')).toBe(true);
+    expect(unavailable('Files')).toBe(true);
+  });
+
+  it('says why on the control, rather than leaving a dead click to explain it', () => {
+    render(workspace(null, []));
+
+    expect(screen.getByRole('button', { name: 'Files' }).getAttribute('title')).toContain(
+      'choose a project first',
+    );
+    // Chat has nothing to explain, so its name is its whole title.
+    expect(screen.getByRole('button', { name: 'Chat' }).getAttribute('title')).toBe('Chat');
+  });
+
+  it('leaves Chat live: a shut drawer is a state, not a project', () => {
+    render(workspace(null, []));
+
+    const chat = screen.getByRole('button', { name: 'Chat' });
+    expect(chat.hasAttribute('disabled')).toBe(false);
+    expect(chat.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(chat);
+
+    // Nothing is invented in its place — no placeholder drawer, no empty shell.
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByText('Select a project to begin.')).toBeDefined();
+  });
+
+  it('does not remember a refused click for the project that arrives later', () => {
+    const { rerender } = render(workspace(null));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    rerender(workspace('AAA'));
+
+    // No tab was recorded, so the first project does not land with the drawer
+    // already open on a choice made before that project existed.
+    expect(screen.queryByRole('tablist')).toBeNull();
+  });
+
+  it('hands both buttons back as soon as a project is selected', () => {
+    const { rerender } = render(workspace(null));
+    expect(unavailable('Terminal')).toBe(true);
+
+    rerender(workspace('AAA'));
+
+    expect(unavailable('Terminal')).toBe(false);
+    expect(unavailable('Files')).toBe(false);
+    // Enabled means it works, not merely that it stopped looking shut.
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    expect(screen.getByRole('tab', { name: 'Files' }).getAttribute('aria-selected')).toBe('true');
   });
 });
