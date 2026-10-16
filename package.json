@@ -22,7 +22,9 @@
     "e2e": "npm run e2e --workspace @clodeck/web",
     "sandcastle": "tsx .sandcastle/main.mts",
     "dev": "npm run build:shared && concurrently --raw -k \"npm run dev --workspace @clodeck/server\" \"npm run dev --workspace @clodeck/web\"",
+    "dev:env": "node scripts/dev-env.mjs",
     "dev:fake": "npm run build:shared && concurrently -k -n server,web -c blue,green \"npm run dev:fake --workspace @clodeck/server\" \"npm run dev --workspace @clodeck/web\"",
+    "dev:fake:env": "node scripts/dev-env.mjs dev:fake",
     "prepare": "node -e \"try{require('node:child_process').execFileSync('git',['config','core.hooksPath','.githooks'],{stdio:'ignore'})}catch{}\""
   },
   "devDependencies": {

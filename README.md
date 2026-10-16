@@ -181,6 +181,25 @@ UI_PASSWORD=dev PROJECTS_ROOT=/c/Users/<you>/clodeck-projects npm run dev
   same variable, so the two halves move together. See [Troubleshooting](#troubleshooting) if 3001 is
   taken.
 
+#### …or let `.env` do it
+
+Once `scripts/setup-clodeck.sh` has been run, those values — and everything else it asked for — are in
+`.env`. `npm run dev:env` is the same loop with that file loaded:
+
+```sh
+npm run dev:env                  # npm run dev, with .env in front of it
+npm run dev:env -- dev:fake      # …or with any other script in front
+```
+
+Both commands are worth having. `npm run dev` reads no file at all: it is the loop with nothing in front
+of it, which is what you want when the variables are already exported. `.env` is what the wizard leaves
+behind, and nothing reads it for you unless you ask — which fails loudly for the two variables above and
+**silently for the credential**. A missing `UI_PASSWORD` refuses every login and a missing
+`PROJECTS_ROOT` is an empty project list, both from the first screen. A missing `ANTHROPIC_API_KEY` — or
+a base URL and token that never left the file — looks exactly like a working app until the first chat
+turn, which answers `Not logged in · Please run /login`
+([Troubleshooting](#everything-works-except-the-chats-answer)).
+
 ### 4. Open it, and sign in
 
 Two lines tell you both halves came up — the server's, then the client's:
@@ -223,7 +242,8 @@ UI_PASSWORD=dev PROJECTS_ROOT=~/clodeck-projects npm run dev:fake
 The server then answers from a scripted fake Agent SDK provider: the whole chat surface — streaming,
 tool cards, the approval modal, history and resume — is exercisable offline, and every other surface is
 the real one. It still needs `UI_PASSWORD`: the gate is installed exactly the same way. Use it for UI
-work, and for a first look at the app before wiring a key.
+work, and for a first look at the app before wiring a key. `npm run dev:fake:env` is the same command
+when the values came from the wizard and live in `.env`.
 
 ### Or let the wizard do it
 
@@ -240,10 +260,13 @@ It adds two things the steps above leave implicit, both because **the server rea
 variables and nothing else** — there is no dotenv in this repo:
 
 - **`.env`** — every value it captured, in one place. `docker compose` reads that file by itself;
-  nothing else does, which is what the launcher is for.
+  nothing else does unless you ask it to, which is what the launcher and `npm run dev:env` are for.
 - **`start-clodeck.ps1`** and **`start-clodeck.sh`** — a launcher that loads `.env` into the
   environment and runs `npm run serve`. Both are gitignored, as `.env` is: they belong to the
   machine, not to the repo.
+- **`npm run dev:env`** — the other half of that door, and the one that lives in the repo rather than
+  on the machine: it loads `.env` and runs `npm run dev`, so a value captured here reaches the loop a
+  developer works in and not only the built app ([step 3](#3-start-it)).
 
 Re-running it is safe. Every prompt offers the value already saved and Enter keeps it, so a second
 run is how you add a tier or correct one path.
@@ -780,8 +803,10 @@ Every command runs from the repo root.
 | Command | What it does |
 |---|---|
 | `npm install` | Installs all three workspaces. `npm ci` for a deployment. |
-| `npm run dev` | Builds `shared`, then runs the server (`tsx watch` — reloads on change) and the web client (Vite dev server) together. |
+| `npm run dev` | Builds `shared`, then runs the server (`tsx watch` — reloads on change) and the web client (Vite dev server) together. Reads no file: every variable comes from the shell it is run in. |
+| `npm run dev:env` | The same loop with `.env` loaded first — the shape the wizard leaves behind, where the values are in the file rather than in your shell. Names the keys it loaded, never their values, and stops plainly when there is no `.env`. `npm run dev:env -- <script>` loads it for any other script instead. |
 | `npm run dev:fake` | The same, but the server runs the scripted fake Agent SDK provider instead of the real one — the whole chat surface with no API key and no network. It still needs `UI_PASSWORD`: the gate is installed the same way, so an unset password is fail-closed here too. |
+| `npm run dev:fake:env` | `npm run dev:fake` with `.env` loaded first. |
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
 | `npm run serve` | **The deployment command:** a preflight that stops — plainly, before anything is built — when `UI_PASSWORD` or `PROJECTS_ROOT` is missing, then `npm run build`, then the server, serving the client it just built. |
 | `bash scripts/setup-clodeck.sh` | Walks you through the configuration — projects root, password, provider profiles — then writes `.env` and the launcher `npm run serve` needs to see it. See [Or let the wizard do it](#or-let-the-wizard-do-it). |
@@ -895,6 +920,13 @@ The chat turn is the one thing that needs a credential: `ANTHROPIC_API_KEY` in t
 or a profile's `CLODECK_PROVIDER_<NAME>_AUTH_TOKEN` ([Provider profiles](#provider-profiles)). Without one
 the login, the terminal, the file drawer and history all work and the turn fails; `npm run dev:fake` is
 the offline stand-in, and a *wrong* key fails at the first turn with the SDK's own error in the chat.
+
+**A turn that answers `Not logged in · Please run /login` is this, and the wording is the Agent SDK's** —
+it names a Claude Code CLI command, not clodeck's login screen, and it means the server's environment
+carried no credential at all. The common cause is a credential that lives in `.env` while the server was
+started by something that does not read it: `npm run dev` reads no file, so the two variables in
+[step 3](#3-start-it) arrive and the rest of the file does not. Start the loop with `npm run dev:env` when
+`.env` is where your values are, and with `start-clodeck.*` when you are running `serve`.
 
 ### npm install fails on Linux
 
