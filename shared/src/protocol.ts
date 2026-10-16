@@ -1,3 +1,4 @@
+import type { SlashCommand } from './commands.js';
 import type { PermissionMode, SDKMessage, SessionState } from './sdk.js';
 
 /**
@@ -52,7 +53,28 @@ export interface SnapshotPayload {
   /** Complete messages only — buffered deltas are collapsed, never replayed. */
   blocks: readonly SDKMessage[];
   pendingApprovals: readonly ApprovalRequestPayload[];
+  /**
+   * The command list this run reported, when it reported one. It is here
+   * because it is not a *block*: `supportedCommands()` answers outside the
+   * message stream, so without this a reconnect would drop the run's list and
+   * the menu would fall back to the project's files alone. Absent while no run
+   * has listed anything — which is the state every connection opens in.
+   */
+  commands?: readonly SlashCommand[];
   lastSeq: number;
+}
+
+/**
+ * The run's own command list, pushed once as it starts.
+ *
+ * Not an SDK message: the SDK pushes its list only when it *changes*
+ * (`commands_changed`), and a session that has just started has sent no such
+ * push — checked against the SDK rather than assumed. So the run is *asked*,
+ * and the answer travels in an envelope kind of its own rather than dressed up
+ * as a message the run never sent.
+ */
+export interface CommandsPayload {
+  commands: readonly SlashCommand[];
 }
 
 export type StreamStatus = 'turn_started' | 'turn_ended' | 'interrupted';
@@ -73,6 +95,7 @@ export type ServerEvent = ServerEventBase &
     | { kind: 'sdk'; payload: SDKMessage }
     | { kind: 'approval_request'; payload: ApprovalRequestPayload }
     | { kind: 'snapshot'; payload: SnapshotPayload }
+    | { kind: 'commands'; payload: CommandsPayload }
     | { kind: 'stream_status'; payload: StreamStatusPayload }
     | { kind: 'error'; payload: ServerErrorPayload }
   );

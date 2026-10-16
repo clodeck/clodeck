@@ -6,6 +6,7 @@ import type {
   SDKMessage,
   SessionMessage,
   SessionSummary,
+  SlashCommand,
 } from '@clodeck/shared';
 
 /**
@@ -54,6 +55,18 @@ export interface SdkRunInput {
 export interface SdkRun {
   /** The shared mirror — the real provider drops the SDK families the client does not render. */
   messages: AsyncIterable<SDKMessage>;
+  /**
+   * The commands this session can dispatch, as the SDK has them: its own
+   * built-ins *and* everything the project's files declare. It needs no prompt
+   * and no message to have been streamed — it is a control request — and the
+   * run is asked once, as it starts: the SDK pushes its list only when the list
+   * *changes* (`system`/`commands_changed`), so a session that has just begun
+   * has announced nothing (ticket 75).
+   *
+   * This is the only source of a built-in's description: no file on disk
+   * declares one, so the project's own files cannot stand in for it.
+   */
+  supportedCommands(): Promise<SlashCommand[]>;
   interrupt(): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
 }

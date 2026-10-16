@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
-import type { ApprovalRequestPayload, ServerEvent, SDKMessage } from '@clodeck/shared';
+import type { ApprovalRequestPayload, ServerEvent, SDKMessage, SlashCommand } from '@clodeck/shared';
 
 import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
@@ -612,6 +612,99 @@ describe('the /ws event bus', () => {
     await expect(client.nextMatching((event) => event.kind === 'stream_status')).resolves.toMatchObject(
       { payload: { status: 'turn_started' } },
     );
+  });
+
+  describe('the commands a run offers', () => {
+    /** What a started run reports it can dispatch — built-ins included, which no file declares. */
+    const LIST: SlashCommand[] = [
+      { name: 'code-review', description: 'Review the diff.', argumentHint: '[low|high]' },
+      { name: 'clear', description: 'Start a new session with empty context.', argumentHint: '[name]', builtin: true },
+    ];
+
+    it('hands the socket the run’s own list as the turn starts, once', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({ messages: transcript(cwd), commands: LIST });
+      const port = await listen(app);
+      const projectId = idFor(cwd);
+
+      const client = await connect(port, cookie, projectId);
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+
+      // A run that has just started has announced nothing of its own: the SDK
+      // pushes a list only when it *changes*. So this is asked for, and it is
+      // the only source of a built-in's description.
+      const listed = await client.nextMatching((event) => event.kind === 'commands');
+      expect(listed).toMatchObject({ projectId, payload: { commands: LIST } });
+
+      // Once for the run, not once per turn of the socket: every later frame of
+      // this turn is an SDK message or the turn's end.
+      const rest: ServerEvent[] = [];
+      for (;;) {
+        const event = await client.next();
+        rest.push(event);
+        if (event.kind === 'stream_status' && event.payload.status === 'turn_ended') break;
+      }
+      expect(rest.filter((event) => event.kind === 'commands')).toEqual([]);
+      expect(provider.queryInputs).toHaveLength(1);
+    });
+
+    it('keeps the list for a socket that joins later, and drops it with the transcript', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, cookie } = await makeApp({ messages: transcript(cwd), commands: LIST });
+      const port = await listen(app);
+      const projectId = idFor(cwd);
+
+      const client = await connect(port, cookie, projectId);
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+      await client.nextMatching(
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+
+      // The list is not a block, so it rides the snapshot in a field of its own:
+      // without it a reconnect would drop the run's commands and the menu would
+      // fall back to the project's files alone.
+      const other = await connect(port, cookie, projectId);
+      const opening = await other.next();
+      expect(opening).toMatchObject({ kind: 'snapshot', payload: { commands: LIST } });
+
+      // A new chat is a session of its own, and the list described the old one.
+      client.send({ v: 1, id: 'c2', type: 'clear_resume', payload: {} });
+      const cleared = await other.next();
+      expect(cleared).toMatchObject({ kind: 'snapshot' });
+      if (cleared.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${cleared.kind}`);
+      expect(cleared.payload).not.toHaveProperty('commands');
+    });
+
+    it('leaves the client with what it had when a run cannot list its commands', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, cookie } = await makeApp({
+        messages: transcript(cwd),
+        commands: LIST,
+        commandsFail: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+
+      // A menu nobody could fill is not the turn's business: the turn runs, the
+      // socket hears nothing about commands, and the client keeps the project's
+      // own files to offer.
+      const seen: ServerEvent[] = [];
+      for (;;) {
+        const event = await client.next();
+        seen.push(event);
+        if (event.kind === 'stream_status' && event.payload.status === 'turn_ended') break;
+      }
+      expect(seen.filter((event) => event.kind === 'commands')).toEqual([]);
+      expect(seen.filter((event) => event.kind === 'error')).toEqual([]);
+    });
   });
 
   describe('the provider a turn runs on', () => {

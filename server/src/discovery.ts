@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from 'node:fs';
-import { lstat, mkdir, readdir, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Project } from '@clodeck/shared';
@@ -34,6 +34,18 @@ export interface ProjectDiscovery {
    * it stays that way.
    */
   createProject(name: string): Promise<CreateProjectResult>;
+  /**
+   * The canonical projects root, or null when none is configured — the same
+   * directory the allowlist compares against, handed out for one reader: the
+   * command list, which walks from a project *up* to the root and no further
+   * (ticket 75).
+   *
+   * Every other read starts at a project `resolveProject` named; this one cannot,
+   * because what it reads lives above it. The root is therefore the bound rather
+   * than the subject: it is what stops the walk, and it is already the only
+   * authorization boundary there is.
+   */
+  canonicalRoot(): Promise<string | null>;
 }
 
 /**
@@ -139,6 +151,25 @@ export function createProjectDiscovery(
       if (!(await isDirectory(canonical))) return null;
 
       return { id: toProjectId(canonical), name: path.basename(canonical), path: canonical };
+    },
+
+    /**
+     * The configured root, resolved — resolved because that is the spelling the
+     * allowlist compares against, so a root that is itself a symlink still stops
+     * a walk from a project inside it: a caller comparing the two would otherwise
+     * walk past the root and read the parent of the deployment.
+     *
+     * Unresolvable (gone, unreadable) is null, exactly like an unconfigured one:
+     * there is no directory to bound a read by, which leaves the caller with the
+     * project it was asked about and nothing above it.
+     */
+    async canonicalRoot(): Promise<string | null> {
+      if (root === null) return null;
+      try {
+        return await realpath(root);
+      } catch {
+        return null;
+      }
     },
 
     /**

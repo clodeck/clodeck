@@ -3,6 +3,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
+import { registerCommandRoutes } from './commands.js';
 import type { ProjectDiscovery } from './discovery.js';
 import { registerFileRoutes } from './files/transport.js';
 import type { Log } from './logging.js';
@@ -129,6 +130,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
         registerProjectRoutes(gated, { projects: options.projects });
         registerProfileRoutes(gated, { projects: options.projects, profiles: options.profiles });
+        registerCommandRoutes(gated, { projects: options.projects });
         registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
         registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
         registerFileRoutes(gated, { projects: options.projects });

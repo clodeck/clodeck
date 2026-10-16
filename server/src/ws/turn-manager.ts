@@ -10,6 +10,7 @@ import {
   type ResumePayload,
   type SDKMessage,
   type SessionState,
+  type SlashCommand,
 } from '@clodeck/shared';
 
 import { logToConsole, type Log } from '../logging.js';
@@ -86,6 +87,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       turnId: undefined,
       sessionId: undefined,
       resume: undefined,
+      commands: undefined,
     };
     projects.set(projectId, created);
     return created;
@@ -159,6 +161,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
       state.active = active;
       void pump(state, active);
+      // The run's own list of what it can dispatch, asked for once as it starts
+      // (the SDK announces a list only when it *changes*, which a fresh session
+      // has not). Fire-and-forget: it is a menu, not the turn.
+      void listCommands(state, active);
     },
 
     async interrupt(projectId) {
@@ -209,6 +215,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // session whose transcript is no longer here.
       state.blocks.length = 0;
       state.sessionId = undefined;
+      // The command list is the same kind of thing: what *this* session reported,
+      // and the next one will report its own. Kept, it would be a new chat whose
+      // menu still describes the session it left.
+      state.commands = undefined;
 
       // Answered to every socket on the project, not only the one that asked:
       // the run is the project's, so a second tab is looking at the same chat and
@@ -228,10 +238,39 @@ function snapshotOf(state: ProjectRun): EventDraft {
       // Copies: a snapshot is a point in time, and the run keeps appending.
       blocks: [...state.blocks],
       pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
+      // Absent while the run has listed nothing — the state every connection
+      // opens in, and every project is in until a session has started.
+      ...(state.commands === undefined ? {} : { commands: [...state.commands] }),
       // `seq` is per connection and a fresh one has seen nothing.
       lastSeq: 0,
     },
   };
+}
+
+/**
+ * Asks the run what it can dispatch, records it, and tells every socket.
+ *
+ * Two things can be true of the answer by the time it arrives, and neither is an
+ * error: the run may have ended (a new one's list is the fresh one, and this
+ * would land on top of it), or the provider may have refused. Both leave the
+ * client with what it already had — the project's own files — because a menu
+ * nobody could fill is not a turn's business.
+ *
+ * An **empty** answer is no answer: a session that lists no commands leaves the
+ * client exactly where an unanswered one does, so there is nothing to send and
+ * nothing to record. What arrives on the wire is therefore always a list.
+ */
+async function listCommands(state: ProjectRun, active: SdkRun): Promise<void> {
+  let commands: readonly SlashCommand[];
+  try {
+    commands = await active.supportedCommands();
+  } catch {
+    return;
+  }
+  if (state.active !== active || commands.length === 0) return;
+
+  state.commands = commands;
+  broadcast(state, { ...envelope(state), kind: 'commands', payload: { commands } });
 }
 
 /**
@@ -378,4 +417,11 @@ interface ProjectRun {
   turnId: string | undefined;
   sessionId: string | undefined;
   resume: ResumePayload | undefined;
+  /**
+   * The command list the run reported as it started, or undefined while none has
+   * — which is also where a cleared chat goes back to. It is separate from
+   * `blocks` because it never travelled as an SDK message: the list is a control
+   * answer, and only a *change* to it is a message (`commands_changed`).
+   */
+  commands: readonly SlashCommand[] | undefined;
 }

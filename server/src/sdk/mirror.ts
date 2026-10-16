@@ -2,6 +2,7 @@ import type { SDKMessage as RealSDKMessage } from '@anthropic-ai/claude-agent-sd
 
 import type {
   SDKMessage,
+  SDKSystemCommandsChangedMessage,
   SDKSystemInitMessage,
   SDKSystemSessionStateChangedMessage,
   SDKSystemStatusMessage,
@@ -50,7 +51,7 @@ type RealSystemMessage = Extract<RealSDKMessage, { type: 'system' }>;
 
 /**
  * The second discriminant. Every `system` member is `type: 'system'` and
- * narrows only on `subtype`; the client renders three of them and folds the
+ * narrows only on `subtype`; the client renders four of them and folds the
  * other ~25 into `SDKSystemOtherMessage`.
  *
  * The named arms assign to an annotated target rather than returning straight
@@ -73,6 +74,15 @@ function narrowSystem(message: RealSystemMessage): SDKMessage {
 
     case 'session_state_changed': {
       const mirrored: SDKSystemSessionStateChangedMessage = message;
+      return mirrored;
+    }
+
+    case 'commands_changed': {
+      // The push the client folds as a *replacement* of its command list
+      // (ticket 75). It is annotated like the two above, so a renamed field —
+      // `commands` is the whole payload — fails the build rather than reaching
+      // the client as a message it can no longer read.
+      const mirrored: SDKSystemCommandsChangedMessage = message;
       return mirrored;
     }
 
