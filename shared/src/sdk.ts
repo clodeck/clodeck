@@ -1,5 +1,5 @@
 /**
- * Structural mirrors of the Agent SDK types the client renders.
+ * Structural mirrors of the Agent SDK types the client consumes.
  *
  * `@clodeck/shared` deliberately does **not** depend on
  * `@anthropic-ai/claude-agent-sdk`: the package bundles a native binary and
@@ -298,7 +298,7 @@ export interface SDKResultErrorMessage {
 }
 
 /**
- * The SDK message subset the client renders. The server narrows the SDK's own
+ * The SDK message subset the client consumes. The server narrows the SDK's own
  * union to these families before assigning (research 01 §3: everything else is
  * ignored).
  */

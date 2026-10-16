@@ -155,8 +155,8 @@ function forwardAbort(signal: AbortSignal | undefined, abortController: AbortCon
 
 /**
  * The pin again, at runtime: the SDK's own union is wider than the mirror, so
- * each message is narrowed and the families the client does not render — task
- * events, rate limits, hook lifecycle — never reach the wire.
+ * each message is narrowed and the families the client neither renders nor acts
+ * on — task events, rate limits, hook lifecycle — never reach the wire.
  */
 async function* mirrorMessages(query: Query): AsyncIterable<SDKMessage> {
   for await (const message of query) {

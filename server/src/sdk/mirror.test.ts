@@ -177,10 +177,7 @@ describe('narrowToMirror', () => {
       timestamp: '2026-10-16T00:00:00.000Z',
     });
 
-    const mirrored = narrowToMirror(reset);
-
-    expect(mirrored).toBe(reset);
-    expect(mirrored?.type).toBe('conversation_reset');
+    expect(narrowToMirror(reset)).toBe(reset);
   });
 
   it('drops the real families the client neither renders nor acts on', () => {
