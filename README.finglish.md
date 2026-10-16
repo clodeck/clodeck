@@ -35,6 +35,9 @@ rail baz mishavad, na yek column-e daemi.
 cd D:\projects\clodeck\clodeck
 .\start-clodeck.ps1          # .env ra load mikonad, build mikonad, serve mikonad
 # bad: http://127.0.0.1:3001  →  password-e .env ra bezan
+
+# ya baraye dev loop (hot reload) — ham .env load mishavad:
+npm run dev:env              # bad: http://localhost:5173
 ```
 
 **Windows, az sefr (wizard):**
@@ -104,7 +107,20 @@ Hamin. Man dar `.env`-e khodam `PROJECTS_ROOT=C:\Users\Ehsan\clodeck-projects` d
 | Chi baz konam | `http://localhost:5173` | `http://127.0.0.1:3001` |
 | In ra dar | vaghti rooye UI kar mikonam | **har vaght mikham az chiz-e vaghe-i estefade konam** |
 
-`npm run dev` bedoone dotenv ast, yani `.env` ra nemikhanad. Pas in rah:
+`npm run dev` bedoone dotenv ast, yani `.env` ra **nemikhanad**. Pas faghat hamun do variable-i ke dasti
+set mikoni be server miresan, va baghie — az jomle credential — **saket** gom mishan. Do rah dari:
+
+**Rah-e 1 — `.env` ra load kon** (in ra baraye har rooz estefade kon):
+
+```powershell
+npm run dev:env                 # .env → environment → npm run dev
+npm run dev:env -- dev:fake     # ya har script-e dige
+```
+
+`dev:env` esm-e key-haye load-shode ra chap mikonad — hich vaqt value-ha ra, chon secret hastan — va bad
+loop ra mizanad. Age `.env` nabashad, ejra nemishavad va do rah-e hal ra nam mibarad.
+
+**Rah-e 2 — dasti export kon** (age nemikhahi `.env` ra dast bezani):
 
 ```powershell
 $env:UI_PASSWORD = "dev"
@@ -123,8 +139,9 @@ nemikonad — be jaye inke yek UI-e kharab behet bedahad.
 
 ### 3.4 `serve` ra ba launcher bezan, na dasti
 
-`.env` faghat yek **yad-dasht** ast — server khodesh hich dotenv nadarad. Unke `.env` ra be environment
-tabdil mikonad, `start-clodeck.ps1` ast:
+`.env` faghat yek **yad-dasht** ast — server khodesh hich dotenv nadarad. Do chi un yad-dasht ra be
+environment tabdil mikonand: `start-clodeck.ps1` baraye `serve` (inja), va `npm run dev:env` baraye dev
+loop (§3.3). In ra baraye `serve` bezan:
 
 ```powershell
 .\start-clodeck.ps1     # .env ra mikhanad → env var mikonad → npm run serve
@@ -301,16 +318,30 @@ docker run -d --name clodeck --restart unless-stopped \
 ### 5.1 Aval in ra befahm: `.env` khodesh kar nemikonad
 
 In repo **hich dotenv-i nadarad**. Server faghat environment variable-haye vaghe-i ra mikhanad.
-Pas `.env` faghat yek **yad-dasht** ast. Se rah ke un yad-dasht be server beresad:
+Pas `.env` faghat yek **yad-dasht** ast. Chahar rah ke un yad-dasht be server beresad:
 
 | Rah | Chetor |
 |---|---|
-| `start-clodeck.ps1` / `start-clodeck.sh` | `.env` ra mikhanad, env var mikonad, `npm run serve` mizanad |
+| `npm run dev:env` | `.env` ra mikhanad, env var mikonad, `npm run dev` mizanad — baraye dev loop |
+| `start-clodeck.ps1` / `start-clodeck.sh` | Hamoon kar, vali `npm run serve` mizanad (build-e production) |
 | Docker / compose | Khodesh `.env` ra mikhanad |
 | Dasti | Khodet dar shell set mikoni: `$env:UI_PASSWORD = "..."` |
 
-Yani: **har bar `.env` ra edit kardi, launcher ra restart kon** (Ctrl-C va dobare). Va age dasti
-`npm run dev` mizani, `.env` ra faramosh kon — un ra nemikhanad.
+Yani: **har bar `.env` ra edit kardi, launcher ya `dev:env` ra restart kon** (Ctrl-C va dobare). Va age
+berah-e dasti `npm run dev` bezani, `.env` ra faramosh kon — un ra nemikhanad.
+
+**In gom-shodan faghat baraye credential saket ast:** `UI_PASSWORD` va `PROJECTS_ROOT`
+zood neshoon midahad (login rad mishe, sidebar khali ast). Vali credential — `ANTHROPIC_API_KEY` ya
+`ANTHROPIC_AUTH_TOKEN` — hich chizi nemigoyad: app salem be nazar miresad, login kar mikonad, va
+**avvalin payam-e chat** hamin ra javab midahad:
+
+```
+Not logged in · Please run /login
+```
+
+In payam-e khode Agent SDK ast va be `/login`-e clodeck hich rabti nadarad — ma'ni-e vaghe'ish in ast ke
+server process aslan credential nadashte. Man daghighan hamin ra 2026-10-16 khordam: `.env` key dasht,
+vali `npm run dev` un ra nemikhand va faghat do variable-e dasti be server rasid.
 
 ### 5.2 Jadval-e kamel-e variable-ha
 
