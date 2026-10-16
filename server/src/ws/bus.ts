@@ -150,6 +150,11 @@ async function dispatchFrame(
         // No prompt here: the target is consumed by the send that follows.
         context.options.turns.setResumeTarget(context.projectId, intent.target);
         break;
+      case 'clear_resume':
+        // The other half of `resume`, and the only way back: the target and the
+        // project's buffered transcript go, so the next send is a new session.
+        context.options.turns.clearResume(context.projectId);
+        break;
     }
   } catch (error) {
     // A stale name is the one failure the user can act on, so it is reported as

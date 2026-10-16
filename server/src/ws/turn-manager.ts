@@ -48,6 +48,19 @@ export interface TurnManager {
   resolveApproval(projectId: string, response: ApprovalResponsePayload): boolean;
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
   setResumeTarget(projectId: string, target: ResumePayload): void;
+  /**
+   * Drop what the run has accumulated *for the next send to read*: the armed
+   * resume target, the buffered turn's blocks, and the session id those blocks
+   * belong to. What is left is a project with nothing to continue and nothing to
+   * replay, which is what makes the next `sendPrompt` a session of its own.
+   *
+   * A turn in flight is not this message's business: `status` and the parked
+   * approvals belong to the live run, and clearing them here would let a second
+   * send drive the model twice. Keeping a clear out of a running turn is the
+   * surface's rule — the button is shut while one is in flight — the same
+   * asymmetry `resume` has.
+   */
+  clearResume(projectId: string): void;
 }
 
 export interface TurnManagerOptions {
@@ -80,19 +93,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
   return {
     snapshot(projectId) {
-      const state = run(projectId);
-      return {
-        ...envelope(state),
-        kind: 'snapshot',
-        payload: {
-          state: state.status,
-          // Copies: a snapshot is a point in time, and the run keeps appending.
-          blocks: [...state.blocks],
-          pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
-          // `seq` is per connection and a fresh one has seen nothing.
-          lastSeq: 0,
-        },
-      };
+      return snapshotOf(run(projectId));
     },
 
     subscribe(projectId, emit) {
@@ -197,6 +198,38 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
     setResumeTarget(projectId, target) {
       run(projectId).resume = target;
+    },
+
+    clearResume(projectId) {
+      const state = run(projectId);
+      state.resume = undefined;
+      // The buffer and the identity go together, because they are one thing: the
+      // run's own transcript and the session it belongs to. Clearing the blocks
+      // alone would leave the next envelope — and so the next snapshot — naming a
+      // session whose transcript is no longer here.
+      state.blocks.length = 0;
+      state.sessionId = undefined;
+
+      // Answered to every socket on the project, not only the one that asked:
+      // the run is the project's, so a second tab is looking at the same chat and
+      // would otherwise keep showing one that no longer exists.
+      broadcast(state, snapshotOf(state));
+    },
+  };
+}
+
+/** The draft a socket is sent to learn the run's whole state: on (re)connect, and after a clear. */
+function snapshotOf(state: ProjectRun): EventDraft {
+  return {
+    ...envelope(state),
+    kind: 'snapshot',
+    payload: {
+      state: state.status,
+      // Copies: a snapshot is a point in time, and the run keeps appending.
+      blocks: [...state.blocks],
+      pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
+      // `seq` is per connection and a fresh one has seen nothing.
+      lastSeq: 0,
     },
   };
 }

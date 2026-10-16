@@ -51,6 +51,20 @@ function apply(view: ChatView, ...events: readonly ServerEvent[]): ChatView {
   return events.reduce(applyServerEvent, view);
 }
 
+/** The same event as the server stamps it: the run's session on the envelope. */
+function stamped(event: ServerEvent, sessionId: string): ServerEvent {
+  return { ...event, sessionId };
+}
+
+/** The bus's own signal that a turn began — no block, so no session in the payload. */
+const turnStarted: ServerEvent = {
+  v: PROTOCOL_VERSION,
+  seq: 1,
+  ts: '2026-01-01T00:00:00.000Z',
+  kind: 'stream_status',
+  payload: { status: 'turn_started' },
+};
+
 const init: SDKMessage = {
   type: 'system',
   subtype: 'init',
@@ -422,6 +436,36 @@ describe('chat reducer — snapshot, approvals, errors', () => {
   });
 });
 
+describe('chat reducer — the session the envelope names', () => {
+  it('reads the session id off the envelope, not only off an init block', () => {
+    // `turn_started` is a backend event: no block in it names a session, and the
+    // envelope is the server's own word for which session this event is about
+    // (shared/src/protocol.ts). Reading it is what keeps what `Resume` continues
+    // from depending on which blocks a surface happened to fold.
+    const view = applyServerEvent(emptyView(), stamped(turnStarted, SESSION));
+
+    expect(view.sessionId).toBe(SESSION);
+  });
+
+  it('keeps the identity when a snapshot carries no init block to rebuild it from', () => {
+    // The snapshot replaces the whole view, so a client that reconnects has
+    // nothing left of its own to tell it where it is; the envelope is it.
+    const view = applyServerEvent(emptyView(), stamped(snapshot([], 'idle'), SESSION));
+
+    expect(view.sessionId).toBe(SESSION);
+  });
+
+  it('leaves the identity alone when the envelope names no session', () => {
+    // A run that has not named a session yet says nothing about identity — not
+    // that the session is gone (a cleared project is answerable with a snapshot
+    // that carries no session at all).
+    const named: ChatView = { ...emptyView(), sessionId: SESSION };
+
+    expect(applyServerEvent(named, turnStarted).sessionId).toBe(SESSION);
+    expect(applyServerEvent(named, snapshot([], 'idle')).sessionId).toBeNull();
+  });
+});
+
 describe('chat reducer — history through the same renderer', () => {
   // A stored transcript: the same turns a live run produces, but as the REST
   // endpoint's `SessionMessage[]` (server/src/sessions.ts, shared/src/session.ts).
@@ -556,14 +600,6 @@ describe('chat reducer — history through the same renderer', () => {
 });
 
 describe('chat reducer — the resume target', () => {
-  const turnStarted: ServerEvent = {
-    v: PROTOCOL_VERSION,
-    seq: 1,
-    ts: '2026-01-01T00:00:00.000Z',
-    kind: 'stream_status',
-    payload: { status: 'turn_started' },
-  };
-
   it('arms the next send with a target and shows it, sending no prompt itself', () => {
     const view = withResumeTarget(emptyView(), { sessionId: SESSION, fork: true });
 

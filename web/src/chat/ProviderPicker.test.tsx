@@ -58,7 +58,7 @@ describe('the provider picker', () => {
 
     // The reserved profile reads as what it is — this server's own environment —
     // and its model is the model that comes with it.
-    expect(screen.getByRole('button', { name: 'running on server environment · claude-opus-5-5' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'running on claude-opus-5-5 · server environment' })).toBeTruthy();
   });
 
   it('offers every profile by name and model, and offers nothing else about it', () => {
@@ -68,17 +68,17 @@ describe('the provider picker', () => {
     // Each row is exactly the profile's label and its model — there is no
     // endpoint and no credential on this screen because there is none to render:
     // the client is never sent one (ticket 68's last criterion).
-    expect(screen.getByRole('option', { name: 'FAST · claude-haiku-5-5' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'server environment · claude-opus-5-5' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'claude-haiku-5-5 · FAST' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'claude-opus-5-5 · server environment' })).toBeTruthy();
     // The name is what the wire carries, so a row still carries it for a reader
     // who wants the mechanism rather than the meaning.
-    expect(screen.getByRole('option', { name: 'FAST · claude-haiku-5-5' }).getAttribute('title')).toBe('FAST');
+    expect(screen.getByRole('option', { name: 'claude-haiku-5-5 · FAST' }).getAttribute('title')).toBe('FAST');
 
     // A profile with no model of its own says so, rather than showing a blank.
     expect(screen.getByRole('option', { name: 'BARE · the endpoint decides' })).toBeTruthy();
     // An unpinned project is offered everything, provider-shaped profiles
     // included: the endpoint and the credential on offer are the server's own.
-    expect(screen.getByRole('option', { name: 'VENDOR · vendor-model-1' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'vendor-model-1 · VENDOR' })).toBeTruthy();
     expect(screen.getAllByRole('option')).toHaveLength(4);
   });
 
@@ -92,8 +92,8 @@ describe('the provider picker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /running on/ }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'server environment · claude-opus-5-5',
-      'FAST · claude-haiku-5-5',
+      'claude-opus-5-5 · server environment',
+      'claude-haiku-5-5 · FAST',
       'BARE · the endpoint decides',
     ]);
     // A vendor's model name means nothing at another vendor's endpoint, so the
@@ -112,7 +112,7 @@ describe('the provider picker', () => {
   it('chooses a profile by its name, and closes', () => {
     const { onChoose } = renderPicker();
     fireEvent.click(screen.getByRole('button', { name: /running on/ }));
-    fireEvent.click(screen.getByRole('option', { name: 'FAST · claude-haiku-5-5' }));
+    fireEvent.click(screen.getByRole('option', { name: 'claude-haiku-5-5 · FAST' }));
 
     expect(onChoose).toHaveBeenCalledWith('FAST');
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -121,13 +121,15 @@ describe('the provider picker', () => {
   it('is shut once a turn has run, with the reason on it', () => {
     const { onChoose } = renderPicker(READY, { name: 'FAST', locked: true });
 
-    const trigger = screen.getByRole('button', { name: 'running on FAST · claude-haiku-5-5' });
+    const trigger = screen.getByRole('button', { name: 'running on claude-haiku-5-5 · FAST' });
     expect(trigger).toHaveProperty('disabled', true);
 
     // A disabled control gets no pointer events, so its own `title` never becomes
     // a tooltip — the reason rides the wrapper as well (the rail's rule).
-    expect(trigger.getAttribute('title')).toContain('a turn has already run');
-    expect(trigger.closest('span')?.getAttribute('title')).toContain('a turn has already run');
+    const reason =
+      'a turn has already run in this session, so the profile is set — start a new chat to run on something else';
+    expect(trigger.getAttribute('title')).toBe(reason);
+    expect(trigger.closest('span')?.getAttribute('title')).toBe(reason);
 
     fireEvent.click(trigger);
     expect(screen.queryByRole('listbox')).toBeNull();

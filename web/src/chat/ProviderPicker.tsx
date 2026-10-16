@@ -29,8 +29,9 @@ import type { ProfilesState } from './useProfiles';
 /** What an absent model means (ticket 66, decision 13): the endpoint decides, not clodeck. */
 const ENDPOINT_DECIDES = 'the endpoint decides';
 
-/** Why the control is shut, in the two places a reader arrives from (see `App.tsx`'s rail). */
-const LOCKED_REASON = 'a turn has already run in this session, so the profile is set';
+/** Why the control is shut, and what to do about it: the new chat is the way out (ticket 74). */
+const LOCKED_REASON =
+  'a turn has already run in this session, so the profile is set — start a new chat to run on something else';
 
 /** Why a pinned project's choice is a model and nothing else (ADR 0002, in the user's words). */
 const PINNED_REASON =
@@ -68,9 +69,10 @@ export function ProviderPicker({
   // still be on a profile this project would no longer offer, and the line has to
   // say what it is running on rather than pretend it is something else.
   const chosen = profiles.find((profile) => profile.name === name);
-  // An absent model can only be reported as the endpoint's decision once the
-  // list has arrived to say so; before that there is nothing to say at all.
-  const model = state.status === 'ready' ? ` · ${chosen?.model ?? ENDPOINT_DECIDES}` : '';
+  // What it says it is running on. The model leads once the list has arrived to
+  // say what it is — the model is the thing being chosen — and before that there
+  // is nothing to claim about it at all, not even "the endpoint decides".
+  const line = state.status === 'ready' ? profileLine(name, chosen?.model) : label(name);
 
   return (
     // The key handler is here rather than on the list: the trigger is what holds
@@ -93,7 +95,7 @@ export function ProviderPicker({
           }}
           className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-60"
         >
-          {`running on ${label(name)}${model}`}
+          {`running on ${line}`}
         </button>
       </span>
 
@@ -154,7 +156,7 @@ export function ProviderPicker({
                     profile.name === name ? 'text-accent' : 'text-ink'
                   }`}
                 >
-                  {`${label(profile.name)} · ${profile.model ?? ENDPOINT_DECIDES}`}
+                  {profileLine(profile.name, profile.model)}
                 </button>
               </li>
             ))}
@@ -172,4 +174,17 @@ export function ProviderPicker({
  */
 function label(name: string): string {
   return name === DEFAULT_PROFILE ? 'server environment' : name;
+}
+
+/**
+ * A profile, in one line: the model first and the profile it comes from second,
+ * because the model is what the user is choosing between and the name is where
+ * that model lives (ticket 74, decision 10's "running on X now").
+ *
+ * A profile that declares no model has no first half to lead with, so the line
+ * falls back to the sentence decision 13 already settled — the name, and what
+ * decides instead of a model it does not have.
+ */
+function profileLine(name: string, model: string | undefined): string {
+  return model === undefined ? `${label(name)} · ${ENDPOINT_DECIDES}` : `${model} · ${label(name)}`;
 }

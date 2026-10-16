@@ -104,6 +104,16 @@ export interface SendPromptPayload {
 /** No fields: interrupt targets the project's one active turn. */
 export type InterruptPayload = Record<string, never>;
 
+/**
+ * No fields: the project is named by the socket. It drops the project's run
+ * state — the armed resume target *and* the buffered transcript — so the next
+ * send starts a session of its own instead of continuing the old one. Without
+ * it, an armed target could only be dropped by a send that consumed it, and a
+ * reconnect would hand the previous session's transcript back (ticket 11's
+ * first gap).
+ */
+export type ClearResumePayload = Record<string, never>;
+
 export interface ApprovalResponsePayload {
   /** The `requestId` of the `approval_request` being answered. */
   requestId: string;
@@ -127,6 +137,7 @@ export type ClientMessage = ClientMessageBase &
   (
     | { type: 'send_prompt'; payload: SendPromptPayload }
     | { type: 'interrupt'; payload: InterruptPayload }
+    | { type: 'clear_resume'; payload: ClearResumePayload }
     | { type: 'approval_response'; payload: ApprovalResponsePayload }
     | { type: 'set_permission_mode'; payload: SetPermissionModePayload }
     | { type: 'resume'; payload: ResumePayload }

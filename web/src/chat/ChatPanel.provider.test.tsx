@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import type { ProviderProfileSummary, Project } from '@clodeck/shared';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
+import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
 import { ChatPanel } from './ChatPanel';
 
 /**
@@ -15,74 +16,12 @@ import { ChatPanel } from './ChatPanel';
  * project opens on.
  */
 
-const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
-
-const PROFILES: ProviderProfileSummary[] = [
-  { name: 'default', model: 'claude-opus-5-5', shape: 'tier' },
-  { name: 'FAST', model: 'claude-haiku-5-5', shape: 'tier' },
-];
-
-/**
- * The one socket the panel opens, with `send` recorded as parsed frames. It
- * starts in the browser's `OPEN` state and is opened by the test, which is what
- * lets the composer be usable without a server.
- */
-class FakeSocket {
-  static readonly OPEN = 1;
-  static readonly instances: FakeSocket[] = [];
-  readonly sent: unknown[] = [];
-  readonly readyState = FakeSocket.OPEN;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-
-  constructor(readonly url: string) {
-    FakeSocket.instances.push(this);
-  }
-
-  send(frame: string): void {
-    this.sent.push(JSON.parse(frame) as unknown);
-  }
-
-  close(): void {
-    // Nothing to tear down: there is no server on the other end of this.
-  }
-
-  /** The upgrade succeeded. */
-  open(): void {
-    this.onopen?.();
-  }
-
-  /** Whatever the server would say next. */
-  deliver(event: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(event) });
-  }
-}
-
-/** The socket the panel most recently opened. */
-function latestSocket(): FakeSocket {
-  const socket = FakeSocket.instances.at(-1);
-  if (socket === undefined) throw new Error('the panel opened no socket');
-  return socket;
-}
-
-/** `{ profiles }` with the two fields a profile is allowed to have. */
-function jsonResponse(body: unknown): Response {
-  return {
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    json: () => Promise.resolve(body),
-  } as Response;
-}
-
 /** Every URL the panel asked for, in order. */
 const fetched: string[] = [];
 
 beforeEach(() => {
   window.localStorage.clear();
-  FakeSocket.instances.length = 0;
+  forgetSockets();
   fetched.length = 0;
   vi.stubGlobal('WebSocket', FakeSocket);
   // The panel also fetches the project's sessions on mount; a 404 leaves that in
@@ -121,10 +60,10 @@ describe('the provider a turn is sent on', () => {
 
     // Nothing remembered in this browser, so the session opens on the server's
     // own environment — the reserved default, in its own words.
-    await screen.findByRole('button', { name: 'running on server environment · claude-opus-5-5' });
+    await screen.findByRole('button', { name: 'running on claude-opus-5-5 · server environment' });
 
-    choose('FAST · claude-haiku-5-5');
-    expect(trigger('running on FAST · claude-haiku-5-5')).toBeTruthy();
+    choose('claude-haiku-5-5 · FAST');
+    expect(trigger('running on claude-haiku-5-5 · FAST')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -142,12 +81,12 @@ describe('the provider a turn is sent on', () => {
   it('opens the project’s next session on the profile this one chose', async () => {
     const first = render(<ChatPanel project={project} />);
     await screen.findByRole('button', { name: /^running on/ });
-    choose('FAST · claude-haiku-5-5');
+    choose('claude-haiku-5-5 · FAST');
     first.unmount();
 
     render(<ChatPanel project={project} />);
 
-    await screen.findByRole('button', { name: 'running on FAST · claude-haiku-5-5' });
+    await screen.findByRole('button', { name: 'running on claude-haiku-5-5 · FAST' });
   });
 
   it('shuts the picker once a turn has run, and says so', async () => {
@@ -167,11 +106,37 @@ describe('the provider a turn is sent on', () => {
       });
     });
 
-    const locked = trigger('running on server environment · claude-opus-5-5');
+    const locked = trigger('running on claude-opus-5-5 · server environment');
     expect(locked).toHaveProperty('disabled', true);
 
     fireEvent.click(locked);
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('does not shut the picker on a send the server refused', async () => {
+    render(<ChatPanel project={project} />);
+    act(() => {
+      latestSocket().open();
+    });
+    await screen.findByRole('button', { name: /^running on/ });
+
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    // The refusal the lock has to survive: nothing ran, so this session still has
+    // no profile of its own — and the error tells the user to change the control,
+    // which must not have shut itself on the way.
+    act(() => {
+      latestSocket().deliver({
+        v: 1,
+        seq: 1,
+        ts: new Date().toISOString(),
+        projectId: project.id,
+        kind: 'error',
+        payload: { code: 'unknown_profile', message: 'no profile named GONE' },
+      });
+    });
+
+    expect(trigger('running on claude-opus-5-5 · server environment')).toHaveProperty('disabled', false);
   });
 
   it('asks what this project may choose, since a pin is the project’s and not the deployment’s', async () => {

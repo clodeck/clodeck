@@ -83,6 +83,13 @@ export interface TurnResult {
 export interface ChatView {
   sessionId: string | null;
   cwd: string | null;
+  /**
+   * The model the run itself reports, out of its `init` message — the run's own
+   * word, where the picker states what the chosen profile *declares*. No surface
+   * renders it: ticket 74 gave the header the session's identity and left what a
+   * chat runs on to the line beside the composer, so this is the one fact about
+   * what actually ran, kept where the reducer already reads it.
+   */
   model: string | null;
   /** The authoritative turn state the SDK reports. */
   state: SessionState;
@@ -130,6 +137,17 @@ export function emptyView(): ChatView {
 /* -------------------------------------------------------------------------- */
 
 export function applyServerEvent(view: ChatView, event: ServerEvent): ChatView {
+  const folded = foldEvent(view, event);
+  // The envelope names the session every event belongs to — the server stamps it
+  // from the run itself (protocol.ts, turn-manager's `envelope()`), which makes
+  // the identity the server's word rather than a side effect of which blocks a
+  // surface happened to fold. An event that names none says nothing about
+  // identity and leaves what the view holds alone; a snapshot says nothing *and*
+  // rebuilds the view, which is how a cleared project reads as a new chat.
+  return event.sessionId === undefined ? folded : { ...folded, sessionId: event.sessionId };
+}
+
+function foldEvent(view: ChatView, event: ServerEvent): ChatView {
   switch (event.kind) {
     case 'sdk':
       return applySdkMessage(view, event.payload);

@@ -445,6 +445,73 @@ describe('the /ws event bus', () => {
     });
   });
 
+  it('drops the armed target on clear_resume, so the next send is a session of its own', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+    const port = await listen(app);
+
+    const client = await connect(port, cookie, idFor(cwd));
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'resume', payload: { sessionId: 'sess-42', fork: true } });
+    client.send({ v: 1, id: 'c2', type: 'clear_resume', payload: {} });
+    client.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'fresh' } });
+
+    // Until this message existed nothing could cancel an armed target but a send
+    // that consumed it (ticket 11's first gap): the send that follows resumes
+    // nothing at all.
+    const first = await provider.waitForQueryInput(1);
+    expect(first).toMatchObject({ prompt: 'fresh' });
+    expect(first.resume).toBeUndefined();
+    expect(first.forkSession).toBeUndefined();
+    expect(first.continueLatest).toBeUndefined();
+  });
+
+  it('clears the buffered transcript and the session on clear_resume, for every socket', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+    const port = await listen(app);
+    const projectId = idFor(cwd);
+
+    const client = await connect(port, cookie, projectId);
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+    await client.nextMatching(
+      (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+    );
+
+    // The buffer a new chat has to clear: a socket joining now is handed the
+    // whole turn back.
+    const other = await connect(port, cookie, projectId);
+    const before = await other.next();
+    expect(before).toMatchObject({ kind: 'snapshot', sessionId: SESSION_ID });
+    if (before.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${before.kind}`);
+    expect(before.payload.blocks).not.toEqual([]);
+
+    client.send({ v: 1, id: 'c2', type: 'clear_resume', payload: {} });
+
+    // The run is the project's, so the clear is answered to *every* socket on
+    // it: a second tab is looking at the same chat, and it is now a new one.
+    const cleared = await other.next();
+    expect(cleared).toMatchObject({ kind: 'snapshot' });
+    expect(cleared.sessionId).toBeUndefined();
+    if (cleared.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${cleared.kind}`);
+    expect(cleared.payload).toEqual({ state: 'idle', blocks: [], pendingApprovals: [], lastSeq: 0 });
+
+    // Gone, not merely unseen: a socket that connects afterwards rebuilds from
+    // the same nothing.
+    const reconnected = await connect(port, cookie, projectId);
+    const after = await reconnected.next();
+    expect(after.sessionId).toBeUndefined();
+    if (after.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${after.kind}`);
+    expect(after.payload.blocks).toEqual([]);
+
+    // And it created nothing: a new chat writes nothing — no session, no file —
+    // until a prompt is sent.
+    expect(provider.queryInputs).toHaveLength(1);
+  });
+
   it('answers invalid_message to a malformed frame and keeps the socket alive', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));

@@ -153,8 +153,8 @@ bekoshad.
 ### The picker
 
 - **Kenār-e composer**, na dar header. Har do hāl neshoon dāde mishavad: hāl-e zende (*"running on
-  `<profile>` · `<model>`"*) va hāl-e pin-shode (*"pinned by this project"* + endpoint-e pin-shode, ke
-  user khodesh ham mitavānad az drawer bekhānad).
+  `<model>` · `<profile>`"* — model avval, ticket 74) va hāl-e pin-shode (*"pinned by this project"* +
+  endpoint-e pin-shode, ke user khodesh ham mitavānad az drawer bekhānad).
 - **List** az server miāyad. Dar yek project-e pin-shode faghat profile-hā-ye **tier-shaped** pishnahād
   mishavad — chon yek name-e model-e yek vendor ru endpoint-e vendor-e digar bimani nist.
 - Ru **avvalin send** disable mishavad. Barāye taghir-e tier, yek session-e jadid; barāye resume, hāl-e
