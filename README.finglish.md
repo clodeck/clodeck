@@ -175,6 +175,11 @@ Baste kardan: `Ctrl-C` dar hamoon window.
 
 ## 4) Server-e Linux
 
+> **Mikhai dasti nadavi?** `bash scripts/deploy-clodeck.sh` hamin section-e 4 ra *ba to* mire:
+> pish-niaz-ha ra nasb mikone, projects root va password va endpoint va tier-ha ra mipourse, baad
+> `/etc/clodeck/clodeck.env` va unit-e systemd ra minevise, port ra dar firewall baz mikone, va
+> sabr mikone ta `/healthz` javab bede. Baraye avaz kardan-e yek meghdar, hamino dobare beza.
+
 ### 4.1 Pish-niaz
 
 ```bash
@@ -752,6 +757,7 @@ Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PW
 | `npm run typecheck` | Type-check, bedoone neveshtan-e hich file |
 | `npm run e2e` | Playwright — niaz be app-e bala darad |
 | `bash scripts/setup-clodeck.sh` | Wizard (section 6) |
+| `bash scripts/deploy-clodeck.sh` | Wizard-e **server**: pish-niaz-ha → `/etc/clodeck/clodeck.env` + systemd + firewall + `/healthz` |
 | `curl http://127.0.0.1:3001/healthz` | `{"status":"ok"}` = bala ast |
 
 ---

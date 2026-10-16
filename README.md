@@ -326,6 +326,11 @@ If you would rather encrypt it, three routes do that:
 
 Tested on Debian/Ubuntu. Any distro with Node 22 works.
 
+**Prefer to be walked through it?** `bash scripts/deploy-clodeck.sh` is this section *with* you
+rather than *to* you: it installs the prerequisites, asks for the projects root, the login password,
+the endpoint and any tiers, then writes `/etc/clodeck/clodeck.env` and the systemd unit, opens the
+port in the firewall, and waits for `/healthz` to answer. Re-running it is how you change a value.
+
 **Prerequisites**
 
 ```sh
@@ -812,6 +817,7 @@ Every command runs from the repo root.
 | `npm run build` | Builds `shared` → `server` → `web` into each package's `dist/`. |
 | `npm run serve` | **The deployment command:** a preflight that stops — plainly, before anything is built — when `UI_PASSWORD` or `PROJECTS_ROOT` is missing, then `npm run build`, then the server, serving the client it just built. |
 | `bash scripts/setup-clodeck.sh` | Walks you through the configuration — projects root, password, provider profiles — then writes `.env` and the launcher `npm run serve` needs to see it. See [Or let the wizard do it](#or-let-the-wizard-do-it). |
+| `bash scripts/deploy-clodeck.sh` | The same walk for a Linux **server**: it installs the prerequisites, then writes `/etc/clodeck/clodeck.env`, the login password file and a systemd unit, opens the port, and waits for `/healthz`. Re-running it changes a value. See [Linux server](#linux-server). |
 | `npm start --workspace @clodeck/server` | Runs the server from `dist/`, serving the client directory it resolves (or the `WEB_ROOT` you set). Reach for `serve` unless a service manager is starting it for you. |
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
