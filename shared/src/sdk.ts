@@ -15,8 +15,9 @@
  * message always fits.
  *
  * Mirrored subset (wayfinder research 01 §2/§3): `system`, `assistant`, `user`,
- * `tool_progress`, `stream_event`, `result`. Message families outside it are
- * ignored by the client.
+ * `tool_progress`, `stream_event`, `result` — plus `conversation_reset`, the one
+ * family the client acts on without rendering it. Message families outside it
+ * are ignored by the client.
  */
 
 /** The SDK's permission modes (research 01 §5). */
@@ -247,6 +248,25 @@ export interface SDKStreamEventMessage {
   user_message_uuid?: string;
 }
 
+/**
+ * The SDK threw the conversation away and moved to a new one — `/clear`, leaving
+ * plan mode with the clear-context option, a fresh-session flow, or onboarding.
+ * The client mounts a fresh transcript under `new_conversation_id`, which is the
+ * run's new **session**: the id `resume` continues from and the one the header
+ * and History name.
+ *
+ * `trigger` says what discarded the conversation, and is informational — every
+ * reset is a reset, whatever it says (and an older emitter may omit it).
+ */
+export interface SDKConversationResetMessage {
+  type: 'conversation_reset';
+  new_conversation_id: string;
+  /** The session the frame was emitted on: the conversation being discarded. */
+  session_id: string;
+  trigger?: 'clear' | 'plan_mode_exit' | 'fresh_session' | 'onboarding';
+  uuid?: string;
+}
+
 /** Turn complete. Read the latest result's cost — never sum them. */
 export interface SDKResultSuccessMessage {
   type: 'result';
@@ -291,5 +311,6 @@ export type SDKMessage =
   | SDKUserMessage
   | SDKToolProgressMessage
   | SDKStreamEventMessage
+  | SDKConversationResetMessage
   | SDKResultSuccessMessage
   | SDKResultErrorMessage;

@@ -18,26 +18,41 @@ har do yek kār mikonand — transcript-e run rā pāk kardan — faghat yeki az
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `conversation_reset` dar `shared/src/sdk.ts` mirror mishavad — bā `new_conversation_id`, `session_id`
+- [x] `conversation_reset` dar `shared/src/sdk.ts` mirror mishavad — bā `new_conversation_id`, `session_id`
       va `trigger` — va dar `server/src/sdk/mirror.ts` annotate mishavad (mirror-e compile-time pin-e, pas
       `tsc` bāyad in family rā bebinad). Test-e `mirror.test.ts:195-205` ke "unmirrored mimānad" rā taiid
       mikard **bāz-neveshte** mishavad, na pāk: dalil-ash barā-ye bāghi-ye family-hā hanuz dorost ast, va
       in yek **estesnā**-st ke bāyad neveshte beshavad.
-- [ ] Server: vaghti in fram miresad, `ProjectRun.blocks` pāk mishavad va yek snapshot-e tāze be
+- [x] Server: vaghti in fram miresad, `ProjectRun.blocks` pāk mishavad va yek snapshot-e tāze be
       **hame-ye** subscriber-hā broadcast mishavad — hamān kāri ke `clearResume` mikonad. Har do az yek
       implementāsiun-e moshtarak estefāde mikonand (`snapshotOf`, hamoon draft-i ke (re)connect migirad).
-- [ ] Hoviat: `new_conversation_id` chera ke `sessionId`-e clodeck session-e SDK-e — un-i ke `Resume`
+- [x] Hoviat: `new_conversation_id` chera ke `sessionId`-e clodeck session-e SDK-e — un-i ke `Resume`
       behesh kār dārad — pas implement bāyad taeen konad āyā in field hoviat rā avaz mikonad yā na, va
       javāb rā dar hamin ticket benevisad. Agar avaz mikonad, header va History ham bāyad ham-rāh beshavand
       (ticket 74 hoviat rā az envelope-e server mikhānad, pas jāy-ash unhā-st).
-- [ ] Client: reducer entries rā pāk mikonad — dar hamin live message **va** dar `fromSnapshot`, chon
+- [x] Client: reducer entries rā pāk mikonad — dar hamin live message **va** dar `fromSnapshot`, chon
       snapshot-e kohne-ash hanooz block-hā-ye qabl az reset rā haml mikonad (in do masir bāyad yek natije
       bedahand, varna yek reconnect transcript-e pāk-shode rā bar migardānad).
-- [ ] Natije: `/clear` dasti — ke az ghabl ham kār mikone (`shared/src/protocol.ts:90` faghat yek string-e)
+- [x] Natije: `/clear` dasti — ke az ghabl ham kār mikone (`shared/src/protocol.ts:90` faghat yek string-e)
       — dige transcript-e ghabl rā ru safhe nemigozārad, va reconnect ham un rā bar nemigardānad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
+
+**Hoviat — javāb:** `new_conversation_id` hoviat rā **avaz mikonad**: hamān session-e jadid-e SDK-e, un-i ke
+`resume` behesh kār dārad va un-i ke header va History neshoon midahand. Sabab-hā: (1) doc-e khode SDK
+migoyad *"The surface should mount a fresh transcript under `new_conversation_id` and reset any cached
+session title"* (`sdk.d.ts:5169`) — yani hoviat-e jadid mas'uliat-e consumer-e, na field-e digari; `session_id`
+-e ru-ye fram hamān conversation-i-st ke dārad discard mishavad. (2) Hamin family bug barā-ye ye consumer-e
+digar-e SDK report shode (`claude-agent-acp#906`): adapter `conversation_reset` rā mindākht, session-id-e
+ghadimi rā negah midāsht, va nati-je *"clients … will resume the old pre-clear conversation"* bood; expected
+handling-ash ham daghighan *"Persist `new_conversation_id` … and expose it as the current session ID"*-ast.
+(3) CLI-e SDK dar hamān lahze session-e felish rā avaz mikonad, pas frame-hā-ye ba'di hamān id-e jadid rā haml
+mikonand — va pump-e clodeck har fram-rā az `session_id`-ash mikhanad, ke bā in entekhāb ham-rāh ast.
+
+Pas server hoviat rā be `new_conversation_id` mibarad (`forgetTranscript`, hamān envelope-e `sessionId`), va
+**header va History hich taghiri nemikhāhānd**: ticket 74 hoviat rā az envelope-e server mikhānad, va
+snapshot-e hamān reset envelope-ash id-e jadid rā dārad — pas har do khod-be-khod ham-rāh mishavand.
 
 **Out of scope (deliberate):** `New chat`-e ticket 74 — ke khodesh `clear_resume` mifrestad va az in ticket
 hich chizi nemikhāhad; in ticket faghat masir-e SDK rā mibandad. Va hich command-e digari ke

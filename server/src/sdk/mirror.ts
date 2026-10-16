@@ -18,7 +18,8 @@ import type {
  * nothing is imported at runtime, so this stays free of the SDK's binary.
  *
  * `system` and `result` discriminate a second level (`subtype`), so those go to
- * a helper each; everything the client does not render returns `null`.
+ * a helper each; everything the client neither renders nor acts on returns
+ * `null`.
  */
 export function narrowToMirror(message: RealSDKMessage): SDKMessage | null {
   switch (message.type) {
@@ -32,6 +33,11 @@ export function narrowToMirror(message: RealSDKMessage): SDKMessage | null {
       return message;
 
     case 'stream_event':
+      return message;
+
+    // Not rendered, but acted on: the SDK discarded the conversation and the
+    // client drops the transcript on screen with it (ticket 76).
+    case 'conversation_reset':
       return message;
 
     case 'system':

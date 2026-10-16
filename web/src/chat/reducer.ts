@@ -173,15 +173,24 @@ function foldEvent(view: ChatView, event: ServerEvent): ChatView {
  * alive across the reconnect (spec-02 §"Approvals").
  */
 function fromSnapshot(payload: SnapshotPayload): ChatView {
-  let view: ChatView = {
-    ...emptyView(),
-    state: payload.state,
-    pendingApprovals: [...payload.pendingApprovals],
-  };
+  let view = runState(payload.state, payload.pendingApprovals);
   for (const block of payload.blocks) {
     view = applySdkMessage(view, block);
   }
   return view;
+}
+
+/**
+ * The project's run with none of a conversation's transcript: the turn state the
+ * SDK reports and the approvals it is parked on, and nothing that belonged to
+ * the conversation before. A `snapshot` rebuilds from exactly this and folds the
+ * run's complete blocks onto it; a `conversation_reset` arrives at it directly,
+ * because the SDK has already thrown every block a snapshot would have carried
+ * away. One view, so the live frame and a reconnect cannot disagree about what
+ * the run holds.
+ */
+function runState(state: SessionState, pendingApprovals: readonly ApprovalRequestPayload[]): ChatView {
+  return { ...emptyView(), state, pendingApprovals: [...pendingApprovals] };
 }
 
 function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' | 'interrupted'): ChatView {
@@ -223,6 +232,12 @@ export function applySdkMessage(view: ChatView, message: SDKMessage): ChatView {
         ...view,
         progress: { toolName: message.tool_name, elapsedSeconds: message.elapsed_time_seconds },
       };
+    case 'conversation_reset':
+      // The SDK threw the conversation away — `/clear`, a plan-mode exit, a flow
+      // of its own — so everything on screen goes with it. Identity is not read
+      // out of the frame here: `new_conversation_id` reaches this view on the
+      // envelope, the way every other session id does (ticket 74).
+      return runState(view.state, view.pendingApprovals);
     case 'result':
       return applyResult(view, message);
     default:
