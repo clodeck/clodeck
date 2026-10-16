@@ -249,12 +249,18 @@ else
   exit 1
 fi
 
-# Node is checked for version, the rest for presence: `npm ci` compiles
-# node-pty on Linux, which is what python3, make and g++ are for.
+# git and curl are needed whatever happens next; the compiler is what `npm ci`
+# needs on Linux — node-pty has no prebuild there — so python3, make and g++ are
+# only asked for when there is no node_modules to skip that install.
 need=()
-for tool in git curl python3 make g++; do
+for tool in git curl; do
   command -v "$tool" >/dev/null 2>&1 || need+=("$tool")
 done
+if [[ ! -d node_modules ]]; then
+  for tool in python3 make g++; do
+    command -v "$tool" >/dev/null 2>&1 || need+=("$tool")
+  done
+fi
 
 node_ok=no
 node_state="not installed"
