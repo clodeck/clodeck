@@ -771,12 +771,14 @@ is only as good as what the proxy passes through unaltered — `stream_event` de
 modal), and the trailing `result` (the turn's outcome).
 
 **The picker sits beside the composer** — above the box you type in, not up in the chat header — as one
-line reading `running on <profile> · <model>`. The choice is **per session**: a new session in a project
+line reading `running on <model> · <profile>`. The choice is **per session**: a new session in a project
 opens on the profile the last one there used, and on the server's environment when nothing is
 remembered. It **locks once the session's first turn has run**, so what you are talking to cannot change
-mid-conversation; a different profile means a new session — reloading the page is one, because the
-binding lives in the browser and nowhere else. The picker is told names and models, and of a pinned
-project's file only the endpoint it declares (which you can read in the drawer too) — **never a
+mid-conversation; a different profile means a new session, and **`New chat` in the chat header is that
+door** — it drops the transcript, the session and the armed resume, and the next message starts a
+session of its own (nothing is written to disk until that send). Reloading the page is a new session too,
+because the binding lives in the browser and nowhere else. The picker is told names and models, and of a
+pinned project's file only the endpoint it declares (which you can read in the drawer too) — **never a
 credential** — and a profile the operator has since removed is refused by name, never quietly swapped for
 the default. Each run logs the profile and model it used: the only record of what a turn actually ran on.
 

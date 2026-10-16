@@ -64,7 +64,7 @@ SDK ro faghat be `server` add mikonim va mirror ro bar-ash pin mikonim (assignab
 
 - `send_prompt` → agar project `running` ast → `error { code: 'turn_in_progress' }` (wayfinder 04 §4). Vagarna: `turnId` mint, `stream_status: turn_started`, `query()` ba `cwd`/`prompt`/resume-target-e jari, har SDKMessage be `sdk` envelope (ba `seq`), `result` → `stream_status: turn_ended`. `session_id` az init/result capture va be state-e project neveshte mishe (zamin-e "continue latest").
 - `interrupt` → `query.interrupt()` → `stream_status: interrupted`. `set_permission_mode` → `run.setPermissionMode`.
-- `resume` target-e project ra set mikonad (`{ mode:'continue' }` → `continue: true` dar query-e ba'di; `{ sessionId, fork? }` → `resume`/`forkSession`; wayfinder 06 §3). Khod-e `resume` prompt nemiferestad — send-e ba'di ba target-e resume ejra mishe. "New session" = client state clear; hich chiz bar rooye disk ta avvalin send neveshte nemishe (wayfinder 06 §7).
+- `resume` target-e project ra set mikonad (`{ mode:'continue' }` → `continue: true` dar query-e ba'di; `{ sessionId, fork? }` → `resume`/`forkSession`; wayfinder 06 §3). Khod-e `resume` prompt nemiferestad — send-e ba'di ba target-e resume ejra mishe. `clear_resume` (ticket 74) un target ra — va buffer-e block-hā-ye run rā — pāk mikonad, pas "New session" = client state clear **va** `clear_resume`; hich chiz bar rooye disk ta avvalin send neveshte nemishe (wayfinder 06 §7).
 - Yek turn-e fa'el dar har project; chand project mitavand parallel be run-e (wayfinder 04 §4), ama model-e clodeck dar in slice ye project-e montakhab dar ye zaman darad.
 
 ### Approvals

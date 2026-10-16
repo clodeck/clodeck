@@ -17,7 +17,8 @@ export type ClientIntent =
   | { type: 'interrupt' }
   | { type: 'set_permission_mode'; mode: PermissionMode }
   | { type: 'approval_response'; response: ApprovalResponsePayload }
-  | { type: 'resume'; target: ResumePayload };
+  | { type: 'resume'; target: ResumePayload }
+  | { type: 'clear_resume' };
 
 export function parseClientMessage(raw: string): ClientIntent | null {
   const message = parseObject(raw);
@@ -36,6 +37,10 @@ export function parseClientMessage(raw: string): ClientIntent | null {
     }
     case 'interrupt':
       return { type: 'interrupt' };
+    // Carries nothing to read: the project is the socket's, and the clear is the
+    // whole of the message.
+    case 'clear_resume':
+      return { type: 'clear_resume' };
     case 'set_permission_mode': {
       const payload = asObject(message['payload']);
       const mode = payload?.['mode'];

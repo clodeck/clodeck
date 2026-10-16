@@ -46,6 +46,15 @@ export interface ChatController {
    * §"Turn lifecycle"): the resumed turn starts on the next send.
    */
   resume: (target: ResumePayload) => void;
+  /**
+   * Drop the chat and start another one — the only way out of a session once it
+   * has run. The client's half is its whole live state; the server's half is a
+   * `clear_resume` frame, which drops the armed target and the buffered
+   * transcript a reconnect would otherwise rebuild from. Neither half creates
+   * anything: the next session comes into being on the next send, which is the
+   * only thing that can write one to disk at all.
+   */
+  newChat: () => void;
   dismissError: () => void;
 }
 
@@ -159,7 +168,15 @@ export function useChat(project: Project): ChatController {
     [send],
   );
 
-  return { view, connection, sendPrompt, interrupt, respond, resume, dismissError };
+  const newChat = useCallback((): void => {
+    // Empty *here* first, so the surface is a new chat the moment it is pressed
+    // rather than a round trip later; the bus's half is the frame below, and it
+    // is the half that a reconnect would otherwise undo.
+    setView(emptyView());
+    send(clientMessage({ type: 'clear_resume', payload: {} }));
+  }, [send]);
+
+  return { view, connection, sendPrompt, interrupt, respond, resume, newChat, dismissError };
 }
 
 /**

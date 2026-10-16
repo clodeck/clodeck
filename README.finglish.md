@@ -670,8 +670,8 @@ Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PW
 - `curl http://127.0.0.1:3001/healthz` ra check mikonad → age `{"status":"ok"}` bianad, migoyad ✓
 - Browser ra rooye `http://127.0.0.1:3001` baz mikonad.
 - Chand rahnamaye kootah midahad: project entekhab kon → picker-e balaye composer
-  (`running on <profile> · <model>`) entekhab kon → yek turn beferest (baad az turn-e aval picker
-  **lock** mishavad: provider-e digar = session-e jadid) → rail's Terminal/Files hamoon yek drawer-e
+  (`running on <model> · <profile>`) entekhab kon → yek turn beferest (baad az turn-e aval picker
+  **lock** mishavad: provider-e digar = `New chat` dar header) → rail's Terminal/Files hamoon yek drawer-e
   paeeni ra baz mikonad.
 - Va yadavari midahad: project-i ke `.claude/settings.json`-ash endpoint/credential dare, **pinned**
   ast — unja faghat tier-ha pishnahad mishavad va run faghat model ra mibard.

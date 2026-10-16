@@ -26,7 +26,7 @@ How do we model sessions against projects, where does session state live, and ho
 
 ### 3. New vs continue
 
-- **Default fresh.** Opening a project shows an empty chat; no automatic resume. "New session" clears chat state and the resume target.
+- **Default fresh.** Opening a project shows an empty chat; no automatic resume. "New session" clears chat state, the resume target and the run's buffered transcript (the `clear_resume` control message, ticket 74).
 - **Resume is explicit** — picking a past session in the sidebar loads its transcript, and subsequent sends resume it (`resume: sessionId`).
 - **"Continue latest" is a one-click affordance** backed by `continue: true` (needs no stored id). "Remember the last session per project" is a per-user preference kept **client-side (localStorage)** if desired, never server persistence.
 
@@ -62,6 +62,6 @@ How do we model sessions against projects, where does session state live, and ho
 ### 7. Empty sessions
 
 - A fresh chat before the first send is **client state, not a session**: no `session_id`, no file, no row. The session comes into existence at the first `query()` — the `session_id` appears on the init `system` message.
-- "New session" = clear chat state + clear the resume target; nothing is written to disk until the first send. Resume is therefore only meaningful for sessions that have actually been sent.
+- "New session" = clear chat state + clear the resume target + clear the run's buffered transcript (`clear_resume`, ticket 74); nothing is written to disk until the first send. Resume is therefore only meaningful for sessions that have actually been sent.
 
 Backing: [01 — Agent SDK session/streaming/resume](01-agent-sdk-session-streaming.md) (session_id, resume/continue/fork, transcript location, `listSessions`/`getSessionMessages`), [04 — Backend transport and API shape](04-backend-transport.md) (`turnId`, session endpoints, one active turn per project), [05 — Project discovery](05-project-discovery.md) (project = cwd; multi-user seam).

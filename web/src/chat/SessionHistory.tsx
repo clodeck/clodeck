@@ -207,3 +207,15 @@ export function resumeTargetTitle(state: SessionsState, target: ResumePayload | 
   if (target === null || 'mode' in target || state.status !== 'ready') return null;
   return state.sessions.find((session: SessionSummary) => session.id === target.sessionId)?.title ?? null;
 }
+
+/**
+ * The stored title for a session id, when the list has it. The header asks this
+ * of the live session rather than deriving a name of its own, so the chat and
+ * the list it can open are showing one string (ticket 74). Nothing is answered
+ * for a session the list has not caught up with — the id is the honest fallback,
+ * and it is the caller's to make.
+ */
+export function sessionTitle(state: SessionsState, sessionId: string | null): string | null {
+  if (sessionId === null || state.status !== 'ready') return null;
+  return state.sessions.find((session: SessionSummary) => session.id === sessionId)?.title ?? null;
+}

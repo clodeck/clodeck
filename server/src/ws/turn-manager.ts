@@ -48,6 +48,13 @@ export interface TurnManager {
   resolveApproval(projectId: string, response: ApprovalResponsePayload): boolean;
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
   setResumeTarget(projectId: string, target: ResumePayload): void;
+  /**
+   * Drop everything the project's run has accumulated: the armed resume target,
+   * the buffered turn's blocks, and the session id those blocks belong to. What
+   * is left is a project that has run nothing, which is what makes the next
+   * `sendPrompt` a session of its own.
+   */
+  clearResume(projectId: string): void;
 }
 
 export interface TurnManagerOptions {
@@ -80,19 +87,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
   return {
     snapshot(projectId) {
-      const state = run(projectId);
-      return {
-        ...envelope(state),
-        kind: 'snapshot',
-        payload: {
-          state: state.status,
-          // Copies: a snapshot is a point in time, and the run keeps appending.
-          blocks: [...state.blocks],
-          pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
-          // `seq` is per connection and a fresh one has seen nothing.
-          lastSeq: 0,
-        },
-      };
+      return snapshotOf(run(projectId));
     },
 
     subscribe(projectId, emit) {
@@ -197,6 +192,38 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
     setResumeTarget(projectId, target) {
       run(projectId).resume = target;
+    },
+
+    clearResume(projectId) {
+      const state = run(projectId);
+      state.resume = undefined;
+      // The buffer and the identity go together, because they are one thing: the
+      // run's own transcript and the session it belongs to. Clearing the blocks
+      // alone would leave the next envelope — and so the next snapshot — naming a
+      // session whose transcript is no longer here.
+      state.blocks.length = 0;
+      state.sessionId = undefined;
+
+      // Answered to every socket on the project, not only the one that asked:
+      // the run is the project's, so a second tab is looking at the same chat and
+      // would otherwise keep showing one that no longer exists.
+      broadcast(state, snapshotOf(state));
+    },
+  };
+}
+
+/** The draft a socket is sent to learn the run's whole state: on (re)connect, and after a clear. */
+function snapshotOf(state: ProjectRun): EventDraft {
+  return {
+    ...envelope(state),
+    kind: 'snapshot',
+    payload: {
+      state: state.status,
+      // Copies: a snapshot is a point in time, and the run keeps appending.
+      blocks: [...state.blocks],
+      pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
+      // `seq` is per connection and a fresh one has seen nothing.
+      lastSeq: 0,
     },
   };
 }

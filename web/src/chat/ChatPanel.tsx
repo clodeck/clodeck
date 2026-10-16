@@ -7,13 +7,14 @@ import {
 } from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
+import { Name } from '../Name';
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
 import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
 import type { ChatView, TurnResult } from './reducer';
-import { SessionBrowser, TranscriptPanel, resumeTargetTitle } from './SessionHistory';
+import { SessionBrowser, TranscriptPanel, resumeTargetTitle, sessionTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
 import { useProfiles } from './useProfiles';
 import { useSessions } from './useSessions';
@@ -31,9 +32,22 @@ import { useSessions } from './useSessions';
  * rendered by the same `EntryView`. Opening a transcript never touches the live
  * socket, so a reload or a reconnect still has the run's own `snapshot` to
  * rebuild from.
+ *
+ * Since ticket 74 the header says *which* session this is and carries the door
+ * out of it: `New chat` drops the chat — here and on the bus — so the next send
+ * starts a session of its own, and the picker beside the composer is the reason
+ * to want one.
  */
+
+/** Why `New chat` is shut while a turn is in flight. */
+const NEW_CHAT_BLOCKED = 'a turn is running — interrupt it, or wait for it to finish';
+
+/** Why it is shut with no live socket: what it clears is the server's state. */
+const NEW_CHAT_UNREACHABLE = 'the chat is not connected — starting a new one has to reach the server';
+
 export function ChatPanel({ project }: { project: Project }): ReactElement {
-  const { view, connection, sendPrompt, interrupt, respond, resume, dismissError } = useChat(project);
+  const { view, connection, sendPrompt, interrupt, respond, resume, newChat, dismissError } =
+    useChat(project);
   const sessions = useSessions(project);
   // Per project, not per app: the list is the deployment's, but which of it a
   // session may choose from is the project's — a project that pins its provider
@@ -60,6 +74,17 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
    */
   const locked = view.sessionId !== null || view.state !== 'idle';
 
+  /** A turn the project is in the middle of, parked approval included. */
+  const running = view.state !== 'idle';
+  /**
+   * Why `New chat` cannot do its job: it throws a transcript away, so not while
+   * one is being written — and it is the *server's* state it clears, so not
+   * while there is nothing to clear it through. A shut control says why (the
+   * rail's rule, ticket 57).
+   */
+  const newChatReason =
+    running ? NEW_CHAT_BLOCKED : connection === 'live' ? undefined : NEW_CHAT_UNREACHABLE;
+
   const chooseProfile = (name: string): void => {
     setProfile(name);
     rememberProfile(browserStorage(), project.id, name);
@@ -74,13 +99,29 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Chat</h2>
           <ConnectionPill connection={connection} />
-          {view.model !== null && (
-            <span className="truncate font-mono text-[11px] text-ink-dim" title={view.model}>
-              {view.model}
-            </span>
-          )}
+          <SessionIdentity
+            sessionId={view.sessionId}
+            title={sessionTitle(sessions.sessions, view.sessionId)}
+          />
         </div>
         <div className="flex items-center gap-2">
+          <span title={newChatReason}>
+            <button
+              type="button"
+              disabled={newChatReason !== undefined}
+              title={newChatReason}
+              onClick={() => {
+                newChat();
+                // The history surface goes with it: a new chat is not the one
+                // whose transcript was open.
+                sessions.close();
+                setBrowserOpen(false);
+              }}
+              className="rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+            >
+              New chat
+            </button>
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -196,6 +237,35 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
   );
 }
 
+/**
+ * Which session this chat is in, in the server's own words: the id rides the
+ * envelope of every event, so the identity does not depend on which block a
+ * surface happened to fold — the reducer reads it straight into `view.sessionId`.
+ *
+ * The name is the title History lists for that id: **one** source, so the two
+ * surfaces cannot spell the same session differently, and the id goes in the
+ * tooltip beside it because a title is not unique and an id is. A chat that has
+ * sent nothing has no session to be in, and says so rather than naming one.
+ */
+function SessionIdentity({
+  sessionId,
+  title,
+}: {
+  sessionId: string | null;
+  title: string | null;
+}): ReactElement {
+  if (sessionId === null) return <span className="text-[11px] text-ink-dim">new chat</span>;
+
+  return (
+    <span
+      className="truncate text-[11px] text-ink-dim"
+      title={title === null ? sessionId : `${title} · ${sessionId}`}
+    >
+      <Name>{title ?? sessionId}</Name>
+    </span>
+  );
+}
+
 /** The live chat body — the entries the socket has folded so far, plus the streaming bubble. */
 function LiveTranscript({ view }: { view: ChatView }): ReactElement {
   return (
@@ -215,8 +285,10 @@ function LiveTranscript({ view }: { view: ChatView }): ReactElement {
 
 /**
  * Says what the next message will continue, so a resumed send is never a
- * surprise. There is no cancel: the protocol carries no "clear the target"
- * message, so the only way to drop it is to send and let it be consumed.
+ * surprise. The way out is `New chat` in the header — it drops the target here
+ * and on the bus (ticket 74) — rather than a Cancel on the banner, because
+ * dropping the target alone would leave the transcript of the session it names
+ * still on screen.
  */
 function ResumeBanner({ target, sessionTitle }: { target: ResumePayload; sessionTitle: string | null }): ReactElement {
   const continuing = 'mode' in target;

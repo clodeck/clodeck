@@ -59,7 +59,9 @@ plus `ChatView.resumeTarget: ResumePayload | null`, and `ChatController.resume(t
 
 - **No way to cancel an armed resume.** The protocol carries no "clear the target" message, so once `resume`
   is sent the only thing that drops the target is a send that consumes it. The banner states what the next
-  message will continue and there is no Cancel affordance.
+  message will continue and there is no Cancel affordance. **Closed 2026-10-16 by ticket 74:** the protocol
+  carries `clear_resume`, and `New chat` in the chat header sends it — the armed target goes, along with the
+  run's buffered transcript, so the next send is a session of its own.
 - **A browser reload loses the banner.** `SnapshotPayload` carries no resume target, so a reloaded client
   rebuilds with `resumeTarget: null` while the server's in-process target survives — the next send still
   resumes, but the user is no longer told. Fixing it needs a snapshot/protocol change, which is out of this
