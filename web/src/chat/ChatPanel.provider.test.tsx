@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import type { ProviderProfileSummary, Project } from '@clodeck/shared';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
 import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
 import { ChatPanel } from './ChatPanel';
 
@@ -15,23 +15,6 @@ import { ChatPanel } from './ChatPanel';
  * the picker's line, the frame's payload, and what the *next* session in the
  * project opens on.
  */
-
-const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
-
-const PROFILES: ProviderProfileSummary[] = [
-  { name: 'default', model: 'claude-opus-5-5', shape: 'tier' },
-  { name: 'FAST', model: 'claude-haiku-5-5', shape: 'tier' },
-];
-
-/** `{ profiles }` with the two fields a profile is allowed to have. */
-function jsonResponse(body: unknown): Response {
-  return {
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    json: () => Promise.resolve(body),
-  } as Response;
-}
 
 /** Every URL the panel asked for, in order. */
 const fetched: string[] = [];

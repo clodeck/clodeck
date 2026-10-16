@@ -53,6 +53,11 @@ export interface ChatController {
    * transcript a reconnect would otherwise rebuild from. Neither half creates
    * anything: the next session comes into being on the next send, which is the
    * only thing that can write one to disk at all.
+   *
+   * Nothing happens at all if that frame cannot go out: the surface offers this
+   * only while the chat is live (the composer's own rule), and the check here is
+   * what keeps a socket that closed between the render and the click from
+   * clearing half of a chat.
    */
   newChat: () => void;
   dismissError: () => void;
@@ -123,11 +128,11 @@ export function useChat(project: Project): ChatController {
     };
   }, [project.id]);
 
-  const send = useCallback((message: ClientMessage): void => {
+  const send = useCallback((message: ClientMessage): boolean => {
     const socket = socketRef.current;
-    if (socket !== null && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(message));
-    }
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(message));
+    return true;
   }, []);
 
   const sendPrompt = useCallback(
@@ -169,11 +174,12 @@ export function useChat(project: Project): ChatController {
   );
 
   const newChat = useCallback((): void => {
-    // Empty *here* first, so the surface is a new chat the moment it is pressed
-    // rather than a round trip later; the bus's half is the frame below, and it
-    // is the half that a reconnect would otherwise undo.
+    // The frame goes first and the view is cleared only once it is away: the two
+    // halves are one act, and a surface that emptied itself while the bus kept the
+    // old target and transcript would be showing a new chat that the next
+    // reconnect takes straight back.
+    if (!send(clientMessage({ type: 'clear_resume', payload: {} }))) return;
     setView(emptyView());
-    send(clientMessage({ type: 'clear_resume', payload: {} }));
   }, [send]);
 
   return { view, connection, sendPrompt, interrupt, respond, resume, newChat, dismissError };

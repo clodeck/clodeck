@@ -83,6 +83,13 @@ export interface TurnResult {
 export interface ChatView {
   sessionId: string | null;
   cwd: string | null;
+  /**
+   * The model the run itself reports, out of its `init` message — the run's own
+   * word, where the picker states what the chosen profile *declares*. No surface
+   * renders it: ticket 74 gave the header the session's identity and left what a
+   * chat runs on to the line beside the composer, so this is the one fact about
+   * what actually ran, kept where the reducer already reads it.
+   */
   model: string | null;
   /** The authoritative turn state the SDK reports. */
   state: SessionState;

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import type { ProviderProfileSummary, Project, SDKMessage } from '@clodeck/shared';
+import type { SDKMessage } from '@clodeck/shared';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
 import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
 import { ChatPanel } from './ChatPanel';
 
@@ -14,21 +15,14 @@ import { ChatPanel } from './ChatPanel';
  * next send starts one of its own; and the picker, which is what a new session
  * is *for*, is free again once it has.
  *
- * The socket is the shared fake and the three REST answers are stubs, because
- * none of them is what this file is about: what it pins is what the surface says
- * and which frames it sends.
+ * The socket is the shared fake and the REST answers are stubs, because none of
+ * them is what this file is about: what it pins is what the surface says and
+ * which frames it sends.
  */
-
-const project: Project = { id: 'AAA', name: 'demo', path: '/projects/demo' };
 
 /** The session the run named, and the title History knows it by. */
 const SESSION = '00000000-0000-4000-8000-0000000000aa';
 const TITLE = 'Fix the login screen';
-
-const PROFILES: ProviderProfileSummary[] = [
-  { name: 'default', model: 'claude-opus-5-5', shape: 'tier' },
-  { name: 'FAST', model: 'claude-haiku-5-5', shape: 'tier' },
-];
 
 /** One turn already behind it, so the surface has a transcript to throw away. */
 function transcript(sessionId: string): SDKMessage[] {
@@ -42,25 +36,8 @@ function transcript(sessionId: string): SDKMessage[] {
   ];
 }
 
-/** The snapshot that opens a connection: the run's state and its blocks. */
-function snapshot(
-  blocks: readonly SDKMessage[],
-  state: 'idle' | 'running' = 'idle',
-  sessionId?: string,
-): unknown {
-  return {
-    v: 1,
-    seq: 1,
-    ts: new Date().toISOString(),
-    projectId: project.id,
-    ...(sessionId === undefined ? {} : { sessionId }),
-    kind: 'snapshot',
-    payload: { state, blocks, pendingApprovals: [], lastSeq: 0 },
-  };
-}
-
-/** A later frame, as the server stamps it — with the run's session on the envelope. */
-function stamped(kind: string, payload: unknown, sessionId?: string): unknown {
+/** A frame as the server stamps it: the run's session on the envelope when it names one. */
+function frame(kind: string, payload: unknown, sessionId?: string): unknown {
   return {
     v: 1,
     seq: 2,
@@ -72,23 +49,35 @@ function stamped(kind: string, payload: unknown, sessionId?: string): unknown {
   };
 }
 
-function jsonResponse(body: unknown): Response {
-  return {
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    json: () => Promise.resolve(body),
-  } as Response;
+/** The snapshot that opens a connection: the run's state and the blocks it has buffered. */
+function snapshot(
+  blocks: readonly SDKMessage[],
+  state: 'idle' | 'running' = 'idle',
+  sessionId?: string,
+): unknown {
+  return frame('snapshot', { state, blocks, pendingApprovals: [], lastSeq: 0 }, sessionId);
 }
+
+/** How many times the project's session list has been asked for, in order. */
+let listReads = 0;
+/** What that list answers — the store, which this chat's session is written to *after* mount. */
+let listed: { id: string; title: string }[] = [];
 
 beforeEach(() => {
   window.localStorage.clear();
   forgetSockets();
+  listReads = 0;
+  listed = [];
   vi.stubGlobal('WebSocket', FakeSocket);
   vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('/profiles')) return Promise.resolve(jsonResponse({ profiles: PROFILES, pinned: false }));
-    if (url.includes('/sessions')) return Promise.resolve(jsonResponse({ sessions: [{ id: SESSION, title: TITLE }] }));
+    if (url.includes('/profiles')) {
+      return Promise.resolve(jsonResponse({ profiles: PROFILES, pinned: false }));
+    }
+    if (url.includes('/sessions')) {
+      listReads += 1;
+      return Promise.resolve(jsonResponse({ sessions: listed }));
+    }
     return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
   });
 });
@@ -117,38 +106,65 @@ function renderLive(): FakeSocket {
 
 describe('the session a chat is in', () => {
   it('is a new chat until the server names one, then the title History knows it by', async () => {
-    renderLive();
+    const socket = renderLive();
 
     // Nothing has been sent, so there is no session to name — and the header says
     // exactly that rather than inventing one.
     expect(screen.getByText('new chat')).toBeTruthy();
+    // The list was read at mount, when this chat's session did not exist yet.
+    expect(listReads).toBe(1);
 
     // The server's own word for which session this is: the envelope, on a frame
-    // with no block that could have carried it.
+    // with no block that could have carried it. The session is on disk by now —
+    // naming one is what makes the read above stale.
+    listed = [{ id: SESSION, title: TITLE }];
     act(() => {
-      latestSocket().deliver(stamped('stream_status', { status: 'turn_started' }, SESSION));
+      socket.deliver(frame('stream_status', { status: 'turn_started' }, SESSION));
     });
 
     const identity = await screen.findByTitle(`${TITLE} · ${SESSION}`);
     expect(identity.textContent).toBe(TITLE);
-    // The same string the browser lists, from the one source both read: a title
-    // is not unique, so the id rides the tooltip beside it.
-    fireEvent.click(screen.getByRole('button', { name: 'History' }));
-    await screen.findByRole('button', { name: new RegExp(TITLE) });
-    expect(screen.getByTitle(`${TITLE} · ${SESSION}`).textContent).toBe(TITLE);
+    // Asked again, because the session it has to name has only just been written.
+    expect(listReads).toBe(2);
     expect(screen.queryByText('new chat')).toBeNull();
+
+    // And the same string the list itself draws, from the one source both read; a
+    // title is not unique, which is why the id rides the tooltip beside it.
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    expect(
+      (await screen.findByRole('button', { name: new RegExp(TITLE) })).textContent,
+    ).toContain(TITLE);
+  });
+
+  it('leaves the picker free while a resume is armed, since no turn has run in that chat', async () => {
+    const socket = renderLive();
+    act(() => {
+      socket.deliver(snapshot([], 'idle'));
+    });
+    await screen.findByRole('button', { name: /^running on/ });
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Continue latest/ }));
+    expect(screen.getByText(/The next message continues/)).toBeTruthy();
+
+    // Arming a target is not a turn, and the model belongs to the run: the send
+    // that continues that session may still run on whichever profile this chat is
+    // set to, so the control that chooses it stays open.
+    expect(
+      screen.getByRole('button', { name: 'running on claude-opus-5-5 · server environment' }),
+    ).toHaveProperty('disabled', false);
   });
 
   it('is what Resume continues — never a bare continue-latest', async () => {
     renderLive();
     act(() => {
-      latestSocket().deliver(stamped('stream_status', { status: 'turn_started' }, SESSION));
+      latestSocket().deliver(frame('stream_status', { status: 'turn_started' }, SESSION));
     });
     // A turn the user is expected to continue from, whose own payload names no
     // session either: the header's identity is what Resume can act on.
     act(() => {
       latestSocket().deliver(
-        stamped(
+        frame(
           'sdk',
           {
             type: 'result',

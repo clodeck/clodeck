@@ -5,7 +5,7 @@ import {
   type Project,
   type ResumePayload,
 } from '@clodeck/shared';
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 import { Name } from '../Name';
 import { ChatColumn } from './ChatColumn';
@@ -92,6 +92,18 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
 
   const approval = view.pendingApprovals[0];
   const viewingHistory = sessions.transcript.status !== 'closed';
+
+  /**
+   * The list was read when this panel mounted, which is *before* the session this
+   * chat is now in existed — so the moment the run names one, it is asked again.
+   * That is what makes the header's title the string History has rather than the
+   * id it falls back to: the transcript the title is read from has only just been
+   * written. Once per session, and not at all for a chat that has named none.
+   */
+  const { reload: reloadSessions } = sessions;
+  useEffect(() => {
+    if (view.sessionId !== null) reloadSessions();
+  }, [view.sessionId, reloadSessions]);
 
   return (
     <section className="relative flex min-h-0 flex-col" aria-label="Chat">

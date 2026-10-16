@@ -72,7 +72,7 @@ export function ProviderPicker({
   // What it says it is running on. The model leads once the list has arrived to
   // say what it is — the model is the thing being chosen — and before that there
   // is nothing to claim about it at all, not even "the endpoint decides".
-  const line = state.status === 'ready' ? describe(name, chosen?.model) : label(name);
+  const line = state.status === 'ready' ? profileLine(name, chosen?.model) : label(name);
 
   return (
     // The key handler is here rather than on the list: the trigger is what holds
@@ -156,7 +156,7 @@ export function ProviderPicker({
                     profile.name === name ? 'text-accent' : 'text-ink'
                   }`}
                 >
-                  {describe(profile.name, profile.model)}
+                  {profileLine(profile.name, profile.model)}
                 </button>
               </li>
             ))}
@@ -185,6 +185,6 @@ function label(name: string): string {
  * falls back to the sentence decision 13 already settled — the name, and what
  * decides instead of a model it does not have.
  */
-function describe(name: string, model: string | undefined): string {
+function profileLine(name: string, model: string | undefined): string {
   return model === undefined ? `${label(name)} · ${ENDPOINT_DECIDES}` : `${model} · ${label(name)}`;
 }

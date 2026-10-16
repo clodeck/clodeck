@@ -81,15 +81,21 @@ server/src/ws/bus.ts             dispatch-e `clear_resume` → `turns.clearResum
 server/src/ws/bus.test.ts        do test: target-e armed pāk mishavad (send-e ba'di hich resume-i
                                  nemibarad), va buffer + hoviat pāk mishavad barā-ye har socket.
 web/src/chat/reducer.ts          `applyServerEvent` sessionId rā az envelope-e har event mikhanad.
-web/src/chat/useChat.ts          `newChat()`: `emptyView()` + frame-e `clear_resume`.
+web/src/chat/useChat.ts          `newChat()`: frame-e `clear_resume`, va `emptyView()` **faghat**
+                                 vaghti frame raft (`send` boolean bar migardānad).
 web/src/chat/ChatPanel.tsx       dokme-ye `New chat` (chap-e `History`), `SessionIdentity` dar header
                                  (title-e History + id dar tooltip; `new chat` pish az avvalin send),
-                                 va model az header bordāshte shod — picker jā-ye un-e.
-web/src/chat/SessionHistory.tsx  `sessionTitle(state, sessionId)` — yek manba' barā-ye har do.
-web/src/chat/ProviderPicker.tsx  `describe()`: model avval, name ba'd; lock reason dar-e jadid rā
+                                 list-e session-hā rā vaghti run yek session nām-mibarad dobāre
+                                 mikhanad (title az un miāyad), va model az header bordāshte shod —
+                                 picker jā-ye un-e.
+web/src/chat/SessionHistory.tsx  `sessionTitle(state, sessionId)` — yek manba' barā-ye har do
+                                 (`resumeTargetTitle` az un delegue mikone).
+web/src/chat/ProviderPicker.tsx  `profileLine()`: model avval, name ba'd; lock reason dar-e jadid rā
                                  neshoon midahad.
 web/src/testing/fake-socket.ts   FakeSocket-e moshtarak (az ChatPanel.provider.test.tsx bardāshte shod).
-web/src/chat/ChatPanel.session.test.tsx  shish test: hoviat, Resume, va dokme-ye New chat.
+web/src/testing/chat-fixtures.ts project + PROFILES + jsonResponse-e moshtarak-e do file-e test.
+web/src/chat/ChatPanel.session.test.tsx  haft test: hoviat (bā reload-e list), Resume, picker-e āzād
+                                 zir-e resume, va dokme-ye New chat.
 ```
 
 ## Decisions this ticket did not pin
@@ -103,9 +109,16 @@ web/src/chat/ChatPanel.session.test.tsx  shish test: hoviat, Resume, va dokme-ye
   hich vaqt ham nemifahmid.
 - **`New chat` vaghti socket live nist ham disabled-e** (`the chat is not connected — …`), hamān
   ghā'ede-i ke composer dārad. Chizi ke pāk mishavad state-e server ast; yek dokme-ye fā'el ke frame-ash
-  drop mishavad hamān dorugh-e gap-e #3-e ticket 11 ast.
+  drop mishavad hamān dorugh-e gap-e #3-e ticket 11 ast. **Review round:** `connection` state-e render
+  ast va mitavānad az `readyState`-e vāghe'i ja bemoond, pas `newChat` digar be un tavakkol nemikonad:
+  `send` migoyad frame raft yā na, va view faghat dar surat-e raft pāk mishavad.
+- **Header title rā az list-i migirad ke khodesh dobāre mikhānad.** List ru mount fetch mishavad, yāni
+  *qabl* az inke session-e in chat neveshte shavad — bedoone yek khāndan-e dovom, header tā Refresh-e
+  dasti UUID-e khām neshoon midād va criterion-e 9 faghat ru kāqaz dorost bud. Hamin yek khāndan-e
+  ezāfe (yek bār be azā-ye har session) un rā be title-e vāghe'i miresānad.
 - **Model az header bordāshte shod.** Header kar-ash hoviat ast; "ru chi ejrā mishavad" line-e picker-e
-  kenār-e composer ast (va `view.model` hanooz dar reducer mimānad).
+  kenār-e composer ast (`view.model` — hālati ke khode run gozāresh midahad, na unche profile declare
+  karde — hanooz dar reducer mimānad).
 - **Dokme-ye jadid `New chat`-e, na Cancel ru banner-e resume.** Target tanhā yek nim-e kāri ast ke
   "session-e jadid" mikhaāhad: pāk kardan-e un be tanhā'i transcript-e hamoon session rā ru safhe
   mizāsht.

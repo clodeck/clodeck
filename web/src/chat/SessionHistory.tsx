@@ -202,20 +202,21 @@ export function TranscriptPanel({
   );
 }
 
-/** The stored title for the session a resume target names, when the list has it. */
-export function resumeTargetTitle(state: SessionsState, target: ResumePayload | null): string | null {
-  if (target === null || 'mode' in target || state.status !== 'ready') return null;
-  return state.sessions.find((session: SessionSummary) => session.id === target.sessionId)?.title ?? null;
-}
-
 /**
- * The stored title for a session id, when the list has it. The header asks this
- * of the live session rather than deriving a name of its own, so the chat and
- * the list it can open are showing one string (ticket 74). Nothing is answered
- * for a session the list has not caught up with — the id is the honest fallback,
- * and it is the caller's to make.
+ * The stored title for a session id, when the list has it. Both questions the
+ * chat asks about a session — which one it is *in* (the header) and which one a
+ * resume will continue (the banner) — are answered here, so the two surfaces
+ * show one string rather than two spellings of it (ticket 74). Nothing is
+ * answered for a session the list has not caught up with: the id is the honest
+ * fallback, and it is the caller's to make.
  */
 export function sessionTitle(state: SessionsState, sessionId: string | null): string | null {
   if (sessionId === null || state.status !== 'ready') return null;
   return state.sessions.find((session: SessionSummary) => session.id === sessionId)?.title ?? null;
+}
+
+/** The stored title for the session a resume target names. `continue` names none. */
+export function resumeTargetTitle(state: SessionsState, target: ResumePayload | null): string | null {
+  if (target === null || 'mode' in target) return null;
+  return sessionTitle(state, target.sessionId);
 }

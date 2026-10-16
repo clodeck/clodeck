@@ -23,7 +23,8 @@ dārad va hich chizi dar yek run taghir nemikonad.
 - [x] Resolution yek **trio-e kāmel** misāzad. Name-e nashenās yā stale bā yek **error-e visible** rad
       mishavad — hich vaght silent be default fallback nemikonad.
 - [x] Picker **kenār-e composer** ast, profile-hā rā bā **name va model** list mikone — hich credential va
-      hich endpoint — va *"running on `<profile>` · `<model>`"* rā neshoon midahad.
+      hich endpoint — va *"running on `<profile>` · `<model>`"* rā neshoon midahad. **Order avaz shod
+      2026-10-16 (ticket 74):** model avval, name ba'd — `running on <model> · <profile>`.
 - [x] Entekhāb kardan va ferestādan: ān turn ru hamān endpoint, credential va model ejrā mishavad.
 - [x] Picker ru **avvalin send**-e session ghofl mishavad. Surface migo **alān** chi dar hāl-e ejrā ast va
       hich vaght ede'a nemikone ke yek session *hamān* profile ast.

@@ -49,10 +49,16 @@ export interface TurnManager {
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
   setResumeTarget(projectId: string, target: ResumePayload): void;
   /**
-   * Drop everything the project's run has accumulated: the armed resume target,
-   * the buffered turn's blocks, and the session id those blocks belong to. What
-   * is left is a project that has run nothing, which is what makes the next
-   * `sendPrompt` a session of its own.
+   * Drop what the run has accumulated *for the next send to read*: the armed
+   * resume target, the buffered turn's blocks, and the session id those blocks
+   * belong to. What is left is a project with nothing to continue and nothing to
+   * replay, which is what makes the next `sendPrompt` a session of its own.
+   *
+   * A turn in flight is not this message's business: `status` and the parked
+   * approvals belong to the live run, and clearing them here would let a second
+   * send drive the model twice. Keeping a clear out of a running turn is the
+   * surface's rule — the button is shut while one is in flight — the same
+   * asymmetry `resume` has.
    */
   clearResume(projectId: string): void;
 }
