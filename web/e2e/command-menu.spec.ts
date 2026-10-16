@@ -40,7 +40,7 @@ test('the / menu offers a project command, filters it, inserts it, and shuts on 
     buffer: Buffer.from('A command /zz-e2e-menu should be offered for.\n'),
   });
   await expect(page.getByRole('status')).toHaveText(`uploaded ${COMMAND}`);
-  tree.made(`${COMMAND}`);
+  tree.made(COMMAND);
 
   await tree.root();
 

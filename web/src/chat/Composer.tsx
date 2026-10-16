@@ -1,5 +1,5 @@
 import type { SlashCommand } from '@clodeck/shared';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 
 import { CommandMenu, matchingCommands } from './CommandMenu';
 
@@ -57,8 +57,7 @@ export function Composer({
    * caret left the word would be the same lie one keystroke later.
    */
   const prefix = value.slice(0, caret);
-  const slash = isCommandPrefix(prefix);
-  const menuOpen = slash && !dismissed && !disabled;
+  const menuOpen = !disabled && !dismissed && isCommandPrefix(prefix);
   const matching = menuOpen ? matchingCommands(commands, prefix.slice(1)) : [];
   /** The row Enter would choose: the stored index, kept inside the list it points at. */
   const active = Math.max(0, Math.min(highlight, matching.length - 1));
@@ -108,6 +107,43 @@ export function Composer({
     box.current?.focus();
   };
 
+  /**
+   * The box's keyboard, in the order the decisions are made: an `Esc` on an open
+   * menu dismisses it, an open menu with rows takes the arrows and the two keys
+   * that choose, and whatever is left is the box's ordinary send. With the menu
+   * open and nothing matching neither of the first two claims Enter, which is
+   * what lets the line under the box say "Enter to send" again there.
+   */
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (menuOpen && event.key === 'Escape') {
+      event.preventDefault();
+      setDismissed(true);
+      return;
+    }
+    if (menuOpen && matching.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        // The highlight moves, the caret does not: they are two cursors, and
+        // only one of them is choosing a command.
+        event.preventDefault();
+        setHighlight(step(active, event.key === 'ArrowDown' ? 1 : -1, matching.length));
+        return;
+      }
+      // Enter and Tab both take the highlighted row. With no row to take
+      // neither is intercepted, so Enter is the ordinary send below.
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        event.preventDefault();
+        const command = matching[active];
+        if (command !== undefined) choose(command);
+        return;
+      }
+    }
+    // Enter sends; Shift+Enter is a newline.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submit();
+    }
+  };
+
   return (
     <form
       onSubmit={(event) => {
@@ -134,35 +170,7 @@ export function Composer({
           onSelect={(event) => {
             setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
           }}
-          onKeyDown={(event) => {
-            if (menuOpen && event.key === 'Escape') {
-              event.preventDefault();
-              setDismissed(true);
-              return;
-            }
-            if (menuOpen && matching.length > 0) {
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                // The highlight moves, the caret does not: they are two cursors,
-                // and only one of them is choosing a command.
-                event.preventDefault();
-                setHighlight(step(active, event.key === 'ArrowDown' ? 1 : -1, matching.length));
-                return;
-              }
-              // Enter and Tab both take the highlighted row. With no row to take
-              // neither is intercepted, so Enter is the ordinary send below.
-              if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
-                event.preventDefault();
-                const command = matching[active];
-                if (command !== undefined) choose(command);
-                return;
-              }
-            }
-            // Enter sends; Shift+Enter is a newline.
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
+          onKeyDown={onKeyDown}
           rows={2}
           placeholder={disabled ? 'Connecting…' : 'Ask Claude…'}
           aria-label="Message"

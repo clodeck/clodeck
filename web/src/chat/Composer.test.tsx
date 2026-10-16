@@ -297,9 +297,10 @@ describe('the command menu', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
-  it('offers nothing but the built-ins when the list has none of the project’s', () => {
-    // The one state every project without a `.claude` directory is in: the list
-    // is real and the menu still works, so an empty list is not an error state.
+  it('opens on an empty list as "no matching command" rather than not at all', () => {
+    // The state a project that declares nothing at all is in: an empty list is
+    // still a list, so the panel appears and says so — it is not an error, and
+    // not a menu that silently failed to open.
     const { box } = renderComposer({ commands: [] });
     type(box, '/');
 

@@ -18,11 +18,11 @@ import { createScopedFs, type ScopedFs } from './files/scoped-fs.js';
  * Two rules decide what is read, and both are the SDK's own rather than
  * choices made here (each checked against a real session):
  *
- * - **Upwards.** A run in a project discovers a `.claude/skills` in every
- *   directory from the run's own up to the projects root, so a deployment-wide
- *   skill loads for every project under it. Nothing *below* the project is read:
- *   a nested `.claude/skills` does not load until the agent has worked in that
- *   subdirectory, and offering one would offer a command that cannot run.
+ * - **Upwards.** A run in a project discovers the `.claude/` of every directory
+ *   from the run's own up to the projects root, so a deployment-wide skill or
+ *   command loads for every project under it. Nothing *below* the project is
+ *   read: a nested `.claude/skills` does not load until the agent has worked in
+ *   that subdirectory, and offering one would offer a command that cannot run.
  * - **The files, not a cache.** Like the project's pin, every request reads the
  *   files again: a skill installed while a session is open is a skill the next
  *   look at the menu finds, and nothing here has an opinion about when that was.
@@ -76,7 +76,7 @@ export function registerCommandRoutes(
  * and the one the user can most nearly see. Within one directory skills are
  * read before commands, which is the order the SDK itself lists them in.
  */
-export async function readProjectCommands(
+async function readProjectCommands(
   projects: ProjectDiscovery,
   project: Project,
 ): Promise<SlashCommand[]> {
