@@ -65,7 +65,10 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
   // landed in the document, but a phone cannot see it and cannot tap it. The
   // `toBeAttached` is load-bearing — `toBeHidden` alone also passes for a row
   // the list has not delivered yet, which would make this assertion vacuous.
-  const projectRow = page.getByRole('button', { name: 'demo', exact: true });
+  // `includeHidden` is what makes that assertion possible: the closed sidebar
+  // is `visibility: hidden`, and a role locator otherwise matches only what is
+  // in the accessibility tree, where the row is not yet.
+  const projectRow = page.getByRole('button', { name: 'demo', exact: true, includeHidden: true });
   await expect(projectRow).toBeAttached();
   await expect(projectRow).toBeHidden();
   await expectNoHorizontalScroll(page);
