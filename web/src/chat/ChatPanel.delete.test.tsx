@@ -172,6 +172,29 @@ describe('deleting a session from History', () => {
     expect(await screen.findByText(`deleted ${TITLE}`)).toBeTruthy();
   });
 
+  it('closes an open transcript back to the live chat when that session is deleted', async () => {
+    const socket = renderLive();
+    act(() => {
+      socket.deliver(snapshot(transcript(SESSION), 'idle'));
+    });
+    await screen.findByText('On it.');
+
+    // A stored transcript in the panel, while the run itself named no session —
+    // so this is the History half alone, not the live chat's identity.
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: TITLE }));
+    expect(await screen.findByText('This session has no recorded turns.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: `Delete ${TITLE}` }));
+    confirmDelete(await confirmDialog());
+
+    await waitFor(() => {
+      expect(screen.queryByText('This session has no recorded turns.')).toBeNull();
+    });
+    expect(screen.getByText('On it.')).toBeTruthy();
+  });
+
   it('is shut for the session a live turn is writing, with the reason on it', async () => {
     const socket = renderLive();
     act(() => {

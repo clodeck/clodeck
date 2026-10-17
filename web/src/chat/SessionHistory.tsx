@@ -107,49 +107,52 @@ export function SessionBrowser({
         )}
         {state.status === 'ready' && state.sessions.length > 0 && (
           <ul className="mt-2 max-h-48 overflow-y-auto">
-            {state.sessions.map((session) => (
-              <li key={session.id} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpen(session.id);
-                  }}
-                  title={session.id}
-                  className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-ink-dim hover:bg-white/5 hover:text-ink"
-                >
-                  {session.title}
-                  {session.id === currentSessionId && <span className="ml-1.5 text-[10px] text-accent">current</span>}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onResume({ sessionId: session.id });
-                  }}
-                  className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
-                >
-                  Resume
-                </button>
-                {/* A writing turn's transcript is not the user's to delete. The
-                    reason rides a wrapper as well: a disabled button gets no
-                    pointer events, so its own `title` never becomes a tooltip
-                    (the rail's rule, ticket 57). */}
-                <span title={session.id === runningSessionId ? TURN_RUNNING : undefined}>
+            {state.sessions.map((session) => {
+              const isRunning = session.id === runningSessionId;
+              return (
+                <li key={session.id} className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={session.id === runningSessionId}
-                    title={session.id === runningSessionId ? TURN_RUNNING : undefined}
-                    aria-label={`Delete ${session.title}`}
                     onClick={() => {
-                      setDeleteError(null);
-                      setConfirming(session);
+                      onOpen(session.id);
                     }}
-                    className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+                    title={session.id}
+                    className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-ink-dim hover:bg-white/5 hover:text-ink"
                   >
-                    Delete
+                    {session.title}
+                    {session.id === currentSessionId && <span className="ml-1.5 text-[10px] text-accent">current</span>}
                   </button>
-                </span>
-              </li>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResume({ sessionId: session.id });
+                    }}
+                    className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+                  >
+                    Resume
+                  </button>
+                  {/* A writing turn's transcript is not the user's to delete. The
+                      reason rides a wrapper as well: a disabled button gets no
+                      pointer events, so its own `title` never becomes a tooltip
+                      (the rail's rule, ticket 57). */}
+                  <span title={isRunning ? TURN_RUNNING : undefined}>
+                    <button
+                      type="button"
+                      disabled={isRunning}
+                      title={isRunning ? TURN_RUNNING : undefined}
+                      aria-label={`Delete ${session.title}`}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setConfirming(session);
+                      }}
+                      className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5 disabled:opacity-40"
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </ChatColumn>

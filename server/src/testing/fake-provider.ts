@@ -74,7 +74,6 @@ export interface FakeProvider extends SdkProvider {
   releaseRuns(): void;
   /** Every `deleteSession()` call, in order. */
   readonly deletedSessions: readonly DeletedSession[];
-  waitForDeleteSession(count: number): Promise<DeletedSession>;
 }
 
 /** One `deleteSession()` argument pair, as the provider received it. */
@@ -93,7 +92,10 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   const inputs = createCallLog<SdkRunInput>();
   const modes = createCallLog<PermissionMode>();
   const interrupts = createCallLog<void>();
-  const deletions = createCallLog<DeletedSession>();
+  // A plain log, not a `createCallLog`: the route answers only after the delete
+  // returns, so a test that has its response has its record too — there is no
+  // race for a waiter to close.
+  const deletions: DeletedSession[] = [];
   const hold = createGate();
 
   return {
@@ -124,7 +126,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
     },
 
     async deleteSession(sessionId, dir) {
-      deletions.record({ sessionId, dir });
+      deletions.push({ sessionId, dir });
       const index = sessions.findIndex((session) => session.id === sessionId);
       if (index !== -1) sessions.splice(index, 1);
     },
@@ -166,10 +168,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
     },
 
     get deletedSessions() {
-      return deletions.all();
-    },
-    waitForDeleteSession(count) {
-      return deletions.waitFor(count);
+      return deletions;
     },
   };
 }

@@ -108,7 +108,7 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
    * turn that has not named a session yet protects none, which is the ticket's
    * own rule — an older transcript is free (ticket 79).
    */
-  const runningSessionId = view.state === 'idle' ? null : view.sessionId;
+  const runningSessionId = running ? view.sessionId : null;
 
   /**
    * Delete one stored session, and take the live half with it when the two are
