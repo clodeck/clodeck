@@ -1,4 +1,5 @@
 import {
+  deleteSession as sdkDeleteSession,
   getSessionMessages as sdkGetSessionMessages,
   listSessions as sdkListSessions,
   query as sdkQuery,
@@ -66,6 +67,14 @@ export function createAnthropicProvider(): SdkProvider {
       // boundaries and notices out of the transcript even if that default moves.
       const entries = await sdkGetSessionMessages(sessionId, { dir, includeSystemMessages: false });
       return entries.filter(isTranscriptTurn).map(normalizeSessionMessage);
+    },
+
+    async deleteSession(sessionId, dir) {
+      // The SDK's own hard delete: `{sessionId}.jsonl` and the `{sessionId}/`
+      // subagent-transcript directory, in the projects dir it derives from
+      // `dir`. No `sessionStore` is ever passed — clodeck has none — so this is
+      // the local store and nothing else.
+      await sdkDeleteSession(sessionId, { dir });
     },
   };
 }

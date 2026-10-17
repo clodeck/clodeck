@@ -31,6 +31,13 @@ export interface SessionsQuery {
   open: (sessionId: string) => void;
   /** Closes the transcript and returns the panel to the live chat. */
   close: () => void;
+  /**
+   * Hard-delete one session on disk, then follow it here: the row leaves the
+   * list, and an open transcript of it closes back to the live chat. Rejects
+   * with the server's reason (a turn writing the session, say) and changes
+   * nothing in that case.
+   */
+  delete: (sessionId: string) => Promise<void>;
 }
 
 export function useSessions(project: Project): SessionsQuery {
@@ -77,12 +84,28 @@ export function useSessions(project: Project): SessionsQuery {
     return () => controller.abort();
   }, [project.id, openId]);
 
+  const remove = useCallback(
+    async (sessionId: string): Promise<void> => {
+      await requestDelete(project.id, sessionId);
+      setSessions((current) =>
+        current.status === 'ready'
+          ? { status: 'ready', sessions: current.sessions.filter((session) => session.id !== sessionId) }
+          : current,
+      );
+      // A deleted transcript has nothing left to show; closing it is the same
+      // surface `close` gives, and the list the user came from stays open.
+      setOpenId((current) => (current === sessionId ? null : current));
+    },
+    [project.id],
+  );
+
   return {
     sessions,
     transcript,
     reload: useCallback(() => setAttempt((count) => count + 1), []),
     open: useCallback((sessionId: string) => setOpenId(sessionId), []),
     close: useCallback(() => setOpenId(null), []),
+    delete: remove,
   };
 }
 
@@ -116,6 +139,14 @@ async function fetchTranscript(
   if (!isTranscriptEnvelope(body)) throw new Error('unexpected response shape');
 
   return body.messages;
+}
+
+/** `DELETE .../sessions/:sid` answers `204` with no body. */
+async function requestDelete(projectId: string, sessionId: string): Promise<void> {
+  const url = `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`;
+  const response = await fetch(url, { method: 'DELETE', headers: { accept: 'application/json' } });
+
+  if (!response.ok) throw new Error(await failureMessage(response));
 }
 
 /** The server's REST error shape is `{ error }` (server/src/sessions.ts). */

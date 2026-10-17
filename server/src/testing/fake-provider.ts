@@ -72,16 +72,28 @@ export interface FakeProvider extends SdkProvider {
   requestApproval(request: ApprovalRequestPayload): Promise<ApprovalResponsePayload>;
   /** Let every held run finish. A no-op when `holdRuns` was not set. */
   releaseRuns(): void;
+  /** Every `deleteSession()` call, in order. */
+  readonly deletedSessions: readonly DeletedSession[];
+  waitForDeleteSession(count: number): Promise<DeletedSession>;
+}
+
+/** One `deleteSession()` argument pair, as the provider received it. */
+export interface DeletedSession {
+  sessionId: string;
+  dir: string;
 }
 
 export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvider {
   const scripted = options.messages ?? [];
-  const sessions = options.sessions ?? [];
+  // The canned list is the fake's disk: a delete takes the row out of it, so a
+  // later `listSessions()` — a History refresh — no longer sees what was deleted.
+  const sessions = [...(options.sessions ?? [])];
   const sessionMessages = options.sessionMessages ?? [];
   const commands = options.commands ?? [];
   const inputs = createCallLog<SdkRunInput>();
   const modes = createCallLog<PermissionMode>();
   const interrupts = createCallLog<void>();
+  const deletions = createCallLog<DeletedSession>();
   const hold = createGate();
 
   return {
@@ -109,6 +121,12 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
 
     async getSessionMessages() {
       return [...sessionMessages];
+    },
+
+    async deleteSession(sessionId, dir) {
+      deletions.record({ sessionId, dir });
+      const index = sessions.findIndex((session) => session.id === sessionId);
+      if (index !== -1) sessions.splice(index, 1);
     },
 
     get queryInputs() {
@@ -145,6 +163,13 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
 
     releaseRuns() {
       hold.open();
+    },
+
+    get deletedSessions() {
+      return deletions.all();
+    },
+    waitForDeleteSession(count) {
+      return deletions.waitFor(count);
     },
   };
 }

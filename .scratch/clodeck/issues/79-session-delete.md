@@ -8,7 +8,7 @@ transcript-e SDK rā az disk hazf mikonad — bedoone store ya state-e jadid dar
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Category:** enhancement
 
@@ -55,17 +55,17 @@ yek delete action ba confirm modal begirad; agar session-e bāz (jāri) hazf sho
 - Reset-e session-e jāri az hamoon `newChat`-e mojood estefāde konad; yek reset-e dovom nasāzad.
 
 **Acceptance criteria:**
-- [ ] Hazf-e yek session file-e transcript rā az disk bar midārad va ba'd az refresh dar History nist; resume-e
+- [x] Hazf-e yek session file-e transcript rā az disk bar midārad va ba'd az refresh dar History nist; resume-e
       un id dige momken nist.
-- [ ] `sid`-i ke dar list-e project nist → 404 va hich file-i hazf nemishavad; `sid`-e traversal-shape → 404.
-- [ ] Hazf-e session-i ke turn-ash dar hāl-e ejrā-st → 409, file sālem, UI dalil rā neshoon midahad.
-- [ ] Hazf-e session-e jāri-ye live → chat be New chat-e khāli miravad (client va server har do pāk).
-- [ ] Hazf-e session-e resume target → banner va target-e server pāk mishavand.
-- [ ] Confirm modal ghabl az har hazf zhāher mishavad; cancel hich chiz rā hazf nemikonad.
-- [ ] Auth/login session-hā va session-hā-ye project-hā-ye dige dast-nakhorde mimānanad.
-- [ ] Test-hā: server (delete, 404, traversal, running conflict), web (row action, confirm, current-session
+- [x] `sid`-i ke dar list-e project nist → 404 va hich file-i hazf nemishavad; `sid`-e traversal-shape → 404.
+- [x] Hazf-e session-i ke turn-ash dar hāl-e ejrā-st → 409, file sālem, UI dalil rā neshoon midahad.
+- [x] Hazf-e session-e jāri-ye live → chat be New chat-e khāli miravad (client va server har do pāk).
+- [x] Hazf-e session-e resume target → banner va target-e server pāk mishavand.
+- [x] Confirm modal ghabl az har hazf zhāher mishavad; cancel hich chiz rā hazf nemikonad.
+- [x] Auth/login session-hā va session-hā-ye project-hā-ye dige dast-nakhorde mimānanad.
+- [x] Test-hā: server (delete, 404, traversal, running conflict), web (row action, confirm, current-session
       reset, armed-resume reset).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Undo, trash, ya soft delete.

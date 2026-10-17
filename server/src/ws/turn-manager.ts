@@ -50,6 +50,15 @@ export interface TurnManager {
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
   setResumeTarget(projectId: string, target: ResumePayload): void;
   /**
+   * The session the project's *active* turn is writing, or `undefined` when no
+   * turn is in flight — including a run that has started but not yet named a
+   * session, which is the window in which an older session is free to delete.
+   *
+   * It is the one fact a session delete needs from the live half: a transcript
+   * being written must not be removed underneath its run (ticket 79).
+   */
+  runningSession(projectId: string): string | undefined;
+  /**
    * Drop what the run has accumulated *for the next send to read*: the armed
    * resume target, the buffered turn's blocks, and the session id those blocks
    * belong to. What is left is a project with nothing to continue and nothing to
@@ -207,6 +216,15 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
     setResumeTarget(projectId, target) {
       run(projectId).resume = target;
+    },
+
+    runningSession(projectId) {
+      // `active` rather than `status`: a run is active from the moment it was
+      // created until `pump`'s finally clears it, and after it ends the buffer's
+      // session id is still there — but that turn is over, and its transcript is
+      // nobody's to protect any more.
+      const state = projects.get(projectId);
+      return state?.active === undefined ? undefined : state.sessionId;
     },
 
     clearResume(projectId) {

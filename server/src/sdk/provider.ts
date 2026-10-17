@@ -76,4 +76,11 @@ export interface SdkProvider {
   /** `dir` is a canonical project path; the SDK store is ordered `lastModified` desc. */
   listSessions(dir: string): Promise<SessionSummary[]>;
   getSessionMessages(sessionId: string, dir: string): Promise<SessionMessage[]>;
+  /**
+   * Remove one session's on-disk artifacts and nothing else: the transcript
+   * (`{sessionId}.jsonl`) and the SDK's own per-session subagent directory. The
+   * caller has already established that the id names a session in `dir` — this
+   * is the write, not the authorization (ticket 79).
+   */
+  deleteSession(sessionId: string, dir: string): Promise<void>;
 }

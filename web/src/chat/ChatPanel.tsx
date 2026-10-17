@@ -8,11 +8,13 @@ import {
 import { useEffect, useState, type ReactElement } from 'react';
 
 import { Name } from '../Name';
+import { useToast } from '../toast/ToastProvider';
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
 import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
+import { TURN_RUNNING } from './reasons';
 import type { ChatView, TurnResult } from './reducer';
 import { useCommands } from './useCommands';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle, sessionTitle } from './SessionHistory';
@@ -40,9 +42,6 @@ import { useSessions } from './useSessions';
  * to want one.
  */
 
-/** Why `New chat` is shut while a turn is in flight. */
-const NEW_CHAT_BLOCKED = 'a turn is running — interrupt it, or wait for it to finish';
-
 /** Why it is shut with no live socket: what it clears is the server's state. */
 const NEW_CHAT_UNREACHABLE = 'the chat is not connected — starting a new one has to reach the server';
 
@@ -55,6 +54,7 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
   // is offered its tiers alone (ADR 0002).
   const profiles = useProfiles(project.id);
   const commands = useCommands(project.id);
+  const toast = useToast();
   const [browserOpen, setBrowserOpen] = useState(false);
 
   /**
@@ -96,11 +96,34 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
    * rail's rule, ticket 57).
    */
   const newChatReason =
-    running ? NEW_CHAT_BLOCKED : connection === 'live' ? undefined : NEW_CHAT_UNREACHABLE;
+    running ? TURN_RUNNING : connection === 'live' ? undefined : NEW_CHAT_UNREACHABLE;
 
   const chooseProfile = (name: string): void => {
     setProfile(name);
     rememberProfile(browserStorage(), project.id, name);
+  };
+
+  /**
+   * The session a running turn is writing: only its row's delete is shut. A
+   * turn that has not named a session yet protects none, which is the ticket's
+   * own rule — an older transcript is free (ticket 79).
+   */
+  const runningSessionId = view.state === 'idle' ? null : view.sessionId;
+
+  /**
+   * Delete one stored session, and take the live half with it when the two are
+   * the same conversation. The reset is the existing `newChat` — the only act
+   * that clears the run's buffer and the armed target on the server — so a
+   * deleted session cannot be resumed by the next send (ticket 74's door, reused
+   * rather than a second reset).
+   */
+  const deleteSession = async (sessionId: string): Promise<void> => {
+    const title = sessionTitle(sessions.sessions, sessionId) ?? sessionId;
+    await sessions.delete(sessionId);
+    if (view.sessionId === sessionId || namesSession(view.resumeTarget, sessionId)) {
+      newChat();
+    }
+    toast(`deleted ${title}`);
   };
 
   const approval = view.pendingApprovals[0];
@@ -172,7 +195,9 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
         <SessionBrowser
           state={sessions.sessions}
           currentSessionId={view.sessionId}
+          runningSessionId={runningSessionId}
           onReload={sessions.reload}
+          onDelete={deleteSession}
           onOpen={(sessionId) => {
             sessions.open(sessionId);
             setBrowserOpen(false);
@@ -308,6 +333,11 @@ function LiveTranscript({ view }: { view: ChatView }): ReactElement {
       {view.streamingText !== '' && <StreamingBubble text={view.streamingText} />}
     </>
   );
+}
+
+/** Whether a resume target names `sessionId` — `continue` names none. */
+function namesSession(target: ResumePayload | null, sessionId: string): boolean {
+  return target !== null && 'sessionId' in target && target.sessionId === sessionId;
 }
 
 /**
