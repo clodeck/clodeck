@@ -585,8 +585,8 @@ describe("the open file's write state is one chip", () => {
   });
 });
 
-describe('downloading the open file', () => {
-  it('offers the selected entry as a link to its own bytes, and says it was handed over', async () => {
+describe('downloading the selected entry', () => {
+  it('offers the open file as a link to its own bytes, and says it was handed over', async () => {
     stubFiles();
     const { notifications } = renderPanel();
 
@@ -605,6 +605,77 @@ describe('downloading the open file', () => {
     fireEvent.click(link);
     await waitFor(() => {
       expect(notifications.textContent).toBe('downloaded README.md');
+    });
+  });
+
+  it('offers the selected folder from the code head as <name>.zip', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    // With no file open, the folder last picked is the selection; expanding it
+    // both selects it and makes the head's Download describe the folder.
+    fireEvent.click(screen.getByTitle('Expand folder'));
+
+    const link = screen.getByRole('link', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=src');
+    expect(link.getAttribute('download')).toBe('src.zip');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded src.zip');
+    });
+  });
+
+  it('offers a folder Download in its row menu, and closes the menu on the click', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for src' }));
+    const menu = screen.getByRole('menu');
+    const link = within(menu).getByRole('menuitem', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=src');
+    expect(link.getAttribute('download')).toBe('src.zip');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded src.zip');
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('offers a file Download in its row menu too, on every row the listings draw', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for README.md' }));
+    const link = within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=README.md');
+    expect(link.getAttribute('download')).toBe('README.md');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded README.md');
+    });
+  });
+
+  it('draws the same folder Download in the flat list', async () => {
+    stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for src' }));
+
+    const link = within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Download' });
+    expect(link.getAttribute('href')).toBe('/api/projects/AAA/files/download?path=src');
+    expect(link.getAttribute('download')).toBe('src.zip');
+
+    fireEvent.click(link);
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('downloaded src.zip');
     });
   });
 });

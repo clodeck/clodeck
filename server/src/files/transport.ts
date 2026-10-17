@@ -58,29 +58,47 @@ export function registerFileRoutes(
   });
 
   /**
-   * The bytes as they are on disk, streamed as an attachment.
+   * The bytes as they are on disk, streamed as an attachment: a file as itself,
+   * a directory as a zip of its subtree (ticket 78).
    *
-   * The viewer's own text cannot stand in for this: `readFile` returns a window
-   * capped at 256 KiB and reports a binary file with no content at all, so a
-   * client that built the download out of what it was showing would hand back a
-   * truncated or empty file. The guards are `/files/content`'s exactly — the same
-   * syntax check, the same realpath containment, an escaping symlink a 404, a
-   * directory (and so the root) a 400 — and the response is not capped, because
-   * a download is not an upload.
+   * The viewer's own text cannot stand in for a file's bytes: `readFile` returns
+   * a window capped at 256 KiB and reports a binary file with no content at all,
+   * so a client that built the download out of what it was showing would hand
+   * back a truncated or empty file. The guards are `/files/content`'s exactly —
+   * the same syntax check, the same realpath containment, a missing or escaping
+   * path a 404 — while the root is a 400 and never downloaded, because the
+   * project itself is not an entry. Neither response is capped: a download is
+   * not an upload.
    */
   api.get<{ Params: { id: string } }>('/projects/:id/files/download', async (request, reply) => {
     const opened = await openProject(request, reply, options);
     if (opened === null) return reply;
 
-    const file = await resolveAs(reply, opened, 'file');
-    if (file === null) return reply;
+    // The root has no name of its own to save an archive under, and "the root is
+    // never touched" applies to reads of it as much as writes.
+    if (opened.rel === '') {
+      return reply.code(400).send({ error: 'the project root is not downloadable' });
+    }
+
+    const resolved = await opened.files.resolve(opened.rel);
+    if (resolved.status !== 'ok') return missing(reply);
 
     // The name the client asked for, not the one realpath resolved: a row shows
     // the link's own name, so that is the name the download is saved under.
+    const name = path.basename(opened.rel);
+    if (resolved.kind === 'file') {
+      return reply
+        .header('content-type', 'application/octet-stream')
+        .header('content-disposition', attachment(name))
+        .send(opened.files.readStream(resolved.scoped));
+    }
+
+    // A folder downloads as `<name>.zip`, and the archive's one top-level entry
+    // is a `name/` directory — opening it must not spill the contents loose.
     return reply
-      .header('content-type', 'application/octet-stream')
-      .header('content-disposition', attachment(path.basename(opened.rel)))
-      .send(opened.files.readStream(file));
+      .header('content-type', 'application/zip')
+      .header('content-disposition', attachment(`${name}.zip`))
+      .send(await opened.files.archive(resolved.scoped, name));
   });
 
   api.post<{ Params: { id: string }; Body: unknown }>('/projects/:id/files', async (request, reply) => {

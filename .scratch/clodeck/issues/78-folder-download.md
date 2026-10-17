@@ -9,7 +9,7 @@ folder download rā be soorat-e `.zip`-e stream shode misazad va har do voroodi 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Category:** enhancement
 
@@ -55,13 +55,13 @@ beshan.
   dārand.
 
 **Acceptance criteria:**
-- [ ] Download-e folder az toolbar va az row menu, har do `<folder>.zip` save mikonand.
-- [ ] Zip round-trip: structure-e nisbi yeksān, byte-hā-ye file-hā yeksān, empty directory-hā mojood.
-- [ ] Symlink-e kharej az root dar zip nist; symlink-e dakhel-e root ba byte-hā-ye target-ash mojood ast.
-- [ ] Name-hā-ye Farsi (file va folder) bedoone tabdil dar zip mimānanad.
-- [ ] Hich entry-i absolute path ya `..` nadārad; download-e root 400 midahad.
-- [ ] Test-hā: server (file, folder, root, escaping symlink, empty dir, non-ASCII) va web (har do voroodi).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Download-e folder az toolbar va az row menu, har do `<folder>.zip` save mikonand.
+- [x] Zip round-trip: structure-e nisbi yeksān, byte-hā-ye file-hā yeksān, empty directory-hā mojood.
+- [x] Symlink-e kharej az root dar zip nist; symlink-e dakhel-e root ba byte-hā-ye target-ash mojood ast.
+- [x] Name-hā-ye Farsi (file va folder) bedoone tabdil dar zip mimānanad.
+- [x] Hich entry-i absolute path ya `..` nadārad; download-e root 400 midahad.
+- [x] Test-hā: server (file, folder, root, escaping symlink, empty dir, non-ASCII) va web (har do voroodi).
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - UI-e download progress ya cancel.
