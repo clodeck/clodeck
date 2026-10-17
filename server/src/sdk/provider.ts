@@ -53,7 +53,7 @@ export interface SdkRunInput {
 
 /** One `query()` call: the mirrored message stream plus the live controls. */
 export interface SdkRun {
-  /** The shared mirror — the real provider drops the SDK families the client does not render. */
+  /** The shared mirror — the real provider drops the SDK families the client never consumes. */
   messages: AsyncIterable<SDKMessage>;
   /**
    * The commands this session can dispatch, as the SDK has them: its own

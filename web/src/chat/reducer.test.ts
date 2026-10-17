@@ -468,6 +468,67 @@ describe('chat reducer — the session the envelope names', () => {
   });
 });
 
+describe('chat reducer — a conversation the SDK discards', () => {
+  const NEXT_SESSION = '00000000-0000-4000-8000-0000000000bb';
+
+  const approval: ApprovalRequestPayload = {
+    requestId: 'req_1',
+    toolUseID: 'tu_1',
+    toolName: 'Bash',
+    input: { command: 'rm -rf build' },
+  };
+
+  const reset: SDKMessage = {
+    type: 'conversation_reset',
+    new_conversation_id: NEXT_SESSION,
+    session_id: SESSION,
+    trigger: 'clear',
+  };
+
+  /** A view mid-turn: a transcript on screen, a turn nobody ended, an approval parked. */
+  function midTurn(): ChatView {
+    return {
+      ...emptyView(),
+      sessionId: SESSION,
+      state: 'running',
+      entries: [
+        { kind: 'user', text: 'hello' },
+        { kind: 'assistant', text: 'before the clear' },
+      ],
+      streamingText: 'par',
+      progress: { toolName: 'Bash', elapsedSeconds: 3 },
+      pendingApprovals: [approval],
+    };
+  }
+
+  it('drops everything the discarded conversation put on screen, and nothing of the run', () => {
+    const view = applyServerEvent(midTurn(), stamped(sdk(reset), NEXT_SESSION));
+
+    // The transcript goes with the conversation it belonged to …
+    expect(view.entries).toEqual([]);
+    expect(view.streamingText).toBe('');
+    expect(view.progress).toBeNull();
+    // … while the run is still the run: a turn in flight, and what it is parked on.
+    expect(view.state).toBe('running');
+    expect(view.pendingApprovals).toEqual([approval]);
+    // And the chat is in the conversation the server says it is in.
+    expect(view.sessionId).toBe(NEXT_SESSION);
+  });
+
+  it('lands on the same view live as rebuilt from the run’s snapshot', () => {
+    // The two paths a reset reaches a view by — folded live, and rebuilt from the
+    // run's buffer on a reconnect — have to agree, or a reconnect brings the
+    // cleared transcript back.
+    const live = applyServerEvent(midTurn(), stamped(sdk(reset), NEXT_SESSION));
+    const rebuilt = applyServerEvent(
+      midTurn(),
+      stamped(snapshot([], 'running', [approval]), NEXT_SESSION),
+    );
+
+    expect(live).toEqual(rebuilt);
+  });
+});
+
 describe('chat reducer — history through the same renderer', () => {
   // A stored transcript: the same turns a live run produces, but as the REST
   // endpoint's `SessionMessage[]` (server/src/sessions.ts, shared/src/session.ts).

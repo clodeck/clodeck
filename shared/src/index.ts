@@ -7,7 +7,7 @@
  *
  * - {@link Project} — the domain entity the switcher lists.
  * - `protocol.ts` — the ServerEvent / ClientMessage envelopes.
- * - `sdk.ts` — structural mirrors of the Agent SDK messages the client renders
+ * - `sdk.ts` — structural mirrors of the Agent SDK messages the client consumes
  *   (no dependency on the SDK itself; that stays server-only).
  * - `commands.ts` — one command a session can type, as the `/` menu lists it.
  * - `provider.ts` — the provider a run executes on (endpoint, credential, model).

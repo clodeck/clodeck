@@ -512,6 +512,57 @@ describe('the /ws event bus', () => {
     expect(provider.queryInputs).toHaveLength(1);
   });
 
+  it('follows the SDK’s own conversation reset, with an emptied buffer and the conversation it moved to', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider, cookie } = await makeApp({ messages: resetTranscript(cwd) });
+    const port = await listen(app);
+    const projectId = idFor(cwd);
+
+    const client = await connect(port, cookie, projectId);
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
+
+    // Everything the run put on the wire, in order, up to the end of the turn.
+    const streamed: ServerEvent[] = [];
+    for (;;) {
+      const event = await client.next();
+      streamed.push(event);
+      if (event.kind === 'stream_status' && event.payload.status === 'turn_ended') break;
+    }
+
+    // The reset is the SDK's, not the client's: it arrived mid-turn as a frame of
+    // its own, under the conversation it announces rather than the one it drops.
+    const reset = streamed.find(
+      (event) => event.kind === 'sdk' && event.payload.type === 'conversation_reset',
+    );
+    expect(reset).toMatchObject({ kind: 'sdk', projectId, sessionId: RESET_SESSION_ID });
+
+    // And it emptied the run for everyone, not only for the socket it happened
+    // to arrive on: a snapshot with no blocks, naming the new conversation.
+    const cleared = streamed.filter((event) => event.kind === 'snapshot');
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({ kind: 'snapshot', projectId, sessionId: RESET_SESSION_ID });
+    if (cleared[0]?.kind !== 'snapshot') throw new Error('expected a snapshot');
+    expect(cleared[0].payload).toEqual({
+      state: 'running',
+      blocks: [],
+      pendingApprovals: [],
+      lastSeq: 0,
+    });
+
+    // The transcript before it is gone, not merely unseen: a socket joining
+    // afterwards rebuilds from what the run kept — the frames that followed the
+    // reset — and never from the conversation that was discarded.
+    const reconnected = await connect(port, cookie, projectId);
+    const after = await reconnected.next();
+    expect(after).toMatchObject({ kind: 'snapshot', sessionId: RESET_SESSION_ID });
+    if (after.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${after.kind}`);
+    expect(after.payload.blocks.map((block) => block.type)).toEqual(['result']);
+
+    expect(provider.queryInputs).toHaveLength(1);
+  });
+
   it('answers invalid_message to a malformed frame and keeps the socket alive', async () => {
     await mkdir(path.join(root, 'alpha'));
     const cwd = await realpath(path.join(root, 'alpha'));
@@ -917,6 +968,9 @@ describe('the /ws event bus', () => {
 /** One scripted turn's messages, replayed by the fake provider on every `query()`. */
 const SESSION_ID = '00000000-0000-4000-8000-0000000000aa';
 
+/** The conversation the SDK moves a reset run to — the frame's `new_conversation_id`. */
+const RESET_SESSION_ID = '00000000-0000-4000-8000-0000000000bb';
+
 /** A tool gate the fake provider can raise from outside the run. */
 const APPROVAL_REQUEST: ApprovalRequestPayload = {
   requestId: 'req-1',
@@ -1000,6 +1054,50 @@ function transcript(cwd: string): SDKMessage[] {
  */
 function partialTranscript(cwd: string): SDKMessage[] {
   return transcript(cwd).slice(0, 3);
+}
+
+/**
+ * A turn the SDK discards a conversation during — a `/clear` typed into a running
+ * session. The frames after the reset carry the *new* session: that frame is the
+ * moment the SDK's own current conversation changed, and the run reads identity
+ * from the frames the SDK sends (ticket 76).
+ */
+function resetTranscript(cwd: string): SDKMessage[] {
+  return [
+    {
+      type: 'system',
+      subtype: 'init',
+      session_id: SESSION_ID,
+      cwd,
+      model: 'fake-provider',
+      permissionMode: 'default',
+      tools: ['Read'],
+    },
+    {
+      type: 'assistant',
+      session_id: SESSION_ID,
+      parent_tool_use_id: null,
+      message: { id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'before the clear' }] },
+    },
+    {
+      type: 'conversation_reset',
+      new_conversation_id: RESET_SESSION_ID,
+      uuid: RESET_SESSION_ID,
+      session_id: SESSION_ID,
+      trigger: 'clear',
+    },
+    {
+      type: 'result',
+      subtype: 'success',
+      session_id: RESET_SESSION_ID,
+      is_error: false,
+      result: 'cleared',
+      num_turns: 1,
+      stop_reason: 'end_turn',
+      total_cost_usd: 0,
+      duration_ms: 1,
+    },
+  ];
 }
 
 /**

@@ -60,6 +60,9 @@ export interface TurnManager {
    * send drive the model twice. Keeping a clear out of a running turn is the
    * surface's rule — the button is shut while one is in flight — the same
    * asymmetry `resume` has.
+   *
+   * The SDK discards a conversation on its own too, and reports it as
+   * `conversation_reset`; both go through {@link forgetTranscript}.
    */
   clearResume(projectId: string): void;
 }
@@ -207,25 +210,44 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
     },
 
     clearResume(projectId) {
-      const state = run(projectId);
-      state.resume = undefined;
-      // The buffer and the identity go together, because they are one thing: the
-      // run's own transcript and the session it belongs to. Clearing the blocks
-      // alone would leave the next envelope — and so the next snapshot — naming a
-      // session whose transcript is no longer here.
-      state.blocks.length = 0;
-      state.sessionId = undefined;
-      // The command list is the same kind of thing: what *this* session reported,
-      // and the next one will report its own. Kept, it would be a new chat whose
-      // menu still describes the session it left.
-      state.commands = undefined;
-
-      // Answered to every socket on the project, not only the one that asked:
-      // the run is the project's, so a second tab is looking at the same chat and
-      // would otherwise keep showing one that no longer exists.
-      broadcast(state, snapshotOf(state));
+      forgetTranscript(run(projectId), undefined);
     },
   };
+}
+
+/**
+ * The run forgets what it had buffered — the turn's blocks, the session they
+ * belong to, the target a send would have resumed, and the command list that
+ * session reported — and every socket is handed the snapshot that results.
+ *
+ * One act with two callers, which is why it is one function: the client asks for
+ * it (`clear_resume`, the header's `New chat`) and the SDK reports that it has
+ * already happened (`conversation_reset` — `/clear`, a plan-mode exit, a flow of
+ * its own). A second spelling of it would be a second answer to what a project's
+ * buffer holds, and the two would drift.
+ *
+ * `sessionId` is what the conversation became. `undefined` for a client-asked
+ * clear, which creates nothing — the next send is the session, and names itself.
+ * For the SDK's own reset it is the `new_conversation_id` the frame announces,
+ * because that frame *is* the run's word for the identity it moved to.
+ */
+function forgetTranscript(state: ProjectRun, sessionId: string | undefined): void {
+  state.resume = undefined;
+  // The buffer and the identity go together, because they are one thing: the
+  // run's own transcript and the session it belongs to. Clearing the blocks
+  // alone would leave the next envelope — and so the next snapshot — naming a
+  // session whose transcript is no longer here.
+  state.blocks.length = 0;
+  state.sessionId = sessionId;
+  // The command list is the same kind of thing: what *this* session reported,
+  // and the next one will report its own. Kept, it would be a new chat whose
+  // menu still describes the session it left.
+  state.commands = undefined;
+
+  // Answered to every socket on the project, not only the one that asked: the
+  // run is the project's, so a second tab is looking at the same chat and would
+  // otherwise keep showing one that no longer exists.
+  broadcast(state, snapshotOf(state));
 }
 
 /** The draft a socket is sent to learn the run's whole state: on (re)connect, and after a clear. */
@@ -344,6 +366,18 @@ async function pump(state: ProjectRun, active: SdkRun): Promise<void> {
   let ended = false;
   try {
     for await (const message of active.messages) {
+      // The SDK discarded the conversation itself, mid-turn. The run moves to the
+      // conversation the frame names first, so the frame goes out under the
+      // identity it announces and never under the one it just dropped — and then
+      // it goes out like any other message. A client folding the live stream
+      // clears the transcript on this frame; the snapshot just broadcast is what a
+      // reconnect rebuilds from instead, and the two say the same thing.
+      if (message.type === 'conversation_reset') {
+        forgetTranscript(state, message.new_conversation_id);
+        broadcast(state, { ...envelope(state), kind: 'sdk', payload: message });
+        continue;
+      }
+
       const sessionId = sessionIdOf(message);
       if (sessionId !== undefined) state.sessionId = sessionId;
       if (message.type !== 'stream_event') state.blocks.push(message);

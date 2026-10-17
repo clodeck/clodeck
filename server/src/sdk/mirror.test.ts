@@ -162,9 +162,30 @@ describe('narrowToMirror', () => {
     }
   });
 
-  it('drops the real families the client does not render', () => {
-    // Five top-level `type`s of the real union have no mirrored family; each
+  it('carries the SDK’s own conversation reset — the family the client acts on without rendering', () => {
+    // Not one of the six the transcript renderer draws, but not ignorable either:
+    // the frame is how the run says the conversation it was in is gone and which
+    // one replaced it, and the client clears the screen on it (ticket 76). Its
+    // own fields are pinned by the assignment in `mirror.ts`, as ever; what this
+    // pins is that the family reaches the client rather than falling away.
+    const reset = real({
+      type: 'conversation_reset',
+      new_conversation_id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      uuid: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      session_id: 's1',
+      trigger: 'clear',
+      timestamp: '2026-10-16T00:00:00.000Z',
+    });
+
+    expect(narrowToMirror(reset)).toBe(reset);
+  });
+
+  it('drops the real families the client neither renders nor acts on', () => {
+    // Four top-level `type`s of the real union have no mirrored family; each
     // must fall to the catch-all and become `null` rather than leak through.
+    // `conversation_reset` used to be listed here and no longer is: the reason
+    // the rest are unmirrored — the client has nothing to do with them — never
+    // held for a frame that discards the transcript on screen (ticket 76).
     const unmirrored = [
       real({
         type: 'tool_use_summary',
@@ -192,12 +213,6 @@ describe('narrowToMirror', () => {
         uuid: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
         session_id: 's1',
       }),
-      real({
-        type: 'conversation_reset',
-        new_conversation_id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
-        uuid: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
-        session_id: 's1',
-      }),
     ];
 
     for (const message of unmirrored) {
@@ -207,7 +222,8 @@ describe('narrowToMirror', () => {
 
   it('reaches every mirrored top-level type', () => {
     // The six families the client renders (spec-02 §"SDK dependency & the mirror
-    // pin"): each must survive narrowing, so no mirrored arm is dead code.
+    // pin") plus the reset it acts on: each must survive narrowing, so no
+    // mirrored arm is dead code.
     const mirrored = [
       real({
         type: 'assistant',
@@ -256,10 +272,25 @@ describe('narrowToMirror', () => {
         session_id: 's1',
         uuid: '00000000-0000-0000-0000-000000000005',
       }),
+      real({
+        type: 'conversation_reset',
+        new_conversation_id: '00000000-0000-0000-0000-000000000006',
+        uuid: '00000000-0000-0000-0000-000000000006',
+        session_id: 's1',
+        trigger: 'clear',
+      }),
     ];
 
     const reached = mirrored.map((message) => narrowToMirror(message)?.type).sort();
 
-    expect(reached).toEqual(['assistant', 'result', 'stream_event', 'system', 'tool_progress', 'user']);
+    expect(reached).toEqual([
+      'assistant',
+      'conversation_reset',
+      'result',
+      'stream_event',
+      'system',
+      'tool_progress',
+      'user',
+    ]);
   });
 });
