@@ -13,6 +13,7 @@ export type IconName =
   | 'chat'
   | 'terminal'
   | 'folder'
+  | 'menu'
   | 'upload'
   | 'filePlus'
   | 'folderPlus'
@@ -68,6 +69,7 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M4 5h.01M4 10h.01M4 15h.01" />
     </>
   ),
+  menu: <path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" />,
 };
 
 /** One shape from the map: a 20×20 grid drawn at 18px, 1.5 stroke, decorative. */

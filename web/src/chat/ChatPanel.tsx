@@ -120,7 +120,10 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
 
   return (
     <section className="relative flex min-h-0 flex-col" aria-label="Chat">
-      <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2">
+      {/* On a phone the controls are wider than the header: wrapping keeps the
+          identity and the three buttons reachable instead of pushing one of
+          them past the edge. The desktop header has room and never wraps. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Chat</h2>
           <ConnectionPill connection={connection} />
