@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
 import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
+import { ToastProvider } from '../toast/ToastProvider';
 import { ChatPanel } from './ChatPanel';
 
 /**
@@ -81,7 +82,7 @@ afterEach(() => {
 
 /** The panel with its socket open, which is the only state the menu opens in. */
 async function openChat(): Promise<FakeSocket> {
-  render(<ChatPanel project={project} />);
+  render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
   const socket = latestSocket();
   socket.open();
   await screen.findByText('Live');

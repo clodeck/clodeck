@@ -113,6 +113,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.register(cookie);
 
   const terminals = createTerminalManager(options.spawner);
+  // One run state for the process: the session routes ask it what a turn is
+  // writing (a delete must not remove that transcript), and the bus drives it.
+  const turns = createTurnManager(options.provider, { log: options.log });
 
   // Auth-exempt: used by the proxy's and Docker's healthchecks (wayfinder 08).
   app.get('/healthz', async () => ({ status: 'ok' }));
@@ -131,7 +134,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
         registerProjectRoutes(gated, { projects: options.projects });
         registerProfileRoutes(gated, { projects: options.projects, profiles: options.profiles });
         registerCommandRoutes(gated, { projects: options.projects });
-        registerSessionRoutes(gated, { projects: options.projects, provider: options.provider });
+        registerSessionRoutes(gated, {
+          projects: options.projects,
+          provider: options.provider,
+          turns,
+        });
         registerTerminalSizeRoute(gated, { projects: options.projects, terminals });
         registerFileRoutes(gated, { projects: options.projects });
         registerAuthMeRoute(gated);
@@ -142,7 +149,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   registerWsBus(app, {
     projects: options.projects,
-    turns: createTurnManager(options.provider, { log: options.log }),
+    turns,
     profiles: options.profiles,
     auth: options.auth,
   });

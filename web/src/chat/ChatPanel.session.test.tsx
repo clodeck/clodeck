@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
 import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
+import { ToastProvider } from '../toast/ToastProvider';
 import { ChatPanel } from './ChatPanel';
 
 /**
@@ -97,7 +98,7 @@ function newChatButton(): HTMLElement {
 
 /** Render the panel with its socket open — a live chat with no server behind it. */
 function renderLive(): FakeSocket {
-  render(<ChatPanel project={project} />);
+  render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
   act(() => {
     latestSocket().open();
   });
@@ -132,7 +133,7 @@ describe('the session a chat is in', () => {
     // title is not unique, which is why the id rides the tooltip beside it.
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
     expect(
-      (await screen.findByRole('button', { name: new RegExp(TITLE) })).textContent,
+      (await screen.findByRole('button', { name: new RegExp(`^${TITLE}`) })).textContent,
     ).toContain(TITLE);
   });
 

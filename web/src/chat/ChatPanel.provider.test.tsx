@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PROFILES, jsonResponse, project } from '../testing/chat-fixtures';
 import { FakeSocket, forgetSockets, latestSocket } from '../testing/fake-socket';
+import { ToastProvider } from '../toast/ToastProvider';
 import { ChatPanel } from './ChatPanel';
 
 /**
@@ -53,7 +54,7 @@ function choose(option: string): void {
 
 describe('the provider a turn is sent on', () => {
   it('sends the prompt on the profile the picker is showing, and never on an older one', async () => {
-    render(<ChatPanel project={project} />);
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
     act(() => {
       latestSocket().open();
     });
@@ -79,18 +80,18 @@ describe('the provider a turn is sent on', () => {
   });
 
   it('opens the project’s next session on the profile this one chose', async () => {
-    const first = render(<ChatPanel project={project} />);
+    const first = render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
     await screen.findByRole('button', { name: /^running on/ });
     choose('claude-haiku-5-5 · FAST');
     first.unmount();
 
-    render(<ChatPanel project={project} />);
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
 
     await screen.findByRole('button', { name: 'running on claude-haiku-5-5 · FAST' });
   });
 
   it('shuts the picker once a turn has run, and says so', async () => {
-    render(<ChatPanel project={project} />);
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
     await screen.findByRole('button', { name: /^running on/ });
 
     // The run's own snapshot: a turn in flight, which is the server's word that
@@ -114,7 +115,7 @@ describe('the provider a turn is sent on', () => {
   });
 
   it('does not shut the picker on a send the server refused', async () => {
-    render(<ChatPanel project={project} />);
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
     act(() => {
       latestSocket().open();
     });
@@ -140,7 +141,7 @@ describe('the provider a turn is sent on', () => {
   });
 
   it('asks what this project may choose, since a pin is the project’s and not the deployment’s', async () => {
-    render(<ChatPanel project={project} />);
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
     await screen.findByRole('button', { name: /^running on/ });
 
     // The one answer a deployment-wide list could not give: whether this project

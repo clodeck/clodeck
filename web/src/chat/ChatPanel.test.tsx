@@ -3,6 +3,7 @@ import type { Project } from '@clodeck/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ToastProvider } from '../toast/ToastProvider';
 import { ChatPanel } from './ChatPanel';
 
 /**
@@ -38,7 +39,7 @@ afterEach(() => {
 
 describe('the chat column', () => {
   it('puts the transcript and the composer in one band of one width', () => {
-    const { baseElement } = render(<ChatPanel project={project} />);
+    const { baseElement } = render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
 
     const [transcript, composer] = columns(baseElement);
     expect(transcript).toBeDefined();
@@ -57,7 +58,7 @@ describe('the chat column', () => {
   });
 
   it('bands the history browser too, and leaves the surfaces behind them full-bleed', () => {
-    const { baseElement } = render(<ChatPanel project={project} />);
+    const { baseElement } = render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
 
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
 

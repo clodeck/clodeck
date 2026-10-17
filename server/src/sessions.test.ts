@@ -1,13 +1,21 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { SessionMessage, SessionSummary } from '@clodeck/shared';
+import type { SDKMessage, ServerEvent, SessionMessage, SessionSummary } from '@clodeck/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 
 import { createProjectDiscovery } from './discovery.js';
-import { createSandbox, createTestApp, login, removeSandbox, type Sandbox } from './test-support.js';
-import { createFakeProvider, type FakeProviderOptions } from './testing/fake-provider.js';
+import {
+  createSandbox,
+  createTestApp,
+  listen,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from './test-support.js';
+import { createFakeProvider, type FakeProvider, type FakeProviderOptions } from './testing/fake-provider.js';
 
 /**
  * Session history is asserted where the web clients consume it — the HTTP
@@ -31,15 +39,19 @@ describe('the session-history API', () => {
     await removeSandbox(sandbox);
   });
 
-  function makeApp(options: FakeProviderOptions = {}): FastifyInstance {
+  function makeApp(options: FakeProviderOptions = {}): {
+    app: FastifyInstance;
+    provider: FakeProvider;
+  } {
+    const provider = createFakeProvider(options);
     const app = createTestApp({
       projects: createProjectDiscovery(root, { warn: () => undefined }),
       // The transcript this suite is about; the pty seam is the factory's, even
       // though these routes never spawn.
-      provider: createFakeProvider(options),
+      provider,
     });
     apps.push(app);
-    return app;
+    return { app, provider };
   }
 
   /**
@@ -65,7 +77,7 @@ describe('the session-history API', () => {
     const sessions: SessionSummary[] = [{ id: 's1', title: 'First session' }];
     const id = await projectId('alpha');
 
-    const response = await authed(makeApp({ sessions }), {
+    const response = await authed(makeApp({ sessions }).app, {
       method: 'GET',
       url: `/api/projects/${id}/sessions`,
     });
@@ -86,7 +98,7 @@ describe('the session-history API', () => {
     ];
     const id = await projectId('alpha');
 
-    const response = await authed(makeApp({ sessions }), {
+    const response = await authed(makeApp({ sessions }).app, {
       method: 'GET',
       url: `/api/projects/${id}/sessions`,
     });
@@ -113,7 +125,7 @@ describe('the session-history API', () => {
     await mkdir(path.join(sandbox.dir, 'outside'));
     const escaping = Buffer.from(path.join(sandbox.dir, 'outside'), 'utf8').toString('base64url');
 
-    const response = await authed(makeApp(), {
+    const response = await authed(makeApp().app, {
       method: 'GET',
       url: `/api/projects/${escaping}/sessions`,
     });
@@ -144,7 +156,7 @@ describe('the session-history API', () => {
     ];
     const id = await projectId('alpha');
 
-    const response = await authed(makeApp({ sessionMessages: messages }), {
+    const response = await authed(makeApp({ sessionMessages: messages }).app, {
       method: 'GET',
       url: `/api/projects/${id}/sessions/s1/messages`,
     });
@@ -165,7 +177,7 @@ describe('the session-history API', () => {
   it('answers 200 { messages: [] } for a session the provider does not know', async () => {
     const id = await projectId('alpha');
 
-    const response = await authed(makeApp({ sessionMessages: [] }), {
+    const response = await authed(makeApp({ sessionMessages: [] }).app, {
       method: 'GET',
       url: `/api/projects/${id}/sessions/never-heard-of-it/messages`,
     });
@@ -179,7 +191,7 @@ describe('the session-history API', () => {
     await mkdir(path.join(sandbox.dir, 'outside'));
     const escaping = Buffer.from(path.join(sandbox.dir, 'outside'), 'utf8').toString('base64url');
 
-    const response = await authed(makeApp(), {
+    const response = await authed(makeApp().app, {
       method: 'GET',
       url: `/api/projects/${escaping}/sessions/s1/messages`,
     });
@@ -187,4 +199,209 @@ describe('the session-history API', () => {
     expect(response.statusCode).toBe(404);
     expect(Object.keys(response.json() as object)).toEqual(['error']);
   });
+
+  describe('deleting a session', () => {
+    it('removes the transcript from the provider, and it is gone from the next read', async () => {
+      const sessions: SessionSummary[] = [
+        { id: 'keep-me', title: 'Keep' },
+        { id: 'delete-me', title: 'Delete' },
+      ];
+      const id = await projectId('alpha');
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider } = makeApp({ sessions });
+
+      const deleted = await authed(app, {
+        method: 'DELETE',
+        url: `/api/projects/${id}/sessions/delete-me`,
+      });
+
+      expect(deleted.statusCode).toBe(204);
+      expect(deleted.body).toBe('');
+      // The provider's own argument pair — the session, and this project's
+      // canonical directory, never a path assembled from the id.
+      expect(provider.deletedSessions).toEqual([{ sessionId: 'delete-me', dir: cwd }]);
+
+      const list = await authed(app, {
+        method: 'GET',
+        url: `/api/projects/${id}/sessions`,
+      });
+      expect((list.json() as { sessions: SessionSummary[] }).sessions.map((session) => session.id)).toEqual([
+        'keep-me',
+      ]);
+    });
+
+    it('answers 404 for a session the project does not list, and deletes nothing', async () => {
+      const id = await projectId('alpha');
+      const { app, provider } = makeApp({ sessions: [{ id: 'known', title: 'Known' }] });
+
+      const response = await authed(app, {
+        method: 'DELETE',
+        url: `/api/projects/${id}/sessions/unknown`,
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(Object.keys(response.json() as object)).toEqual(['error']);
+      expect(provider.deletedSessions).toEqual([]);
+    });
+
+    it('answers 404 for a traversal-shaped id without touching the filesystem', async () => {
+      const id = await projectId('alpha');
+      // A file outside the project that the path-shaped id would aim at.
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      const { app, provider } = makeApp({ sessions: [{ id: 'known', title: 'Known' }] });
+
+      const response = await authed(app, {
+        method: 'DELETE',
+        url: `/api/projects/${id}/sessions/${encodeURIComponent('../outside/known')}`,
+      });
+
+      // Membership in the project's own list is the gate; a traversal shape is
+      // simply not in it, and the provider is never told to delete anything.
+      expect(response.statusCode).toBe(404);
+      expect(provider.deletedSessions).toEqual([]);
+    });
+
+    it('answers 409 for the session a live turn is writing, and leaves it intact', async () => {
+      const sessions: SessionSummary[] = [{ id: SESSION_ID, title: 'Running' }];
+      const id = await projectId('alpha');
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider } = makeApp({
+        sessions,
+        messages: [initMessage(cwd)],
+        holdRuns: true,
+      });
+      const port = await listen(app);
+      const bus = await openBus(port, await login(app), id);
+
+      try {
+        await bus.next(); // the snapshot
+        bus.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'go' } });
+        // The init is the frame that names the session; until it lands a delete
+        // would be free, and this test is about the window after it.
+        await bus.nextMatching((event) => event.kind === 'sdk' && event.sessionId === SESSION_ID);
+
+        const response = await authed(app, {
+          method: 'DELETE',
+          url: `/api/projects/${id}/sessions/${SESSION_ID}`,
+        });
+
+        expect(response.statusCode).toBe(409);
+        expect((response.json() as { error: string }).error).toContain('turn_in_progress');
+        // Nothing was removed: the run's transcript is still there to be written.
+        expect(provider.deletedSessions).toEqual([]);
+      } finally {
+        provider.releaseRuns();
+        bus.close();
+      }
+    });
+
+    it('allows deleting an older session while a turn is running that has not named one', async () => {
+      const sessions: SessionSummary[] = [{ id: 'older', title: 'Older' }];
+      const id = await projectId('alpha');
+      const cwd = await realpath(path.join(root, 'alpha'));
+      // No messages: the run starts but the SDK names no session, so `older`
+      // belongs to no live turn.
+      const { app, provider } = makeApp({ sessions, holdRuns: true });
+      const port = await listen(app);
+      const bus = await openBus(port, await login(app), id);
+
+      try {
+        await bus.next(); // the snapshot
+        bus.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'go' } });
+        await provider.waitForQueryInput(1);
+
+        const response = await authed(app, {
+          method: 'DELETE',
+          url: `/api/projects/${id}/sessions/older`,
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(provider.deletedSessions).toEqual([{ sessionId: 'older', dir: cwd }]);
+      } finally {
+        provider.releaseRuns();
+        bus.close();
+      }
+    });
+
+    it('is behind the auth gate like every other route', async () => {
+      const id = await projectId('alpha');
+      const { app, provider } = makeApp({ sessions: [{ id: 's1', title: 'One' }] });
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/api/projects/${id}/sessions/s1`,
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(provider.deletedSessions).toEqual([]);
+    });
+  });
 });
+
+/** The session the scripted run opens with. */
+const SESSION_ID = '00000000-0000-4000-8000-0000000000aa';
+
+/** The `init` a fake run opens with — the one frame that names its session. */
+function initMessage(cwd: string): SDKMessage {
+  return {
+    type: 'system',
+    subtype: 'init',
+    session_id: SESSION_ID,
+    cwd,
+    model: 'fake-provider',
+    permissionMode: 'default',
+    tools: ['Read'],
+  };
+}
+
+/** A thin `/ws` client: frames are queued, so a test never races the server. */
+interface BusConnection {
+  send(message: unknown): void;
+  next(): Promise<ServerEvent>;
+  nextMatching(predicate: (event: ServerEvent) => boolean): Promise<ServerEvent>;
+  close(): void;
+}
+
+function openBus(port: number, cookie: string, projectId: string): Promise<BusConnection> {
+  const url = `ws://127.0.0.1:${String(port)}/ws?projectId=${encodeURIComponent(projectId)}`;
+  const socket = new WebSocket(url, { headers: { cookie } });
+
+  const queued: ServerEvent[] = [];
+  const readers: ((event: ServerEvent) => void)[] = [];
+
+  socket.on('message', (raw: unknown) => {
+    const event = JSON.parse(String(raw)) as ServerEvent;
+    const reader = readers.shift();
+    if (reader === undefined) queued.push(event);
+    else reader(event);
+  });
+
+  const next = (): Promise<ServerEvent> => {
+    const event = queued.shift();
+    if (event !== undefined) return Promise.resolve(event);
+    return new Promise((resolve) => {
+      readers.push(resolve);
+    });
+  };
+
+  return new Promise((resolve, reject) => {
+    socket.once('open', () => {
+      resolve({
+        send(message) {
+          socket.send(JSON.stringify(message));
+        },
+        next,
+        async nextMatching(predicate) {
+          for (;;) {
+            const event = await next();
+            if (predicate(event)) return event;
+          }
+        },
+        close() {
+          socket.close();
+        },
+      });
+    });
+    socket.once('error', reject);
+  });
+}
