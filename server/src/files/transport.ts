@@ -85,11 +85,11 @@ export function registerFileRoutes(
 
     // The name the client asked for, not the one realpath resolved: a row shows
     // the link's own name, so that is the name the download is saved under.
-    const name = path.basename(opened.rel);
+    const entryName = path.basename(opened.rel);
     if (resolved.kind === 'file') {
       return reply
         .header('content-type', 'application/octet-stream')
-        .header('content-disposition', attachment(name))
+        .header('content-disposition', attachment(entryName))
         .send(opened.files.readStream(resolved.scoped));
     }
 
@@ -97,8 +97,8 @@ export function registerFileRoutes(
     // is a `name/` directory — opening it must not spill the contents loose.
     return reply
       .header('content-type', 'application/zip')
-      .header('content-disposition', attachment(`${name}.zip`))
-      .send(await opened.files.archive(resolved.scoped, name));
+      .header('content-disposition', attachment(`${entryName}.zip`))
+      .send(await opened.files.archive(resolved.scoped, entryName));
   });
 
   api.post<{ Params: { id: string }; Body: unknown }>('/projects/:id/files', async (request, reply) => {

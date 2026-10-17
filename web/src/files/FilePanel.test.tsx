@@ -79,15 +79,16 @@ function failure(status: number, statusText: string, error: string): Response {
  * made" and "the listing re-listed once" are asserted.
  *
  * `rtl` adds `PERSIAN_FILE` to the root listing — a name in the other script,
- * beside the Latin ones, rather than a listing of its own.
+ * beside the Latin ones, rather than a listing of its own. `symlink` adds the
+ * escaping-link row the wire reports as non-navigable.
  */
 function stubFiles(
-  options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean; rtl?: boolean } = {},
+  options: { failMutations?: boolean; failUploads?: string[]; truncated?: boolean; rtl?: boolean; symlink?: boolean } = {},
 ): {
   calls: Call[];
   mtime: string;
 } {
-  const { failMutations = false, failUploads = [], truncated = false, rtl = false } = options;
+  const { failMutations = false, failUploads = [], truncated = false, rtl = false, symlink = false } = options;
   const calls: Call[] = [];
   const mtime = threeHoursAgo();
 
@@ -113,6 +114,7 @@ function stubFiles(
             { type: 'file', name: 'GUIDE.md', size: README_SIZE, mtime },
             { type: 'file', name: 'main.ts', size: README_SIZE, mtime },
             ...(rtl ? [{ type: 'file', name: PERSIAN_FILE, size: README_SIZE, mtime }] : []),
+            ...(symlink ? [{ type: 'symlink', name: 'escape' }] : []),
           ],
         };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
@@ -659,6 +661,21 @@ describe('downloading the selected entry', () => {
     await waitFor(() => {
       expect(notifications.textContent).toBe('downloaded README.md');
     });
+  });
+
+  it('offers no Download on a symlink row, which has nothing safe to fetch', async () => {
+    stubFiles({ symlink: true });
+    renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for escape' }));
+    const menu = within(screen.getByRole('menu'));
+
+    // The link resolves outside the root, so the route would answer 404: the
+    // menu keeps the two actions that do work rather than a dead Download.
+    expect(menu.queryByRole('menuitem', { name: 'Download' })).toBeNull();
+    expect(menu.getByRole('menuitem', { name: 'Rename' })).toBeTruthy();
+    expect(menu.getByRole('menuitem', { name: 'Delete' })).toBeTruthy();
   });
 
   it('draws the same folder Download in the flat list', async () => {

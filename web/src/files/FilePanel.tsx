@@ -117,11 +117,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [moveError, setMoveError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
-  /**
-   * The one download action the code head and every row menu share (ticket 78):
-   * one project id, one name rule, one toast. A folder saves as `<name>.zip`;
-   * the server names the disposition the same way.
-   */
+  // The head and every row menu share one download action (ticket 78).
   const download: DownloadControl = {
     projectId: project.id,
     onDownloaded: (name) => { toast(`downloaded ${name}`); },
@@ -483,7 +479,8 @@ interface MoveControl {
  * The download action the code head and every row menu share (ticket 78): the
  * project the route sits under, and the one toast a download speaks through.
  * The saved name is derived beside it — `<name>` for a file, `<name>.zip` for a
- * folder — so the head, the menu and the server's disposition cannot disagree.
+ * folder — the same rule the server's disposition applies, so the two ends
+ * cannot name one download differently.
  */
 interface DownloadControl {
   projectId: string;
@@ -1291,18 +1288,18 @@ function CodeHead({
   previewingMarkdown: boolean;
   onToggleMarkdown: () => void;
 }): ReactElement {
+  // `selectedFolder === null` means the selection, if there is one, is a file.
   const open = previewPath(preview);
-  const selection = open ?? (active === '' ? null : active);
-  const directory = open === null;
-  const label = open ?? (directory && selection !== null ? `${selection}/` : null);
+  const selectedFolder = open === null && active !== '' ? active : null;
+  const selection = open ?? selectedFolder;
 
   return (
     <header className="flex items-center gap-2 border-b border-line px-3 py-1">
-      {label === null || selection === null ? (
+      {selection === null ? (
         <span className="truncate font-mono text-[11px] text-ink-dim">no file selected</span>
       ) : (
         <span className="truncate font-mono text-[11px] text-ink" title={selection}>
-          {label}
+          {selectedFolder === null ? selection : `${selectedFolder}/`}
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2">
@@ -1310,7 +1307,7 @@ function CodeHead({
           <DownloadAnchor
             download={download}
             path={selection}
-            directory={directory}
+            directory={selectedFolder !== null}
             className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
           />
         )}
