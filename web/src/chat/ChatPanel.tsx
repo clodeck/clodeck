@@ -14,6 +14,7 @@ import { EntryView, StreamingBubble, formatInput } from './EntryView';
 import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
 import type { ChatView, TurnResult } from './reducer';
+import { useCommands } from './useCommands';
 import { SessionBrowser, TranscriptPanel, resumeTargetTitle, sessionTitle } from './SessionHistory';
 import { useChat, type ChatConnection } from './useChat';
 import { useProfiles } from './useProfiles';
@@ -53,7 +54,19 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
   // session may choose from is the project's — a project that pins its provider
   // is offered its tiers alone (ADR 0002).
   const profiles = useProfiles(project.id);
+  const commands = useCommands(project.id);
   const [browserOpen, setBrowserOpen] = useState(false);
+
+  /**
+   * What `/` may offer: the **run's** list the moment it has one — it is the
+   * authority on what this session can dispatch, and the only source that has
+   * Claude Code's own commands, which no file declares — and the project's own
+   * files until then, because before the first send there is no run to ask.
+   *
+   * The run's list is what answers after that, always: its list already contains
+   * everything the files declare, so the two are not alternatives but stages.
+   */
+  const offeredCommands = view.commands.length > 0 ? view.commands : commands.commands;
 
   /**
    * The profile this session runs on. It opens on the one remembered for this
@@ -239,6 +252,8 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
                 sendPrompt(prompt, profile);
               }}
               disabled={connection !== 'live'}
+              commands={offeredCommands}
+              onMenuOpen={commands.reload}
             />
           </div>
         </ChatColumn>

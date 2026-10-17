@@ -25,6 +25,8 @@ function labelOf(event: ServerEvent): string {
       return `approval_request:${event.payload.toolName}`;
     case 'snapshot':
       return `snapshot:${String(event.payload.blocks.length)}`;
+    case 'commands':
+      return `commands:${String(event.payload.commands.length)}`;
     case 'stream_status':
       return `stream_status:${event.payload.status}`;
     case 'error':
@@ -71,6 +73,13 @@ describe('@clodeck/shared', () => {
         payload: { state: 'running', blocks: [], pendingApprovals: [], lastSeq: 2 },
       }),
     ).toBe('snapshot:0');
+    expect(
+      labelOf({
+        ...base,
+        kind: 'commands',
+        payload: { commands: [{ name: 'code-review', description: 'Review the diff.' }] },
+      }),
+    ).toBe('commands:1');
     expect(labelOf({ ...base, kind: 'stream_status', payload: { status: 'turn_started' } })).toBe(
       'stream_status:turn_started',
     );

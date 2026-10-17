@@ -5,6 +5,7 @@ import type {
   SDKMessage,
   SessionMessage,
   SessionSummary,
+  SlashCommand,
 } from '@clodeck/shared';
 
 import type { SdkProvider, SdkRunInput } from '../sdk/provider.js';
@@ -26,6 +27,14 @@ export interface FakeProviderOptions {
   sessions?: readonly SessionSummary[];
   /** Canned `getSessionMessages` result. */
   sessionMessages?: readonly SessionMessage[];
+  /** Canned `supportedCommands()` result: what a started run reports it can dispatch. */
+  commands?: readonly SlashCommand[];
+  /**
+   * Make `supportedCommands()` reject instead of answering — a run whose list
+   * cannot be read, which must leave the client with what it already had rather
+   * than take the turn down.
+   */
+  commandsFail?: boolean;
   /**
    * Park every run's stream open after the scripted queue instead of returning.
    * A scripted turn otherwise drains inside a microtask — long before a second
@@ -69,6 +78,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   const scripted = options.messages ?? [];
   const sessions = options.sessions ?? [];
   const sessionMessages = options.sessionMessages ?? [];
+  const commands = options.commands ?? [];
   const inputs = createCallLog<SdkRunInput>();
   const modes = createCallLog<PermissionMode>();
   const interrupts = createCallLog<void>();
@@ -80,6 +90,10 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
 
       return {
         messages: streamMessages(scripted, endingFor(options, hold)),
+        async supportedCommands() {
+          if (options.commandsFail === true) throw new Error('scripted command-list failure');
+          return [...commands];
+        },
         async interrupt() {
           interrupts.record(undefined);
         },

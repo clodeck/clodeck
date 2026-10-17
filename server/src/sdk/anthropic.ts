@@ -18,6 +18,7 @@ import type {
   SDKMessage,
   SessionMessage,
   SessionSummary,
+  SlashCommand,
 } from '@clodeck/shared';
 
 import { narrowToMirror } from './mirror.js';
@@ -77,6 +78,9 @@ function startRun(input: SdkRunInput): SdkRun {
 
   return {
     messages: mirrorMessages(query),
+    // Annotated so the SDK's own row is checked against the mirror's wider one:
+    // a field the client reads and the SDK renames would fail the build here.
+    supportedCommands: async (): Promise<SlashCommand[]> => await query.supportedCommands(),
     async interrupt() {
       await query.interrupt();
     },

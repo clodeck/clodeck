@@ -2,8 +2,10 @@ import {
   PROTOCOL_VERSION,
   type ApprovalRequestPayload,
   type SDKMessage,
+  type SDKSystemInitMessage,
   type ServerEvent,
   type SessionMessage,
+  type SlashCommand,
 } from '@clodeck/shared';
 import { describe, expect, it } from 'vitest';
 
@@ -65,7 +67,7 @@ const turnStarted: ServerEvent = {
   payload: { status: 'turn_started' },
 };
 
-const init: SDKMessage = {
+const init: SDKSystemInitMessage = {
   type: 'system',
   subtype: 'init',
   session_id: SESSION,
@@ -626,5 +628,111 @@ describe('chat reducer — the resume target', () => {
     });
 
     expect(rejected.resumeTarget).toEqual({ sessionId: SESSION });
+  });
+});
+
+describe('chat reducer — the commands the menu offers', () => {
+  /** The run's own list, pushed as it starts: a control answer, not a message. */
+  function listed(commands: readonly SlashCommand[]): ServerEvent {
+    seq += 1;
+    return {
+      v: PROTOCOL_VERSION,
+      seq,
+      ts: '2026-01-01T00:00:00.000Z',
+      kind: 'commands',
+      payload: { commands },
+    };
+  }
+
+  /** The SDK's own mid-session push: the whole list, to replace what was cached. */
+  function changed(commands: readonly SlashCommand[]): SDKMessage {
+    return { type: 'system', subtype: 'commands_changed', session_id: SESSION, commands };
+  }
+
+  /** An init whose run binds some commands to its own terminal. */
+  function initWithTerminal(terminal: readonly string[]): SDKMessage {
+    return { ...init, terminal_slash_commands: terminal };
+  }
+
+  it('takes the run’s list from the push that starts it, and hands the menu its names', () => {
+    const view = apply(
+      emptyView(),
+      listed([{ name: 'code-review', description: 'Review the diff.', argumentHint: '[low|high]' }]),
+    );
+
+    expect(view.commands).toEqual([
+      { name: 'code-review', description: 'Review the diff.', argumentHint: '[low|high]' },
+    ]);
+  });
+
+  it('replaces the list on a commands_changed push, never merging into it', () => {
+    // The SDK's own words: "clients should REPLACE their cached command list".
+    // A merge would leave a command this session no longer has on offer.
+    const view = apply(
+      emptyView(),
+      listed([{ name: 'gone' }, { name: 'kept' }]),
+      sdk(changed([{ name: 'kept' }])),
+    );
+
+    expect(view.commands).toEqual([{ name: 'kept' }]);
+  });
+
+  it('hides the commands the run binds to its own terminal — in either order', () => {
+    // `/exit` and `/statusline` are real commands of a *local* terminal, and the
+    // SDK's own note on the field says a remote UI should hide them. clodeck is
+    // one, so the menu does.
+    const after = apply(
+      emptyView(),
+      sdk(initWithTerminal(['statusline'])),
+      listed([{ name: 'statusline' }, { name: 'clear' }]),
+    );
+    const before = apply(
+      emptyView(),
+      listed([{ name: 'statusline' }, { name: 'clear' }]),
+      sdk(initWithTerminal(['statusline'])),
+    );
+
+    expect(after.commands).toEqual([{ name: 'clear' }]);
+    expect(before.commands).toEqual([{ name: 'clear' }]);
+  });
+
+  it('reads the run’s list out of a snapshot, and lets a push inside it win', () => {
+    /** A snapshot as the bus stamps it, with the run's list in the field of its own. */
+    function opened(blocks: readonly SDKMessage[], commands: readonly SlashCommand[]): ServerEvent {
+      seq += 1;
+      return {
+        v: PROTOCOL_VERSION,
+        seq,
+        ts: '2026-01-01T00:00:00.000Z',
+        kind: 'snapshot',
+        payload: { state: 'idle', blocks, pendingApprovals: [], commands, lastSeq: 0 },
+      };
+    }
+
+    // The list is not a block, so it rides the snapshot in a field of its own —
+    // without it, a reconnect would drop the run's list and the menu would fall
+    // back to the project's files alone.
+    expect(apply(emptyView(), opened([], [{ name: 'restored' }])).commands).toEqual([
+      { name: 'restored' },
+    ]);
+
+    // Replying the session replays its blocks too, and a `commands_changed` the
+    // run pushed later in the session is fresher than the list recorded when it
+    // started — so the blocks are folded *after* the field.
+    const fresher = changed([{ name: 'fresher' }]);
+    expect(apply(emptyView(), opened([fresher], [{ name: 'stale' }])).commands).toEqual([
+      { name: 'fresher' },
+    ]);
+  });
+
+  it('drops a row with nothing to type, and invents no words for the rest', () => {
+    // Two doors onto this shape are the wire's: a row without a name is a slash
+    // and a blank, and a command whose file declared no description shows none.
+    const view = apply(
+      emptyView(),
+      listed([{ name: '' }, { name: '' }, { name: 'bare' }, { name: 'full', description: 'Does a thing.' }] as SlashCommand[]),
+    );
+
+    expect(view.commands).toEqual([{ name: 'bare' }, { name: 'full', description: 'Does a thing.' }]);
   });
 });

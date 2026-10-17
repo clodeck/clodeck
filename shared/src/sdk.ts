@@ -19,6 +19,8 @@
  * ignored by the client.
  */
 
+import type { SlashCommand } from './commands.js';
+
 /** The SDK's permission modes (research 01 §5). */
 export type PermissionMode =
   | 'default'
@@ -161,10 +163,34 @@ export interface SDKSystemInitMessage {
   permissionMode: PermissionMode;
   tools: readonly string[];
   slash_commands?: readonly string[];
+  /**
+   * The subset of `slash_commands` whose UX is bound to the local terminal
+   * (`exit`, `statusline`, …). The SDK's own words: "Phone/remote UIs should
+   * hide these from command menus" — clodeck is exactly such a UI, so the menu
+   * drops them (ticket 75).
+   */
+  terminal_slash_commands?: readonly string[];
   output_style?: string;
   skills?: readonly string[];
   mcp_servers?: readonly { name: string; status: string }[];
   uuid?: string;
+}
+
+/**
+ * The full command list, pushed when it *changes* mid-session — a skill found
+ * as the agent works, a skill installed on disk while a run is open.
+ *
+ * It is a replace, not a merge, in the SDK's own words: "clients should REPLACE
+ * their cached command list with this payload". A run that has just started
+ * sends no such push (checked against the SDK), which is why the current run's
+ * list is also *asked for* — `supportedCommands()`, `server/src/sdk/provider.ts`.
+ */
+export interface SDKSystemCommandsChangedMessage {
+  type: 'system';
+  subtype: 'commands_changed';
+  commands: readonly SlashCommand[];
+  uuid?: string;
+  session_id: string;
 }
 
 /** Long-running status ("compacting…", "requesting…"). */
@@ -286,6 +312,7 @@ export type SDKMessage =
   | SDKSystemInitMessage
   | SDKSystemStatusMessage
   | SDKSystemSessionStateChangedMessage
+  | SDKSystemCommandsChangedMessage
   | SDKSystemOtherMessage
   | SDKAssistantMessage
   | SDKUserMessage

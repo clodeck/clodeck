@@ -6,6 +6,7 @@ import type {
   ServerEvent,
   SessionMessage,
   SessionState,
+  SlashCommand,
   SnapshotPayload,
 } from '@clodeck/shared';
 
@@ -112,6 +113,26 @@ export interface ChatView {
    * solely so the user can see what a send is about to continue (ticket 11).
    */
   resumeTarget: ResumePayload | null;
+  /**
+   * The commands the **run** says it can dispatch — built-ins included, which
+   * is what makes this list different from the project's own files. It is a
+   * *replacement* on every arrival, never a merge: the SDK's own words are
+   * "clients should REPLACE their cached command list with this payload", and a
+   * list that never shrank would offer commands a session no longer has.
+   *
+   * Empty means the run has said nothing yet, which is every chat before it
+   * sends — the state in which the menu falls back to the project's files
+   * (ticket 75).
+   */
+  commands: readonly SlashCommand[];
+  /**
+   * The names the run binds to its own **terminal** (`exit`, `statusline`, …),
+   * out of `init`. They are commands, and they are not this UI's: the SDK's own
+   * note is that a remote surface should hide them, and clodeck is one. Kept
+   * here rather than subtracted on arrival because the run may announce them
+   * before or after a list, so both orders have to come out the same.
+   */
+  terminalCommands: readonly string[];
 }
 
 export function emptyView(): ChatView {
@@ -129,6 +150,8 @@ export function emptyView(): ChatView {
     pendingApprovals: [],
     lastError: null,
     resumeTarget: null,
+    commands: [],
+    terminalCommands: [],
   };
 }
 
@@ -155,6 +178,10 @@ function foldEvent(view: ChatView, event: ServerEvent): ChatView {
       return fromSnapshot(event.payload);
     case 'approval_request':
       return withApproval(view, event.payload);
+    case 'commands':
+      // The run's own list, pushed as it starts. Not an SDK message: the list is
+      // a control answer, and only a *change* to it travels in the stream.
+      return withCommands(view, commandsOf(event.payload.commands));
     case 'stream_status':
       return withStreamStatus(view, event.payload.status);
     case 'error':
@@ -177,6 +204,10 @@ function fromSnapshot(payload: SnapshotPayload): ChatView {
     ...emptyView(),
     state: payload.state,
     pendingApprovals: [...payload.pendingApprovals],
+    // The run's list, kept outside the blocks because it never travelled as one.
+    // It goes in *before* the blocks, so a `commands_changed` the run pushed
+    // later in the session — replayed among them — is the one that stands.
+    commands: commandsOf(payload.commands),
   };
   for (const block of payload.blocks) {
     view = applySdkMessage(view, block);
@@ -236,13 +267,21 @@ type SystemMessage = Extract<SDKMessage, { type: 'system' }>;
 
 function applySystem(view: ChatView, message: SystemMessage): ChatView {
   switch (message.subtype) {
-    case 'init':
+    case 'init': {
+      const terminalCommands = namesOf(prop(message, 'terminal_slash_commands'));
       return {
         ...view,
         sessionId: str(prop(message, 'session_id')) ?? view.sessionId,
         cwd: str(prop(message, 'cwd')) ?? view.cwd,
         model: str(prop(message, 'model')) ?? view.model,
+        // A list that arrived before the init is filtered again here: which
+        // commands belong to a terminal is the one thing only the init says.
+        terminalCommands,
+        commands: withoutTerminalCommands(view.commands, terminalCommands),
       };
+    }
+    case 'commands_changed':
+      return withCommands(view, commandsOf(prop(message, 'commands')));
     case 'status':
       return { ...view, status: str(prop(message, 'status')) };
     case 'session_state_changed': {
@@ -436,6 +475,71 @@ export function applySessionMessage(view: ChatView, message: SessionMessage): Ch
         : applyUserBlock(next, block, parentToolUseId);
   }
   return next;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The command list (the `/` menu, once a run has started)                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Replaces the menu's list. Replace is the only answer the SDK allows here:
+ * "clients should REPLACE their cached command list with this payload". A list
+ * that never shrank would go on offering commands a session no longer has, and
+ * an *empty* replacement is a legitimate one — a run that says it has no
+ * commands offers none, and the menu falls back to the project's own files.
+ */
+function withCommands(view: ChatView, commands: readonly SlashCommand[]): ChatView {
+  return { ...view, commands: withoutTerminalCommands(commands, view.terminalCommands) };
+}
+
+/**
+ * The rows minus the commands the run binds to its own terminal (`/exit`,
+ * `/statusline`). They are real commands and they mean nothing in a browser —
+ * "Phone/remote UIs should hide these from command menus" is the SDK's own note
+ * on the field that lists them — so this is the one place a *whole kind* of
+ * command is dropped rather than the exception to "offer them all".
+ */
+function withoutTerminalCommands(
+  commands: readonly SlashCommand[],
+  terminal: readonly string[],
+): readonly SlashCommand[] {
+  return terminal.length === 0 ? commands : commands.filter((command) => !terminal.includes(command.name));
+}
+
+/**
+ * The command rows as they arrive, from any of the three doors onto them — the
+ * protocol's `commands` event, a raw SDK push, and the REST route the menu
+ * reads before a run exists (`useCommands.ts`, which imports this rather than
+ * reading the same shape a second time).
+ *
+ * The wire is untrusted, so every row is read field by field. A name is the one
+ * field a row cannot do without: without it there is nothing to type, and the
+ * row is dropped rather than rendered as a slash and a blank.
+ */
+export function commandsOf(value: unknown): SlashCommand[] {
+  if (!Array.isArray(value)) return [];
+
+  const commands: SlashCommand[] = [];
+  for (const row of value) {
+    if (typeof row !== 'object' || row === null) continue;
+
+    const name = str(prop(row, 'name'));
+    if (name === null || name === '') continue;
+
+    const command: SlashCommand = { name };
+    const description = str(prop(row, 'description'));
+    if (description !== null && description !== '') command.description = description;
+    const argumentHint = str(prop(row, 'argumentHint'));
+    if (argumentHint !== null && argumentHint !== '') command.argumentHint = argumentHint;
+
+    commands.push(command);
+  }
+  return commands;
+}
+
+/** The string members of a list, as the init's `terminal_slash_commands` arrives. */
+function namesOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 /* -------------------------------------------------------------------------- */

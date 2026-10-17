@@ -9,6 +9,7 @@
  * - `protocol.ts` — the ServerEvent / ClientMessage envelopes.
  * - `sdk.ts` — structural mirrors of the Agent SDK messages the client renders
  *   (no dependency on the SDK itself; that stays server-only).
+ * - `commands.ts` — one command a session can type, as the `/` menu lists it.
  * - `provider.ts` — the provider a run executes on (endpoint, credential, model).
  * - `session.ts` — the session-history shapes the two REST endpoints serve.
  * - `files.ts` — the file-drawer shapes the file-viewer endpoints serve.
@@ -18,6 +19,7 @@
  * carries them, so the chat slice never re-models them.
  */
 export * from './auth.js';
+export * from './commands.js';
 export * from './files.js';
 export * from './project.js';
 export * from './protocol.js';
