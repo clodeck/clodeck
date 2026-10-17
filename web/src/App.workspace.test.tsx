@@ -116,6 +116,62 @@ describe('the workspace drawer', () => {
 });
 
 /**
+ * The phone's project drawer (ticket 77). On a narrow screen the sidebar is an
+ * off-canvas overlay, so it needs a door in and three ways out — a pick, the
+ * scrim, and Escape. jsdom lays nothing out and evaluates no media query, so
+ * whether the overlay is *off screen* is the browser spec's business; what is
+ * pinned here is the open/closed state the four controls share.
+ */
+describe('the project overlay', () => {
+  const scrim = (): HTMLElement | null => screen.queryByRole('button', { name: 'Close projects' });
+
+  it('is shut on first load and opens from the stage bar', () => {
+    render(workspace(null));
+
+    expect(scrim()).toBeNull();
+    const open = screen.getByRole('button', { name: 'Open projects' });
+    expect(open.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(open);
+
+    expect(scrim()).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Open projects' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('closes on the scrim', () => {
+    render(workspace(null));
+    fireEvent.click(screen.getByRole('button', { name: 'Open projects' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close projects' }));
+
+    expect(scrim()).toBeNull();
+  });
+
+  it('closes on Escape, and only while it is open', () => {
+    render(workspace(null));
+
+    // Nothing is listening while the overlay is shut: the chat's Escape stays
+    // the chat's.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(scrim()).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open projects' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(scrim()).toBeNull();
+  });
+
+  it('closes when a project is picked, which is what it is for', () => {
+    render(workspace(null));
+    fireEvent.click(screen.getByRole('button', { name: 'Open projects' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'demo' }));
+
+    expect(scrim()).toBeNull();
+  });
+});
+
+/**
  * The rail *before* a project is chosen (ticket 57). The drawer lives inside the
  * stage and is built from a project, so a tab recorded with none selected could
  * never be drawn: the click did nothing visible, and the drawer then opened

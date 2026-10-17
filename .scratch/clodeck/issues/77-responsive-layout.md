@@ -9,7 +9,7 @@ layout ra baraye mobile reflow mikone — **faqat layout**, bedoone gesture ya t
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Category:** enhancement
 
@@ -47,14 +47,14 @@ drawer rā be full-screen sheet tabdil mikonad; desktop dast-nakhorde mimānad.
 - Bottom nav va composer bayad safe-area inset rā be-kar begirand.
 
 **Acceptance criteria:**
-- [ ] Dar 360×640 hich horizontal scroll-i nist (chat, session history, file drawer, terminal).
-- [ ] Zir-e 768px: rail be bottom nav tabdil mishavad va hamoon se action rā dārad; sidebar penhan ast ta
+- [x] Dar 360×640 hich horizontal scroll-i nist (chat, session history, file drawer, terminal).
+- [x] Zir-e 768px: rail be bottom nav tabdil mishavad va hamoon se action rā dārad; sidebar penhan ast ta
       baz beshavad; ba scrim/Escape/entekhab-e project baste mishavad.
-- [ ] Zir-e 768px: baz-kardan-e terminal ya files chat rā mipushānad va yek close control-e vāzeh dārad.
-- [ ] Composer va send button dar 360px kamel ghabele-dastresi hastand.
-- [ ] Yek Playwright e2e ba viewport-e 360×640 in reflow rā pooshish midahad.
-- [ ] Dar ≥768px layout va test-haye mojood bedoone taghir pass mishavand.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Zir-e 768px: baz-kardan-e terminal ya files chat rā mipushānad va yek close control-e vāzeh dārad.
+- [x] Composer va send button dar 360px kamel ghabele-dastresi hastand.
+- [x] Yek Playwright e2e ba viewport-e 360×640 in reflow rā pooshish midahad.
+- [x] Dar ≥768px layout va test-haye mojood bedoone taghir pass mishavand.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Touch gesture-ha (swipe, long-press, pinch) va touch-specific context menu-ha.
