@@ -1,68 +1,88 @@
-# Handoff — clodeck: the loop's own tooling is under the typecheck and the suite
+# Handoff — clodeck: the composer has a `/` menu, and `/clear` finally clears
 
-**Updated:** 2026-10-15
-**Where the tree is:** with tickets **59, 66, 71 and 72** merged `--no-ff` and their branches deleted, on
-top of the ticket-loop runbook (`8b69ba1`). **`739dca5`** is *Merge ticket 72: the loop's tooling comes
-under the typecheck and the suite*, and **the merge immediately after it is the one that put this file
-on `main`** — read `git log --oneline -3` rather than trusting a SHA written here, since the handoff
-cannot name its own merge commit. The 72 branch was cut from `docs/handoff-71`, so merging it brought
-that branch's commits with it and `docs/handoff-71` is gone too; `docs/handoff-72` and
-`docs/handoff-72-main-sha` went the same way. Nothing is pushed: `main` is ahead of `origin/main` and
-staying that way until someone says otherwise — `git rev-list --count origin/main..main` has the number,
-which a handoff cannot keep.
+**Updated:** 2026-10-17
+**Where the tree is:** with tickets **75 and 76** merged `--no-ff` and their branches deleted, on top of
+the 2026-10-15 loop handoff. **The two merge commits are `5e08435` and `47a3768`**, and **the merge
+immediately after them is the one that put this file on `main`** — read `git log --oneline -3` rather
+than trusting a SHA written here, since the handoff cannot name its own merge commit. The 76 merge
+needed one hand resolution, because both branches added a caller to the same two seams (see **The
+merge** below). **This handoff is pushed with them**, so the live server can pull; how far `main` runs
+ahead afterwards is `git rev-list --count origin/main..main`, which a handoff cannot keep. The server's
+update stays `git pull && npm ci && npm run build && sudo systemctl restart clodeck`
+(`scripts/deploy-clodeck.sh:816`) — a pull alone changes nothing, because the unit runs the compiled
+`dist/main.js` — and a restart drops every session.
 
 ## What this phase is
 
-**Ticket 72 is the loop's own housekeeping: the two files the loop runs on were the only code in the
-repo nothing checked.** `.sandcastle/main.mts` and `scripts/tickets.mjs` sat outside every workspace
-`tsconfig` and outside `npm test`, and the bill for that was concrete — ticket 71 added `--ticket`,
-the flag two lanes depend on, and its only test was a person running it by hand; one strict-mode error
-had been sitting at `main.mts:132` because nothing compiled the file.
+**A feature and the bug it exposed, both decided in one grilling session and both built by the loop.**
+The feature is the composer's `/` menu: `/` lists the session's own commands, filtered by every
+character typed, and an entry inserts rather than sends. The bug is the one the grilling turned up on
+the way past — clodeck dropped the SDK's `conversation_reset`, so a `/clear` left the pre-clear
+transcript on screen and a reconnect spliced the two together.
 
-What it looks like from outside: **`npm run typecheck` and `npm test` now cover the tooling**, and
-`npm test` grew a first step, `test:tooling` (2 files, 11 tests, ~180 ms) before the three workspace
-suites, which are untouched — the include patterns name `.sandcastle/*.test.mts` and
-`scripts/*.test.mts` one level deep, so nothing is collected twice and a leftover worktree cannot drag
-a copy of the repo into the run. The tracker takes the directory it reads, so its tests run over a
-fixture directory rather than over this effort's own tickets.
+**Ticket 75 was charted from the grilling, not from a build run.** Eleven decisions were settled before
+any code existed, and the two that decided the shape were measurements rather than opinions: the run is
+**lazy** (`startRun` ← `provider.query` ← `sendPrompt` ← `bus.ts:123`, one path), so no `init` can
+arrive before the first send; and `Query.supportedCommands()` needs no prompt, so the SDK's list is
+authoritative as soon as a run exists.
 
-## What the merged branch changes
+**The menu never becomes a second way to send.** `/name` already worked as prompt text; the menu makes
+it discoverable. It adds nothing to the send path.
+
+## What the merged branches change
 
 | File | What it now does |
 |---|---|
-| `tsconfig.tooling.json` | new: the strict baseline (`strict`, `noUncheckedIndexedAccess`, …) over `.sandcastle/*.mts` and `scripts/`, with `allowJs` + `checkJs`. `.sandcastle/` is matched **one level deep** so `worktrees/` — a whole copy of the repo — is never typechecked |
-| `vitest.config.mts` | new: the root runner. `npm test` calls it as `test:tooling` before the workspaces; `npm run typecheck` calls `typecheck:tooling` first. Root `devDependencies` gained `vitest`, `typescript`, `@types/node` (they were only hoisted before, which is not a thing to rely on) |
-| `.sandcastle/queue.mts` | new: **the host-side choice — which tickets a run will work on — out of `main.mts`**, which reads git config and creates a sandbox as it loads and so cannot be imported. The tracker and the branch list arrive as two ports (`TicketSource`, `Branches`), each with a real implementation that shells out (`ticketTracker()`, `gitBranches()`); `pinnedQueue`, `nextTicket`, `branchOf` and the types moved here unchanged |
-| `.sandcastle/main.mts` | now the loop *only*: it builds its two ports and calls `pinnedQueue(...)` with them, and `passTicket()` asks `nextTicket(tickets, branches)`. `main.mts:132` is fixed by narrowing (`?.[1]?.trim()`), not a cast. The local report list is `waitingBranches` (the name `branches` now belongs to the port) |
-| `scripts/tickets.mjs` | every exported function takes the directory as its last argument, `CLODECK_ISSUES_DIR` moves the default, and the CLI keeps using the default. Its command line moved into `main(argv)` and **runs only when the file is the process's entry point** — until then, importing it for a test ran the CLI and called `process.exit(1)`. The "no ticket" wording is one `noTicket(id, dir)` shared by the verdict, the close and the CLI |
-| `scripts/tickets.test.mts`, `.sandcastle/queue.test.mts` | new: 11 tests, all on behaviour — the four readiness outcomes (ready / blocked / resolved / no such id), the queue's skip report, the CLI driven over a fixture directory through `CLODECK_ISSUES_DIR`, and a pinned run's four answers: the order given, and a refusal with the tracker's own reason, for a ticket pinned twice, or for a branch that is already there |
-| `.sandcastle/README.md` | the tracker paragraph gained where the choice now lives, where the tooling tests run, and how the tracker's directory is moved |
-| `.scratch/clodeck/issues/72-…` | the ticket, resolved, with a note on the import-time CLI it turned up and on the two review findings |
+| `shared/src/commands.ts` | new: `SlashCommand` — one shape for the three places a command travels (the SDK mirror, the protocol payload, the disk route) |
+| `shared/src/sdk.ts` | `SDKSystemCommandsChangedMessage`, `terminal_slash_commands` on `init`, and the mirrored `conversation_reset` |
+| `shared/src/protocol.ts` | a new `commands` kind and `SnapshotPayload.commands?` — absent while the run has listed nothing |
+| `server/src/commands.ts` | new: `GET /api/projects/:id/commands` and the disk reader — skills, `.claude/commands/**` with `:` namespacing, a small frontmatter subset, `user-invocable: false`, parents up to `PROJECTS_ROOT`, no cache |
+| `server/src/discovery.ts` | `canonicalRoot()` — the one accessor for the one reader that walks *above* a project and stops at the root |
+| `server/src/sdk/{provider,anthropic}.ts` | `SdkRun.supportedCommands()`; `commands_changed` annotated in the mirror (the compile-time pin) |
+| `server/src/ws/turn-manager.ts` | `listCommands()` once per run, broadcast as `commands`; `forgetTranscript()` — the one spelling of "the run forgets this conversation", with two callers: `clear_resume` and the SDK's `conversation_reset` |
+| `web/src/chat/reducer.ts` | folds `commands`/`commands_changed` by **replace**, filters `terminal_slash_commands`, and resets to `runState()` on `conversation_reset` |
+| `web/src/chat/{useCommands.ts,CommandMenu.tsx}` | fetch on mount and on every open; the listbox panel with substring matching |
+| `web/src/chat/{Composer,ChatPanel}.tsx` | the token/caret trigger, the keyboard, insert and hint; the source choice (the run's list if it has one, the project's files otherwise) |
+| `web/e2e/command-menu.spec.ts` | the browser spec; it builds and cleans up its own fixture (`zz-e2e-menu.md`) |
+| `.scratch/clodeck/evidence/75-command-menu*.png` | two screenshots: the disk list and the run's list |
 
-**The decision the ticket asked for, with its reason:** **the tracker stays `.mjs` and is checked with
-`checkJs`.** The implement prompt runs it as `node scripts/tickets.mjs` **inside the sandbox**, where
-nothing but Node is guaranteed (the image's own comment says so), and the loop shells out to the same
-path on the host. Migrating it to TypeScript would ask a loader of both doors to buy JSDoc-type
-inference it already has.
+**Measurements the implement agent took against the real SDK** — they answer what the ticket could not:
+`commands_changed` does **not** push at start (so `supportedCommands()` is not optional); the SDK
+itself hides `user-invocable: false` skills; parent `.claude/skills` really do load; a skill's
+frontmatter `name` outranks its directory, but a command file's `name:` changes nothing;
+`disable-model-invocation: true` does **not** hide a command from `/`; and a real session reports
+**70 commands** with `/doctor`, `/color`, `/focus` and `/reload-plugins` absent because they are
+`terminal_slash_commands` — the client filter is tested against that data, not a guess.
 
-**Evidence:** `npm run typecheck` clean through the pre-commit hook; `npm test` → tooling **11**,
-shared **9**, server **276** passed + 8 skipped, web **202** (22 files) — the same three workspace
-counts as before the change. The loop's refusals were re-run after the split and are word for word
-what they were: `--ticket 9999` (`no ticket 9999 under .scratch/clodeck/issues`), `--ticket 65
---ticket 65`, `--ticket 72` on its own branch, and a typo'd flag. The tracker CLI was driven over a
-fixture directory too, which is how the `view` message was caught naming the wrong one.
+## The merge
+
+Both branches added a caller to the same two seams, so the merge conflicted in `turn-manager.ts` and
+`reducer.ts` and was resolved by hand, keeping both features:
+
+- `forgetTranscript` (76) stays the one spelling of the reset and now also clears `state.commands`, the
+  list 75 put on the run: the list belongs to the session that reported it, and the next run reports
+  its own.
+- `fromSnapshot` builds on 76's `runState(...)` and seeds 75's `commands` on top of it, still before
+  the blocks, so a later `commands_changed` replayed among them is the one that stands.
+
+**Evidence:** `npm run typecheck` clean and `npm test` green through the pre-commit hook on both merge
+commits — tooling **25**, shared **10**, server **374** passed + 8 skipped, web **261** (29 files).
 
 ## What was **not** run, and what it costs
 
-- **Two lanes have still never been run end to end**, and this ticket did not change that: the flag is
-  still new, and the first pair belongs on the machine that will host the loop (see the previous
-  handoff's account, kept below, and `.sandcastle/README.md`).
-- **The new suite has only ever run on this Windows host.** Every sandbox pass now runs it through the
-  pre-commit hook, inside the container — which has not happened yet, because no pass has been run
-  since. Nothing about it looks host-specific (no shell, no paths, node only) but the first pass is
-  where that gets confirmed.
-- **`npm test` grew ~200 ms** for the tooling step. That is the cost of the ticket, and it is paid on
-  every commit through the hook.
+- **The merged tree has not been through a browser.** Ticket 75's implement pass took its own browser
+  evidence (the two screenshots above) and wrote `web/e2e/command-menu.spec.ts`, but nobody ran
+  `npm run e2e` after the merge. The six specs still need `PORT=3300 npm run dev` (or `dev:fake`) and
+  `UI_PASSWORD`; the unit suites cover both features separately and together, and the browser check of
+  the *combination* is the gap.
+- **The reset path has no browser spec of its own.** `conversation_reset` is covered by
+  `server/src/ws/bus.test.ts` and `web/src/chat/reducer.test.ts`, not by a real session typing
+  `/clear`.
+- **The two-lane collision from the 2026-10-15 handoff is unchanged.** This run was one process with
+  two pinned tickets (`--ticket 75 --ticket 76`), not two shells — but the run itself went through on
+  this Windows host: a container, an `npm ci` and both agents per pass.
+- **`npm test` grew ~200 ms** for the tooling step, and the two new suites add a little more. That is
+  the cost, paid on every commit through the hook.
 
 ## The loop, as it stands now
 
@@ -82,15 +102,17 @@ fixture directory too, which is how the `view` message was caught naming the wro
 
 ## Where the frontier is
 
-**Ready to start now:** **60** (the web root resolves to the built client), **61** (`npm run serve`,
-with a preflight), **62** (the login screen says the connection is not encrypted), **64** (the direct
-route, verified in a browser), **65** (the login lockout behind a proxy — the operator's decision to
-take), **67** (the provider seam takes its options per run).
-**Blocked:** 63 by 60, 61, 62; 68 by 67; 69 by 68; 70 by 69.
+**Nothing is ready.** Every ticket under `.scratch/clodeck/issues/` is `resolved` through **76**, so
+`node scripts/tickets.mjs list` prints an empty queue and `npm run sandcastle` has nothing to pick up
+until a new ticket is written. The next move is a new decision, not a backlog item:
 
-The direct-route slice (58–65) and the provider profiles (66–70) are the two live threads, and the loop
-can work two of them at once — which is what 71 was for, and 72 is what makes trusting that loop
-cheaper.
+- **Eager session start** — spawn the run when a chat opens, so built-ins appear on a `/` pressed on an
+  empty chat — is recorded in ticket 75 as deliberately out of scope: it changes what "New chat" means
+  (74) and wants its own ticket.
+- **`npm run e2e` against the merged tree**, and a browser look at `/clear`, are the two verifications
+  this phase left for whoever picks it up.
+
+Otherwise a new phase starts where this one did: a grilling, then a ticket.
 
 ## Dev loop (unchanged, still load-bearing)
 
@@ -112,15 +134,17 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   `npm run typecheck` and `npm test`. There is no CI; the hook is why a red tree cannot be committed.
   `--no-verify` only if the user asks. **Since 72 it covers the loop's own files too** — the hook is
   what ran the new tooling suite for the first time on the commit that added it.
-- **The browser loop is real, and it is five specs** (`web/e2e/`): `project-switch.spec.ts`,
-  `file-upload.spec.ts`, `file-download.spec.ts`, `file-move.spec.ts`, `code-view.spec.ts`, sharing
-  `support.ts` (typechecked too). All five need `PORT=3300 npm run dev` (or `dev:fake`) already up, plus
+- **The browser loop is real, and it is six specs** (`web/e2e/`): `project-switch.spec.ts`,
+  `file-upload.spec.ts`, `file-download.spec.ts`, `file-move.spec.ts`, `code-view.spec.ts`,
+  `command-menu.spec.ts` (new in 75 — it makes and cleans up its own `zz-e2e-menu.md`, and leaves a
+  folder that was already there alone), sharing `support.ts` (typechecked too). All six need
+  `PORT=3300 npm run dev` (or `dev:fake`) already up, plus
   `UI_PASSWORD`, and they drive the `demo` project, cleaning up what they make. A spec that fails
   mid-test leaves its files in `demo`, and the next run then fails on a `409` that has nothing to do
   with the code: clear `zz-*` out of `D:/work/clodeck-projects/demo` before believing a red run.
 - **A docs-only or handoff-only change is not exempt from branching** — this file travelled on
-  `docs/handoff-72`, exactly as `AGENTS.md` says. Merging is still `--no-ff` and still the user's call,
-  except that this time they made it in advance.
+  `docs/handoff-75-76`, exactly as `AGENTS.md` says. Merging is still `--no-ff` and still the user's
+  call — this time they asked for the handoff and the push in one breath.
 
 ## Behaviour that is still load-bearing (from 44/45/47, untouched since)
 
@@ -210,5 +234,6 @@ trusting it.
 `AGENTS.md` carries them: Finglish-with-Latin-letters for the user, branch first and **stop at the
 merge** unless asked (`git switch main && git merge --no-ff <branch>`), one commit per coherent change,
 and the standing decisions — the Variant A layout, the D3-promoted MVP scope, file access scoped to the
-project root, **a project can be created from the UI**, and **per-session provider profiles** (66, with
-endpoint and credential travelling together).
+project root, **a project can be created from the UI**, **per-session provider profiles** (66, with
+endpoint and credential travelling together), and **the composer's `/` menu** (75) — the session's own
+commands, never clodeck's own buttons.
