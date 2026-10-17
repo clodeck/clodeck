@@ -167,7 +167,7 @@ export function Workspace({
             its controls out of the tab order while it is shut. Desktop pins it
             back into the row as the same `w-72` column it always was. */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel transition-transform md:static md:z-auto md:w-72 md:max-w-none md:shrink-0 md:translate-x-0 md:visible md:transition-none ${
+          className={`fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel transition-transform md:static md:z-auto md:max-w-none md:shrink-0 md:translate-x-0 md:visible md:transition-none ${
             sidebarOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'
           }`}
         >
@@ -329,7 +329,7 @@ function WorkspaceNav({
   return (
     <nav
       aria-label="Workspace"
-      className="order-last flex shrink-0 flex-row items-stretch justify-around gap-1 border-t border-line bg-panel px-2 pt-1 pb-[env(safe-area-inset-bottom)] md:order-none md:w-[52px] md:flex-col md:items-center md:justify-start md:gap-1 md:border-t-0 md:border-r md:px-0 md:pt-3 md:pb-0"
+      className="order-last flex shrink-0 flex-row items-stretch justify-around gap-1 border-t border-line bg-panel px-2 pt-1 pb-[env(safe-area-inset-bottom)] md:order-none md:w-[52px] md:flex-col md:items-center md:justify-start md:border-t-0 md:border-r md:px-0 md:pt-3 md:pb-0"
     >
       <span
         aria-hidden="true"

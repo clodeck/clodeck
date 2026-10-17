@@ -34,11 +34,6 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
   expect(Math.max(widths.document, widths.body)).toBeLessThanOrEqual(widths.viewport);
 }
 
-/** How wide the page is right now, for a failure that names the surface. */
-async function widthOf(page: Page): Promise<number> {
-  return page.evaluate(() => document.documentElement.scrollWidth);
-}
-
 test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen drawer', async ({
   page,
 }) => {
@@ -50,6 +45,7 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
 
   // --- The phone shell -----------------------------------------------------
   // The rail is the row along the bottom now, and it kept its three actions.
+  const nav = page.getByRole('navigation', { name: 'Workspace' });
   for (const name of ['Chat', 'Terminal', 'Files']) {
     await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
   }
@@ -57,15 +53,26 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
     'aria-pressed',
     'true',
   );
+  // The row spans the width and ends at the bottom edge. The rail it replaced
+  // was a 52px column down the left, so this is what says it reflowed.
+  const navBox = await nav.boundingBox();
+  if (navBox === null) throw new Error('the bottom nav drew nothing');
+  expect(navBox.x).toBe(0);
+  expect(navBox.width).toBe(WIDTH);
+  expect(navBox.y + navBox.height).toBe(HEIGHT);
 
-  // The sidebar is off canvas until its door is used: the project row exists,
-  // but a phone cannot see it and cannot tap it.
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeHidden();
+  // The sidebar is off canvas until its door is used: the project row has
+  // landed in the document, but a phone cannot see it and cannot tap it. The
+  // `toBeAttached` is load-bearing — `toBeHidden` alone also passes for a row
+  // the list has not delivered yet, which would make this assertion vacuous.
+  const projectRow = page.getByRole('button', { name: 'demo', exact: true });
+  await expect(projectRow).toBeAttached();
+  await expect(projectRow).toBeHidden();
   await expectNoHorizontalScroll(page);
 
   // --- The overlay's door and its scrim ------------------------------------
   await door.click();
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeVisible();
+  await expect(projectRow).toBeVisible();
   await expectNoHorizontalScroll(page);
 
   // The scrim is the way back: the overlay shuts and takes its row with it.
@@ -74,24 +81,24 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
   await page
     .getByRole('button', { name: 'Close projects' })
     .click({ position: { x: WIDTH - 12, y: HEIGHT / 2 } });
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeHidden();
+  await expect(projectRow).toBeHidden();
 
   // --- A project pick also shuts it ----------------------------------------
   await door.click();
-  await page.getByRole('button', { name: 'demo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeHidden();
+  await projectRow.click();
+  await expect(projectRow).toBeHidden();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('demo');
 
   // --- Escape also shuts it ------------------------------------------------
   await door.click();
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeVisible();
+  await expect(projectRow).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'demo', exact: true })).toBeHidden();
+  await expect(projectRow).toBeHidden();
 
   // --- History, over the width -------------------------------------------
   await page.getByRole('button', { name: 'History', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Close session history' })).toBeVisible();
-  expect(await widthOf(page)).toBeLessThanOrEqual(WIDTH);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(WIDTH);
   await page.getByRole('button', { name: 'Close session history' }).click();
 
   // --- The drawer is a full-screen sheet ----------------------------------
@@ -122,7 +129,7 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
   await expect(drawer).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
 
-  // --- The file drawer, stacked rather than squeezed ----------------------
+  // --- The file drawer is the same sheet ----------------------------------
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   await expect(page.locator('section[aria-label="Files"]')).toBeVisible();
   expect(await box()).toEqual({ x: 0, y: 0, width: WIDTH, height: HEIGHT });
