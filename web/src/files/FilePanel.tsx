@@ -117,6 +117,11 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
   const [moveError, setMoveError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const toast = useToast();
+  // The head and every row menu share one download action (ticket 78).
+  const download: DownloadControl = {
+    projectId: project.id,
+    onDownloaded: (name) => { toast(`downloaded ${name}`); },
+  };
 
   const moveControl: MoveControl = {
     dragging,
@@ -361,6 +366,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             menu={menu}
             actions={actions}
             moveControl={moveControl}
+            download={download}
             onMenu={setMenu}
             onRename={(path, initial) => { setMenu(null); setPrompt({ mode: 'rename', path, initial }); setPromptError(null); }}
             onDelete={(entry) => { setMenu(null); setConfirm(entry); setConfirmError(null); }}
@@ -368,17 +374,18 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
         </div>
       </div>
 
-      {/* The code column: the open file's path in the head, its bytes in the
-          body. The head's right-hand side is the file's action area — download,
-          the markdown mode switch, and the read-only ⇄ writable toggle. */}
+      {/* The code column: the open file's path — or the selected folder's — in
+          the head, its bytes in the body. The head's right-hand side is the
+          selection's action area: download, the markdown mode switch, and the
+          read-only ⇄ writable toggle. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <CodeHead
-          projectId={project.id}
+          active={activeDir}
+          download={download}
           preview={preview}
           actions={actions}
           previewingMarkdown={previewingMarkdown}
           onToggleMarkdown={toggleMarkdown}
-          onDownloaded={(name) => { toast(`downloaded ${name}`); }}
         />
         <div className="min-h-0 flex-1 overflow-auto">
           <PreviewBody preview={preview} actions={actions} previewingMarkdown={previewingMarkdown} />
@@ -469,6 +476,18 @@ interface MoveControl {
 }
 
 /**
+ * The download action the code head and every row menu share (ticket 78): the
+ * project the route sits under, and the one toast a download speaks through.
+ * The saved name is derived beside it — `<name>` for a file, `<name>.zip` for a
+ * folder — the same rule the server's disposition applies, so the two ends
+ * cannot name one download differently.
+ */
+interface DownloadControl {
+  projectId: string;
+  onDownloaded(name: string): void;
+}
+
+/**
  * Pick a file row up. Only `text/plain` is set — the prototype's own choice, and
  * load-bearing here: a drag advertising `Files` would read as an OS-file upload
  * to the panel's drop handler (ticket 38), and the two must never collide.
@@ -538,6 +557,7 @@ function ViewerBody({
   menu,
   actions,
   moveControl,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -547,6 +567,7 @@ function ViewerBody({
   menu: string | null;
   actions: FileViewerActions;
   moveControl: MoveControl;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -569,6 +590,7 @@ function ViewerBody({
           dirs={viewer.dirs}
           menu={menu}
           actions={actions}
+          download={download}
           onMenu={onMenu}
           onRename={onRename}
           onDelete={onDelete}
@@ -583,6 +605,7 @@ function ViewerBody({
           menu={menu}
           actions={actions}
           moveControl={moveControl}
+          download={download}
           onMenu={onMenu}
           onRename={onRename}
           onDelete={onDelete}
@@ -643,6 +666,7 @@ function FlatList({
   dirs,
   menu,
   actions,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -651,6 +675,7 @@ function FlatList({
   dirs: Record<string, DirListing>;
   menu: string | null;
   actions: FileViewerActions;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -680,6 +705,7 @@ function FlatList({
                     path={path}
                     menuOpen={menu === path}
                     actions={actions}
+                    download={download}
                     onMenu={onMenu}
                     onRename={onRename}
                     onDelete={onDelete}
@@ -700,6 +726,7 @@ function FlatRow({
   path,
   menuOpen,
   actions,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -708,6 +735,7 @@ function FlatRow({
   path: string;
   menuOpen: boolean;
   actions: FileViewerActions;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -735,6 +763,7 @@ function FlatRow({
         entry={entry}
         path={path}
         menuOpen={menuOpen}
+        download={download}
         onMenu={onMenu}
         onRename={onRename}
         onDelete={onDelete}
@@ -830,6 +859,7 @@ function TreeLevel({
   menu,
   actions,
   moveControl,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -842,6 +872,7 @@ function TreeLevel({
   menu: string | null;
   actions: FileViewerActions;
   moveControl: MoveControl;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -870,6 +901,7 @@ function TreeLevel({
                   menuOpen={menu === childPath}
                   actions={actions}
                   moveControl={moveControl}
+                  download={download}
                   onMenu={onMenu}
                   onRename={onRename}
                   onDelete={onDelete}
@@ -884,6 +916,7 @@ function TreeLevel({
                     menu={menu}
                     actions={actions}
                     moveControl={moveControl}
+                    download={download}
                     onMenu={onMenu}
                     onRename={onRename}
                     onDelete={onDelete}
@@ -911,6 +944,7 @@ function EntryRow({
   menuOpen,
   actions,
   moveControl,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -923,6 +957,7 @@ function EntryRow({
   menuOpen: boolean;
   actions: FileViewerActions;
   moveControl: MoveControl;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -978,6 +1013,7 @@ function EntryRow({
         entry={entry}
         path={path}
         menuOpen={menuOpen}
+        download={download}
         onMenu={onMenu}
         onRename={onRename}
         onDelete={onDelete}
@@ -1021,6 +1057,7 @@ function EntryActions({
   entry,
   path,
   menuOpen,
+  download,
   onMenu,
   onRename,
   onDelete,
@@ -1028,6 +1065,7 @@ function EntryActions({
   entry: FileEntry;
   path: string;
   menuOpen: boolean;
+  download: DownloadControl;
   onMenu: (path: string | null) => void;
   onRename: (path: string, initial: string) => void;
   onDelete: (entry: Confirm) => void;
@@ -1097,6 +1135,19 @@ function EntryActions({
             role="menu"
             className={`absolute ${hang} right-0 z-20 flex w-32 flex-col rounded border border-line bg-panel py-1 shadow-lg`}
           >
+            {/* A file's own bytes or a folder's zip (ticket 78) — the same
+                anchor the code head uses. An escaping symlink has nothing to
+                download, so it keeps Rename and Delete alone. */}
+            {entry.type !== 'symlink' && (
+              <DownloadAnchor
+                download={download}
+                path={path}
+                directory={entry.type === 'directory'}
+                role="menuitem"
+                className="px-3 py-1 text-left text-[11px] text-ink hover:bg-white/5"
+                onActivated={() => { onMenu(null); }}
+              />
+            )}
             <button
               type="button"
               role="menuitem"
@@ -1208,44 +1259,58 @@ function RowButton({
 /* -------------------------------------------------------------------------- */
 
 /**
- * The code column's head: which file this column is showing, and what can be
- * done to it. `no file selected` is the empty column's own label — the panel has
+ * The code column's head: which selection this column is showing, and what can
+ * be done with it. The open file wins; when nothing is open, the folder the user
+ * last picked (expanded in the tree, entered in the flat list) is the selection
+ * — so a folder has a Download anchor here too, not only in its row menu. The
+ * root is never a selection: it has no name to save and is never downloadable.
+ * `no file selected` remains the empty column's own label, because the panel has
  * no other empty state, so the head never disappears.
  *
  * Download sits outside the per-kind switch below because it answers a different
- * question: not "what can be done to these bytes" but "is there a file here at
- * all". Any selected entry can be downloaded — including one whose read failed
- * (the file's bytes never depended on the read) — so the only condition is that
- * something is selected.
+ * question: not "what can be done to these bytes" but "is there an entry here at
+ * all". Any selected entry can be downloaded — including a file whose read
+ * failed (its bytes never depended on the read) — and a folder downloads as a
+ * zip. The only condition is that something is selected.
  */
 function CodeHead({
-  projectId,
+  active,
+  download,
   preview,
   actions,
   previewingMarkdown,
   onToggleMarkdown,
-  onDownloaded,
 }: {
-  projectId: string;
+  active: string;
+  download: DownloadControl;
   preview: PreviewState;
   actions: FileViewerActions;
   previewingMarkdown: boolean;
   onToggleMarkdown: () => void;
-  onDownloaded: (name: string) => void;
 }): ReactElement {
-  const path = previewPath(preview);
+  // `selectedFolder === null` means the selection, if there is one, is a file.
+  const open = previewPath(preview);
+  const selectedFolder = open === null && active !== '' ? active : null;
+  const selection = open ?? selectedFolder;
 
   return (
     <header className="flex items-center gap-2 border-b border-line px-3 py-1">
-      {path === null ? (
+      {selection === null ? (
         <span className="truncate font-mono text-[11px] text-ink-dim">no file selected</span>
       ) : (
-        <span className="truncate font-mono text-[11px] text-ink" title={path}>
-          {path}
+        <span className="truncate font-mono text-[11px] text-ink" title={selection}>
+          {selectedFolder === null ? selection : `${selectedFolder}/`}
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-2">
-        {path !== null && <DownloadLink projectId={projectId} path={path} onDownloaded={onDownloaded} />}
+        {selection !== null && (
+          <DownloadAnchor
+            download={download}
+            path={selection}
+            directory={selectedFolder !== null}
+            className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+          />
+        )}
         <CodeActions
           preview={preview}
           actions={actions}
@@ -1258,37 +1323,53 @@ function CodeHead({
 }
 
 /**
- * The download control. It is a real anchor to the route — not a `fetch` and a
- * `Blob` — because the bytes have to come from the disk: the viewer's text is the
- * server's truncated window (and a binary file has no text at all), so building
- * the file out of what is on screen would save a damaged one. `download` names it
- * as the row does; the server's disposition names it the same way.
+ * The download control, shared by the code head and every row menu (ticket 78).
+ * It is a real anchor to the route — not a `fetch` and a `Blob` — because the
+ * bytes have to come from the disk: the viewer's text is the server's truncated
+ * window (and a binary file has no text at all), so building the file out of what
+ * is on screen would save a damaged one. `download` names it as the head and the
+ * server's disposition do; a folder is named `<name>.zip` to match.
  *
  * What it says afterwards is the honest half this side can see: the message
  * fires on the click, because a browser tells the page nothing about a download
  * finishing — `downloaded x` means it was handed over, not that the save landed.
  */
-function DownloadLink({
-  projectId,
+function DownloadAnchor({
+  download,
   path,
-  onDownloaded,
+  directory,
+  className,
+  role,
+  onActivated,
 }: {
-  projectId: string;
+  download: DownloadControl;
   path: string;
-  onDownloaded: (name: string) => void;
+  directory: boolean;
+  className: string;
+  role?: 'menuitem';
+  onActivated?: () => void;
 }): ReactElement {
-  const name = baseName(path);
+  const name = downloadName(path, directory);
 
   return (
     <a
-      href={downloadUrl(projectId, path)}
+      href={downloadUrl(download.projectId, path)}
       download={name}
-      onClick={() => { onDownloaded(name); }}
-      className="rounded border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-white/5"
+      role={role}
+      onClick={() => {
+        download.onDownloaded(name);
+        onActivated?.();
+      }}
+      className={className}
     >
       Download
     </a>
   );
+}
+
+/** The name a download saves under: the entry's own, plus `.zip` for a folder. */
+function downloadName(path: string, directory: boolean): string {
+  return directory ? `${baseName(path)}.zip` : baseName(path);
 }
 
 /** The open file's controls — the right-hand half of the code head. */

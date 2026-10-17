@@ -12,9 +12,10 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 
 import type { FileContent, FileEntry } from '@clodeck/shared';
+import { ZipFile } from 'yazl';
 
 /**
  * The root-scoped filesystem access (spec-04 §"The type fence"): the only thing
@@ -105,6 +106,15 @@ export interface ScopedFs {
    * because the point of it is to hand back the file exactly as it is on disk.
    */
   readStream(file: ScopedPath): Readable;
+  /**
+   * Stream a directory as a zip archive whose single top-level entry is
+   * `topName/` — so opening `src.zip` produces `src/`, not its contents loose at
+   * the archive's root. The walk adds every file from disk (never buffers the
+   * archive), keeps empty directories, and treats a symlink by its target when
+   * the target stays inside the root — skipping the link entirely when it
+   * escapes or is broken.
+   */
+  archive(dir: ScopedPath, topName: string): Promise<Readable>;
   /**
    * Validate a client-supplied relative path as a *write target* and mint the
    * only `WriteTarget` there is. `resolveWriteTarget` is the write door: it
@@ -199,6 +209,27 @@ export function createScopedFs(projectPath: string): ScopedFs {
     // already been followed and checked: there is no symlink left at this path
     // for the stream to escape through.
     return createReadStream(file);
+  }
+
+  /**
+   * The download route's other half (ticket 78). The walk happens first, while
+   * `addFile` only records a path — yazl opens the file when its turn comes — so
+   * the archive is assembled as the response is consumed and no file is ever
+   * held whole. `ancestors` is the current branch, not every path seen: a link
+   * to a sibling directory is a second entry of that subtree, while a link back
+   * to a directory it is already inside would recurse forever.
+   */
+  async function archive(dir: ScopedPath, topName: string): Promise<Readable> {
+    const zip = new ZipFile();
+    // yazl reports a read failure as an `error` event on the ZipFile, and an
+    // unhandled one would throw. Carry it to the stream the response is reading.
+    const output = new PassThrough();
+    zip.on('error', (error: Error) => { output.destroy(error); });
+    zip.outputStream.pipe(output);
+
+    await addDirectory(zip, root, dir, topName, new Set([dir]));
+    zip.end();
+    return output;
   }
 
   async function resolveWriteTarget(rel: string): Promise<WriteTargetResult> {
@@ -322,6 +353,7 @@ export function createScopedFs(projectPath: string): ScopedFs {
     listDir,
     readFile,
     readStream,
+    archive,
     resolveWriteTarget,
     createFile,
     createDirectory,
@@ -330,6 +362,66 @@ export function createScopedFs(projectPath: string): ScopedFs {
     move,
     remove,
   };
+}
+
+/**
+ * Add one real directory to `zip` under `entry`, then everything beneath it.
+ * `dir` is canonical — the caller starts from `resolve`'s answer and only ever
+ * descends through a non-link or a realpath'd target — so `path.join(dir, name)`
+ * needs no second containment check; the links met along the way are checked
+ * here, against the project root, before they become entries.
+ *
+ * A directory is always written, even when it holds nothing: that is how an
+ * empty folder survives a round trip. Names go in with `/` separators; yazl sets
+ * the UTF-8 flag on the way out, so a Persian name is not re-encoded.
+ */
+async function addDirectory(
+  zip: ZipFile,
+  root: string,
+  dir: string,
+  entry: string,
+  ancestors: Set<string>,
+): Promise<void> {
+  zip.addEmptyDirectory(entry);
+  const dirents = (await readdir(dir, { withFileTypes: true })).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+
+  for (const dirent of dirents) {
+    const full = path.join(dir, dirent.name);
+    const childEntry = `${entry}/${dirent.name}`;
+
+    if (dirent.isSymbolicLink()) {
+      // The link's target decides what is archived, as long as the target is
+      // still the project's: a link out of the root is neither followed nor
+      // included. The entry keeps the link's name either way.
+      const target = await realpathOrNull(full);
+      if (target === null || !isInsideRoot(root, target)) continue;
+
+      const kind = await kindOf(target);
+      if (kind === 'directory') {
+        if (ancestors.has(target)) continue;
+        ancestors.add(target);
+        await addDirectory(zip, root, target, childEntry, ancestors);
+        ancestors.delete(target);
+      } else if (kind === 'file') {
+        zip.addFile(target, childEntry);
+      }
+      continue;
+    }
+
+    if (dirent.isDirectory()) {
+      if (ancestors.has(full)) continue;
+      ancestors.add(full);
+      await addDirectory(zip, root, full, childEntry, ancestors);
+      ancestors.delete(full);
+      continue;
+    }
+
+    // Sockets, fifos and devices are not files or directories, and are skipped
+    // exactly as the listing skips them.
+    if (dirent.isFile()) zip.addFile(full, childEntry);
+  }
 }
 
 /**

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { MAX_UPLOAD_BYTES, type FileContent, type FileEntry } from '@clodeck/shared';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fromBuffer, type Entry } from 'yauzl';
 
 import { createProjectDiscovery } from '../discovery.js';
 import {
@@ -25,6 +26,49 @@ const win32 = process.platform === 'win32';
  */
 async function authed(app: FastifyInstance, options: InjectOptions): Promise<LightMyRequestResponse> {
   return app.inject({ ...options, headers: { ...options.headers, cookie: await login(app) } });
+}
+
+/**
+ * A zip response, unpacked into `entry name → bytes` (a directory entry maps to
+ * an empty buffer). The archive route streams from yazl, so reading it back with
+ * the matching reader is the only way to assert what a client would actually
+ * unzip — names, structure, the UTF-8 flag and the bytes all at once.
+ */
+function readZip(buffer: Buffer): Promise<Map<string, Buffer>> {
+  return new Promise((resolve, reject) => {
+    fromBuffer(buffer, { lazyEntries: true }, (error, zip) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+
+      const entries = new Map<string, Buffer>();
+      zip.on('error', reject);
+      zip.on('end', () => { resolve(entries); });
+      zip.on('entry', (entry: Entry) => {
+        if (entry.fileName.endsWith('/')) {
+          entries.set(entry.fileName, Buffer.alloc(0));
+          zip.readEntry();
+          return;
+        }
+
+        zip.openReadStream(entry, (streamError, stream) => {
+          if (streamError !== null) {
+            reject(streamError);
+            return;
+          }
+          const chunks: Buffer[] = [];
+          stream.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+          stream.on('end', () => {
+            entries.set(entry.fileName, Buffer.concat(chunks));
+            zip.readEntry();
+          });
+          stream.on('error', reject);
+        });
+      });
+      zip.readEntry();
+    });
+  });
 }
 
 /**
@@ -219,22 +263,100 @@ describe('the file read routes', () => {
       expect(response.rawPayload.equals(whole)).toBe(true);
     });
 
-    it('refuses what a read refuses: a missing file, the root, a directory, a bad path', async () => {
-      await mkdir(path.join(root, 'proj', 'dir'));
+    it('refuses a missing entry, the root, and a bad path; an unknown project is a 404', async () => {
       const app = makeApp();
       const pid = await id('proj');
       const url = (path: string): string =>
         `/api/projects/${pid}/files/download?path=${encodeURIComponent(path)}`;
 
       expect((await authed(app, { method: 'GET', url: url('gone.txt') })).statusCode).toBe(404);
+      // The root is never downloaded, whatever its contents.
       expect((await authed(app, { method: 'GET', url: url('') })).statusCode).toBe(400);
-      expect((await authed(app, { method: 'GET', url: url('dir') })).statusCode).toBe(400);
       expect((await authed(app, { method: 'GET', url: url('..') })).statusCode).toBe(400);
       expect((await authed(app, { method: 'GET', url: url('/etc') })).statusCode).toBe(400);
       expect(
         (await authed(app, { method: 'GET', url: '/api/projects/not-a-project/files/download?path=x' }))
           .statusCode,
       ).toBe(404);
+    });
+
+    it('serves a directory as <name>.zip with the folder as its one top-level entry', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await mkdir(path.join(root, 'proj', 'src', 'empty'));
+      await mkdir(path.join(root, 'proj', 'src', 'nested'));
+      await writeFile(path.join(root, 'proj', 'src', 'a.txt'), 'alpha');
+      await writeFile(path.join(root, 'proj', 'src', 'nested', 'b.txt'), 'beta');
+      // Past the text reader's 256 KiB window: a zip is bytes, not a preview.
+      const big = Buffer.alloc(300 * 1024, 0x61);
+      await writeFile(path.join(root, 'proj', 'src', 'big.bin'), big);
+
+      const response = await download('src');
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('application/zip');
+      expect(response.headers['content-disposition']).toBe(
+        `attachment; filename="src.zip"; filename*=UTF-8''src.zip`,
+      );
+
+      const entries = await readZip(response.rawPayload);
+      expect([...entries.keys()].sort()).toEqual([
+        'src/',
+        'src/a.txt',
+        'src/big.bin',
+        'src/empty/',
+        'src/nested/',
+        'src/nested/b.txt',
+      ]);
+      // The round trip: names are relative and clean, and the bytes are the
+      // file's own — the empty folder and the large file included.
+      for (const name of entries.keys()) {
+        expect(name.startsWith('/')).toBe(false);
+        expect(name.split('/')).not.toContain('..');
+      }
+      expect(entries.get('src/a.txt')?.toString('utf8')).toBe('alpha');
+      expect(entries.get('src/nested/b.txt')?.toString('utf8')).toBe('beta');
+      expect(entries.get('src/big.bin')?.equals(big)).toBe(true);
+    });
+
+    it('keeps a non-ASCII folder and file name as they are', async () => {
+      const folder = 'پروژه';
+      const file = 'یادداشت.md';
+      await mkdir(path.join(root, 'proj', folder));
+      await writeFile(path.join(root, 'proj', folder, file), 'متن');
+
+      const response = await download(folder);
+
+      expect(response.statusCode).toBe(200);
+      // The disposition carries the real name percent-encoded, RFC 5987's form.
+      expect(response.headers['content-disposition']).toContain(
+        `filename*=UTF-8''${encodeURIComponent(`${folder}.zip`)}`,
+      );
+
+      const entries = await readZip(response.rawPayload);
+      expect([...entries.keys()].sort()).toEqual([`${folder}/`, `${folder}/${file}`]);
+      expect(entries.get(`${folder}/${file}`)?.toString('utf8')).toBe('متن');
+    });
+
+    it.skipIf(win32)('skips a symlink that leaves the root and archives an in-root one as its target', async () => {
+      await mkdir(path.join(root, 'proj', 'src'));
+      await mkdir(path.join(root, 'proj', 'src', 'real-dir'));
+      await writeFile(path.join(root, 'proj', 'src', 'real-dir', 'inside.txt'), 'inside');
+      await writeFile(path.join(root, 'proj', 'src', 'real.txt'), 'real bytes');
+      await mkdir(path.join(sandbox.dir, 'outside'));
+      await writeFile(path.join(sandbox.dir, 'outside', 'secret.txt'), 'not yours');
+
+      await symlink(path.join(sandbox.dir, 'outside'), path.join(root, 'proj', 'src', 'escape'), linkType);
+      await symlink(path.join(root, 'proj', 'src', 'real.txt'), path.join(root, 'proj', 'src', 'alias.txt'), linkType);
+      await symlink(path.join(root, 'proj', 'src', 'real-dir'), path.join(root, 'proj', 'src', 'alias-dir'), linkType);
+
+      const entries = await readZip((await download('src')).rawPayload);
+
+      // The escaping link is neither followed nor included, under either name.
+      expect([...entries.keys()].some((name) => name.includes('escape'))).toBe(false);
+      expect([...entries.values()].some((bytes) => bytes.toString('utf8').includes('not yours'))).toBe(false);
+      // An in-root link is the real thing, by its own entry name.
+      expect(entries.get('src/alias.txt')?.toString('utf8')).toBe('real bytes');
+      expect(entries.get('src/alias-dir/inside.txt')?.toString('utf8')).toBe('inside');
     });
 
     it('never serves a file behind a symlink that leaves the root', async () => {
