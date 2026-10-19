@@ -1,125 +1,154 @@
-# Handoff — clodeck: the composer has a `/` menu, and `/clear` finally clears
+# Handoff — clodeck: three of six reports fixed; the rest need decisions first
 
-**Updated:** 2026-10-17
-**Where the tree is:** with tickets **75 and 76** merged `--no-ff` and their branches deleted, on top of
-the 2026-10-15 loop handoff. **The two merge commits are `5e08435` and `47a3768`**, and **the merge
-immediately after them is the one that put this file on `main`** — read `git log --oneline -3` rather
-than trusting a SHA written here, since the handoff cannot name its own merge commit. The 76 merge
-needed one hand resolution, because both branches added a caller to the same two seams (see **The
-merge** below). **This handoff is pushed with them**, so the live server can pull; how far `main` runs
-ahead afterwards is `git rev-list --count origin/main..main`, which a handoff cannot keep. The server's
-update stays `git pull && npm ci && npm run build && sudo systemctl restart clodeck`
-(`scripts/deploy-clodeck.sh:816`) — a pull alone changes nothing, because the unit runs the compiled
-`dist/main.js` — and a restart drops every session.
+**Updated:** 2026-10-20
+**Where the tree is:** `main`, clean, **local only — not pushed** (8 commits ahead of
+`origin/main`; the last is `5179415`). Every branch this phase used was merged `--no-ff` and deleted.
+**Tests on the merged tree:** `npm run typecheck` clean; `npm test` green — tooling **25**,
+shared **10**, server **385** passed + 9 skipped, web **281** (30 files).
 
-## What this phase is
+## The six reports, and where each stands
 
-**A feature and the bug it exposed, both decided in one grilling session and both built by the loop.**
-The feature is the composer's `/` menu: `/` lists the session's own commands, filtered by every
-character typed, and an entry inserts rather than sends. The bug is the one the grilling turned up on
-the way past — clodeck dropped the SDK's `conversation_reset`, so a `/clear` left the pre-clear
-transcript on screen and a reconnect spliced the two together.
+| # | Report | State | Where it lives |
+|---|---|---|---|
+| 1 | On a phone the nav sat under Chrome's address bar | **fixed** | shell is `h-dvh`; merge `893ad47` |
+| 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **open — next** | `web/src/files/FilePanel.tsx:295` |
+| 3 | A folder nested in a folder could not be dragged to the root | **fixed** | every row draggable; merge `021456f` |
+| 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open** | protocol has `set_permission_mode`; no UI |
+| 5 | A project cannot be deleted | **open** | no `DELETE /api/projects/:id` |
+| 6 | clodeck looked more expensive than the CLI | **researched + two fixes** | note + auto-resume + token display; merges `943f3d2`, `5179415` |
 
-**Ticket 75 was charted from the grilling, not from a build run.** Eleven decisions were settled before
-any code existed, and the two that decided the shape were measurements rather than opinions: the run is
-**lazy** (`startRun` ← `provider.query` ← `sendPrompt` ← `bus.ts:123`, one path), so no `init` can
-arrive before the first send; and `Query.supportedCommands()` needs no prompt, so the SDK's list is
-authoritative as soon as a run exists.
+## What landed (do not re-investigate)
 
-**The menu never becomes a second way to send.** `/name` already worked as prompt text; the menu makes
-it discoverable. It adds nothing to the send path.
+### 1. Mobile viewport
 
-## What the merged branches change
+`h-screen` on the shell resolves to `100vh`, which on mobile Chrome is the **largest** viewport — the
+one with the browser toolbar retracted. The bottom nav was laid out below the visible edge. The shell
+is now `h-dvh` (`web/src/App.tsx`), and `App.workspace.test.tsx` pins the class. **A Playwright test
+cannot catch this**: emulation makes `100vh` and `100dvh` the same number, which is why the check is a
+class assertion rather than a bounding box.
 
-| File | What it now does |
-|---|---|
-| `shared/src/commands.ts` | new: `SlashCommand` — one shape for the three places a command travels (the SDK mirror, the protocol payload, the disk route) |
-| `shared/src/sdk.ts` | `SDKSystemCommandsChangedMessage`, `terminal_slash_commands` on `init`, and the mirrored `conversation_reset` |
-| `shared/src/protocol.ts` | a new `commands` kind and `SnapshotPayload.commands?` — absent while the run has listed nothing |
-| `server/src/commands.ts` | new: `GET /api/projects/:id/commands` and the disk reader — skills, `.claude/commands/**` with `:` namespacing, a small frontmatter subset, `user-invocable: false`, parents up to `PROJECTS_ROOT`, no cache |
-| `server/src/discovery.ts` | `canonicalRoot()` — the one accessor for the one reader that walks *above* a project and stops at the root |
-| `server/src/sdk/{provider,anthropic}.ts` | `SdkRun.supportedCommands()`; `commands_changed` annotated in the mirror (the compile-time pin) |
-| `server/src/ws/turn-manager.ts` | `listCommands()` once per run, broadcast as `commands`; `forgetTranscript()` — the one spelling of "the run forgets this conversation", with two callers: `clear_resume` and the SDK's `conversation_reset` |
-| `web/src/chat/reducer.ts` | folds `commands`/`commands_changed` by **replace**, filters `terminal_slash_commands`, and resets to `runState()` on `conversation_reset` |
-| `web/src/chat/{useCommands.ts,CommandMenu.tsx}` | fetch on mount and on every open; the listbox panel with substring matching |
-| `web/src/chat/{Composer,ChatPanel}.tsx` | the token/caret trigger, the keyboard, insert and hint; the source choice (the run's list if it has one, the project's files otherwise) |
-| `web/e2e/command-menu.spec.ts` | the browser spec; it builds and cleans up its own fixture (`zz-e2e-menu.md`) |
-| `.scratch/clodeck/evidence/75-command-menu*.png` | two screenshots: the disk list and the run's list |
+### 3. Folder drag-to-move
 
-**Measurements the implement agent took against the real SDK** — they answer what the ticket could not:
-`commands_changed` does **not** push at start (so `supportedCommands()` is not optional); the SDK
-itself hides `user-invocable: false` skills; parent `.claude/skills` really do load; a skill's
-frontmatter `name` outranks its directory, but a command file's `name:` changes nothing;
-`disable-model-invocation: true` does **not** hide a command from `/`; and a real session reports
-**70 commands** with `/doctor`, `/color`, `/focus` and `/reload-plugins` absent because they are
-`terminal_slash_commands` — the client filter is tested against that data, not a guess.
+Only a **file** row was `draggable`; a folder row was only a drop target. Every row is now draggable,
+and a folder row is both. A drop on the folder itself or on a folder inside it is **swallowed**
+(`insideDragged`) rather than allowed to bubble to the tree's root area, where it would have silently
+meant "move to root". Tests: `web/src/files/FilePanel.test.tsx`, `describe('dragging a folder')`.
 
-## The merge
+### 6. Token cost — the ranking that answers the report
 
-Both branches added a caller to the same two seams, so the merge conflicted in `turn-manager.ts` and
-`reducer.ts` and was resolved by hand, keeping both features:
+Full note: `.scratch/clodeck/research/01-token-cost.md` (merged).
 
-- `forgetTranscript` (76) stays the one spelling of the reset and now also clears `state.commands`, the
-  list 75 put on the run: the list belongs to the session that reported it, and the next run reports
-  its own.
-- `fromSnapshot` builds on 76's `runState(...)` and seeds 75's `commands` on top of it, still before
-  the blocks, so a later `commands_changed` replayed among them is the one that stands.
+1. **The `$` clodeck showed was a Claude-priced estimate, not a bill** (VERIFIED). The SDK prices an
+   unknown model at the default model's rate — Opus 5.5 — and `deepseek-flash[1m]` /
+   `deepseek-v4-pro[1m]` match no row. The recorded estimates reproduce Opus list rates exactly and
+   are **9–82×** the real DeepSeek bill.
+2. **The two paths may not run the same model or endpoint** (env difference VERIFIED; which one clodeck
+   inherited is HYPOTHESIS). User env: `auto/best-free` + `localhost:20128`; process/sandcastle:
+   `deepseek-flash[1m]` + `api.deepseek.com/anthropic`. The server log line
+   `turn on profile … · model … · sent: …` is the answer for a given run.
+3. **Every send used to start a fresh SDK session** (VERIFIED). No auto-resume, so a follow-up lost
+   the context and re-explored it, and a resumed result's cost was cumulative without a label.
 
-**Evidence:** `npm run typecheck` clean and `npm test` green through the pre-commit hook on both merge
-commits — tooling **25**, shared **10**, server **374** passed + 8 skipped, web **261** (29 files).
+**What changed:**
+- `server/src/ws/turn-manager.ts` — a send with no armed target now **resumes `state.sessionId`**.
+  An explicit History/Resume target still wins; `clear_resume` (`New chat`) drops the session id, so
+  a new chat is still fresh.
+- The result line shows **`modelUsage` token totals**, not `total_cost_usd`:
+  `Turn complete · session 61,081 in · 303,360 cached · 6,851 out`, with a per-model tooltip.
+- The server logs, per result:
+  `session tokens · <model> in … · cache read … · cache write … · out …`.
 
-## What was **not** run, and what it costs
+**The one number to remember:** `modelUsage` is **cumulative for the session** (the SDK's own docs say
+a resumed session's first result already carries earlier turns), which is why the UI and the log say
+`session`. A per-turn delta is a separate change, not a bug in this one.
 
-- **The merged tree has not been through a browser.** Ticket 75's implement pass took its own browser
-  evidence (the two screenshots above) and wrote `web/e2e/command-menu.spec.ts`, but nobody ran
-  `npm run e2e` after the merge. The six specs still need `PORT=3300 npm run dev` (or `dev:fake`) and
-  `UI_PASSWORD`; the unit suites cover both features separately and together, and the browser check of
-  the *combination* is the gap.
-- **The reset path has no browser spec of its own.** `conversation_reset` is covered by
-  `server/src/ws/bus.test.ts` and `web/src/chat/reducer.test.ts`, not by a real session typing
-  `/clear`.
-- **The two-lane collision from the 2026-10-15 handoff is unchanged.** This run was one process with
-  two pinned tickets (`--ticket 75 --ticket 76`), not two shells — but the run itself went through on
-  this Windows host: a container, an `npm ci` and both agents per pass.
-- **`npm test` grew ~200 ms** for the tooling step, and the two new suites add a little more. That is
-  the cost, paid on every commit through the hook.
+## What remains
 
-## The loop, as it stands now
+### A. Mobile file manager (next; shape first)
 
-- **`npm run sandcastle`** drains the queue, up to `MAX_TICKETS` (6) passes, each a container, an
-  `npm ci` and two agents (implement, then review) on that ticket's branch. It never merges and never
-  pushes; `.githooks/pre-push` refuses a push from inside the container, which is a guarantee rather
-  than a request.
-- **`npm run sandcastle -- --ticket 67 [--ticket 65 …]`** works exactly those, in order. Two shells =
-  two lanes.
-- **`.sandcastle/README.md` is the operator's page** — setup on another machine, `.sandcastle/.env`, the
-  image build, the lanes, and the failure-mode list to read when a pass commits nothing. It is more
-  current than this file about the loop.
-- **The loop's own files are now inside both gates.** `main.mts` is only the loop; anything it decides
-  *before* a container exists lives in `queue.mts` and has a test. A change to the loop is still worth
-  running once — the refusals are one command each — but it no longer has to be verified *only* by
-  running it.
+`FilePanel.tsx:295` is a fixed `w-[300px]` tree column beside a `flex-1 min-w-0` code column. At the
+360px floor the content column gets ~60px, which is exactly the report. The drawer itself is already a
+full-screen sheet on a phone (`App.tsx`), so the split is *inside* the sheet.
 
-## Where the frontier is
+**Decide the shape before coding** — this is a UI question a prototype answers faster than prose:
+- **drill-down:** selecting a file hides the list; a Back control returns to it; or
+- **stacked panes:** list on top / file below, with a resize or a toggle.
 
-**Nothing is ready.** Every ticket under `.scratch/clodeck/issues/` is `resolved` through **76**, so
-`node scripts/tickets.mjs list` prints an empty queue and `npm run sandcastle` has nothing to pick up
-until a new ticket is written. The next move is a new decision, not a backlog item:
+`/prototype` is the right first move. Then implement, and extend `web/e2e/responsive-layout.spec.ts`
+with the file-panel case: at 360px, after selecting a file, the content is readable (the tree is not
+still taking 300px), there is no horizontal scroll, and Back returns to the list.
 
-- **Eager session start** — spawn the run when a chat opens, so built-ins appear on a `/` pressed on an
-  empty chat — is recorded in ticket 75 as deliberately out of scope: it changes what "New chat" means
-  (74) and wants its own ticket.
-- **`npm run e2e` against the merged tree**, and a browser look at `/clear`, are the two verifications
-  this phase left for whoever picks it up.
+### B. Permission modes (decision, then build)
 
-Otherwise a new phase starts where this one did: a grilling, then a ticket.
+**What exists:** `PermissionMode` already has all six SDK values (`shared/src/sdk.ts:26`); the wire
+has `set_permission_mode` (`shared/src/protocol.ts:152`), handled at `server/src/ws/bus.ts:133`; the
+run passes `permissionMode: input.permissionMode ?? 'default'` (`server/src/sdk/anthropic.ts:108`).
+
+**What is missing:**
+- `turn-manager.ts:202` refuses `set_permission_mode` unless a turn is **already running**
+  (`no_active_turn`). A mode chosen before the first send has nowhere to go: `SendPromptPayload`
+  (`shared/src/protocol.ts:113`) carries only `{ prompt, profile }`.
+- `web/src` has **no mode control at all** (grep `permission` finds only the approval dialog).
+- `bypassPermissions` needs `allowDangerouslySkipPermissions: true` in the SDK `Options`
+  (`sdk.d.ts:1994`) — not set today. `auto` and `dontAsk` are in the union but have never been
+  exercised by clodeck.
+
+**Decisions to grill, not guess:** scope (per chat/session, per project, or both), which of the six to
+expose, what a mid-turn switch means, whether the choice survives a reconnect or a `New chat`, where
+the control sits (the composer line already holds the provider picker), and what the bypass warning
+says. Then a decision ticket under `.scratch/clodeck/issues/`, then `/tdd`.
+
+Tests to aim at: a bus test that `send_prompt` carries the mode and the *next* send keeps it; a web
+picker test; an approval path that proves `default` still parks and `bypassPermissions` does not.
+
+### C. Delete a project (decision, then build)
+
+Only `GET /projects` and `POST /projects` are registered (`server/src/projects.ts:20-27`). Projects
+are immediate child directories of `PROJECTS_ROOT`, with **no registry**, and `ProjectDiscovery`
+(`server/src/discovery.ts:19`) is the only module allowed to touch the root.
+
+**Decide the semantics first:**
+- truly delete the directory recursively (irreversible), or
+- move it to a trash directory, or
+- hide it from the list (a registry — conflicts with the standing "no registry" decision).
+
+If it deletes, the safety shape matters: typed confirmation of the project name; resolve the id
+through the allowlist (never trust the decode); refuse the root itself; refuse while a turn is live
+(`runningSession(projectId)` exists) or a terminal is attached; and decide what happens to the SDK
+session JSONL under `~/.claude/projects`, which deleting the directory does **not** remove.
+
+Then: `DELETE /api/projects/:id` on the gated scope → `204` / `404` / `409`, `deleteProject` on the
+discovery seam, sidebar confirm + reload + clear selection. Tests: route tests against a sandbox root,
+and the sidebar's refusal paths.
+
+## Next-session prompt (paste this)
+
+```text
+سه کار از لیست قبلی مونده، به همین ترتیب:
+
+1) file manager روی موبایل: FilePanel دو ستونه است (tree ثابت 300px + content) و روی 360px
+   محتوای فایل خوانا/قابل ویرایش نیست. اول با /prototype شکل موبایل را انتخاب کن
+   (drill-down با Back یا stacked panes)، بعد پیاده‌سازی + تست موبایل در
+   web/e2e/responsive-layout.spec.ts.
+
+2) permission modes: backend فقط وسط turn با set_permission_mode کار می‌کند و UI ندارد.
+   با /grilling تصمیم بگیر: scope (per chat/session یا per project)، کدام modeها،
+   persistence بعد از reconnect/New chat، و allowDangerouslySkipPermissions برای
+   bypassPermissions. بعد decision ticket و /tdd.
+
+3) delete project: route ندارد. اول semantics (delete روی disk vs trash vs hide) و safety
+   (typed confirm، refuse root، refuse وقتی turn/terminal زنده است، session JSONLها) را
+   تصمیم بگیر، بعد route + sidebar UI.
+
+handoff: .scratch/clodeck/handoff.md — قبل از شروع، git log --oneline -8 را چک کن و
+اگر شاخه عوض شده بود، اول وضعیت را بفهم.
+```
 
 ## Dev loop (unchanged, still load-bearing)
 
 Port **3001 is unbindable on this machine** (Windows Hyper-V/WSL exclusion range). Run with `PORT=3300`,
-and **give `PROJECTS_ROOT` forward slashes**: Git Bash eats the backslashes in an env assignment, and
-the server then scans `<repo>\workclodeck-projects` and discovers nothing — an empty project list, with
-the reason only in its warn line.
+and give `PROJECTS_ROOT` **forward slashes** — Git Bash eats backslashes in an env assignment, and the
+server then scans the wrong directory and discovers nothing.
 
 ```cmd
 set UI_PASSWORD=dev
@@ -130,110 +159,41 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 
 ## Guardrails (do not lose these)
 
-- **The pre-commit hook** (`.githooks/pre-commit`, wired through `core.hooksPath` by `npm install`) runs
-  `npm run typecheck` and `npm test`. There is no CI; the hook is why a red tree cannot be committed.
-  `--no-verify` only if the user asks. **Since 72 it covers the loop's own files too** — the hook is
-  what ran the new tooling suite for the first time on the commit that added it.
-- **The browser loop is real, and it is six specs** (`web/e2e/`): `project-switch.spec.ts`,
-  `file-upload.spec.ts`, `file-download.spec.ts`, `file-move.spec.ts`, `code-view.spec.ts`,
-  `command-menu.spec.ts` (new in 75 — it makes and cleans up its own `zz-e2e-menu.md`, and leaves a
-  folder that was already there alone), sharing `support.ts` (typechecked too). All six need
-  `PORT=3300 npm run dev` (or `dev:fake`) already up, plus
-  `UI_PASSWORD`, and they drive the `demo` project, cleaning up what they make. A spec that fails
-  mid-test leaves its files in `demo`, and the next run then fails on a `409` that has nothing to do
-  with the code: clear `zz-*` out of `D:/work/clodeck-projects/demo` before believing a red run.
-- **A docs-only or handoff-only change is not exempt from branching** — this file travelled on
-  `docs/handoff-75-76`, exactly as `AGENTS.md` says. Merging is still `--no-ff` and still the user's
-  call — this time they asked for the handoff and the push in one breath.
+- **Branch first.** Every change — code, docs, tickets, handoff — goes on its own branch and lands on
+  `main` only by an explicit `--no-ff` merge. No ticket → effort name plus a short slug; docs-only →
+  `docs/` prefix. Stop at the merge unless the user asks.
+- **The pre-commit hook** (`.githooks/pre-commit`) runs `npm run typecheck` and `npm test`. There is no
+  CI; a red tree cannot be committed. `--no-verify` only if the user asks.
+- **Eight browser specs** under `web/e2e/` (project-switch, file-upload, file-download, file-move,
+  code-view, command-menu, direct-route, responsive-layout). They need a running dev pair on an
+  **isolated** port (do not assume 5173/3001 is yours — the user may have their own loop there), plus
+  `UI_PASSWORD`. A failed spec can leave `zz-*` files in `demo` and poison the next run.
+- **The checkout can move under you.** Another session or the sandcastle loop may switch branches
+  mid-work; verify `git rev-parse --abbrev-ref HEAD` before writing or asserting state.
+- **`npm run sandcastle`** drains tickets one per branch. No tickets are queued right now; the three
+  remaining reports are decisions, not agent-ready tickets yet.
 
-## Behaviour that is still load-bearing (from 44/45/47, untouched since)
+## Still load-bearing (updated this phase)
 
-- **A project is created by `POST /api/projects { name }`**, `201 { project }`, on the gated scope.
-  `400` for a name that is not one clean, non-dot segment; `409` when something is already at the name
-  (never overwritten, never followed); `503` when there is no usable projects root — unconfigured,
-  absent, **or a plain file**. An unwritable root stays a `500`: a fault, not an empty answer.
-- **The write is on the discovery seam, not `ScopedFs`** — `discovery.ts` is still the only module that
-  touches the projects root, and the created row's `name`, `path` and `id` all come off the canonical
-  path, so a project made by the route and one found by a later rescan are byte-identical rows.
-- **`ScopedFs.move(source, destDir)`** returns its own `MoveResult`; `POST /files/move?path=` takes the
-  destination **directory** as a *path* (so it passes `relPath`'s syntax check, not `name()`). `409` for
-  a collision or a same-directory move, `400` for a destination that is not a directory or a folder into
-  its own subtree, `404` for either end missing. **A link as the source is refused; a link as the
-  destination is followed** if it stays inside the root.
-- **A file row is draggable and a folder row is a drop target**, as is the breadcrumb's root crumb. The
-  drag carries `text/plain` and nothing else — a drag advertising `Files` would be read as an OS-file
-  upload by the panel's own drop handler (38). Dropping opens `Move "x" into "y"?` first.
-- **One dialog, two callers.** `NameDialog` + `Overlay` live in `web/src/dialogs.tsx`; the drawer passes
-  `isValidName`, the sidebar `isValidProjectName` (= `isValidName` + non-dot). The overlay is
-  `absolute`, so each caller mounts it inside a positioned ancestor.
-- **Selection is by id only.** `Shell` sets `selectedId` from the create's answer and calls `reload()`;
-  no second copy of a project is held anywhere.
+- **Auto-resume:** a send continues `state.sessionId` unless an armed target exists; `clear_resume`
+  drops both the transcript and the id. `New chat` therefore still starts a real new session.
+- **Result usage:** the UI shows session token totals from `modelUsage`, never `total_cost_usd`; the
+  server logs the same per model. The dollar field is still on the wire (the SDK sends it) and is
+  documented as a Claude-list-rate guess.
+- **Every file row is draggable**, and a folder row is also a drop target; self/descendant drops are
+  swallowed. The drag carries `text/plain` only — an OS-file drag carries `Files` and is the upload.
+- **A project is created by `POST /api/projects { name }`**, on the discovery seam, never by `ScopedFs`
+  and never overwriting anything.
+- **File access stays inside the project root:** `realpath` containment, no symlink writes, no
+  overwrite on create/upload/move, and the root itself is never a write target.
 
 ## Known loose ends
 
-**Two lanes pinned to the same ticket still collide** — the branch check is answered per process, so
-both pass it and then share a worktree and a log. Recorded on ticket 71 and in `.sandcastle/README.md`;
-a host lock was considered and declined there, because it is not what that ticket was about and a lock
-file adds its own stale-lock failure mode.
-
-**The tracker's JSON is still taken on trust.** `queue.mts`'s two ports parse the subprocess's output
-with `as Ticket[]` / `as Verdict` — casts that moved out of `main.mts` unchanged. The coding standards
-rule out casts that quiet the compiler, and these are a boundary assertion rather than a silenced error,
-but the honest fix is the field-by-field narrowing `server/src/config.ts` and `ws/client-message.ts`
-already do, and testing *that* needs a runner seam this ticket did not ask for. Left deliberately, said
-so on the ticket, and worth a small ticket of its own if the loop's output ever comes from anywhere but
-this repo's own script.
-
-**The readiness rule is tested through its callers, not directly.** `whyNotReady(ticket, status)` is the
-one place "ready" is defined and `list` and a pin both go through it; the four states are asserted at
-`readyTicket`, which is the door both use. Nothing calls it that the tests do not reach.
-
-**The list below is the 2026-10-13 snapshot**, minus the four bullets that tickets 54–57 closed (the
-client's name rule had no byte cap — 54; a row's `⋯` menu opened off the scroller's edge — 55; a
-non-ASCII name rendered as raw bidi — 56; the rail stayed enabled with no project selected — 57). The
-rest has not been re-audited since, so read each bullet as of that date and check the ticket before
-trusting it.
-
-- **`failureMessage` is copied in four web transports** (`auth/transport.ts`, `files/transport.ts`,
-  `chat/useSessions.ts`, `useProjects.ts`) and `messageOf` in six callers; `lstatOrNull`/`isErrno` are
-  likewise per-module on the server. Each-module-owns-one is the established pattern — but the count is
-  high enough that one shared helper would pay for itself if a fifth caller appears.
-- **The move has no keyboard path.** A file is relocated by dragging its row; there is no command for it
-  in the row's `⋯` menu, where rename and delete live.
-- **The client refuses a same-directory drop after the confirmation, not before it** (44 taken
-  literally). Moving the check to the drop is a one-line change.
-- **The highlighter is line-based**, as the prototype's was: a `/* … */` block or a multi-line template
-  literal is coloured line by line. Deliberate ("a deliberately rough pass, not a parser").
-- **`.markdown` is treated as markdown alongside `.md`**, and an extension the map does not list renders
-  plain. Both deliberate departures, recorded on ticket 45.
-- **`fireEvent.dragLeave` cannot carry `relatedTarget`** in this stack, and jsdom has no `DragEvent` at
-  all; the panel test's `dragLeaves` helper dispatches a bubbling `MouseEvent` inside `act`. That is why
-  the upload spec's leave test uses `relatedTarget: null`.
-- **The code-view spec restates the palette's three hexes as `rgb(…)`** — the point is that the token
-  reaches the paint, but re-colouring the code view is a two-file change because of it.
-- **`split(line, pattern, kinds, base)` keeps its four arguments** — a review called `pattern` and
-  `kinds` a data clump; left as-is because bundling them buys a type for two call sites.
-- **The download's toast is optimistic.** It fires on the click, so a file deleted on disk still toasts
-  `downloaded x` and the browser saves the 404 body under that name (recorded on ticket 42).
-- **A file's `href` is passed through as written** (43): no scheme check, deliberately.
-- **spec-04's `FileViewerActions` block is stale** (it still shows `open`/`up`); it carries a note
-  saying `web/src/files/useFiles.ts` is the source of truth.
-- **Nothing disables the textarea while connecting** — only Send is disabled, so the box stays typeable
-  until the socket is live. Needs a decision rather than a smuggled fix (ticket 34's async detail).
-- **The palette token has no unit test.** jsdom does not process the Tailwind stylesheet, so a rendered
-  test could only assert the class name; `npm run build` emitting the token is the check, and
-  `code-view.spec.ts` asserts the resolved colours in a real browser.
-- **Parked, deliberately:** make the rendered tests fail on `console.error`. If that lands, the download
-  test needs a whitelist entry first — it clicks a real anchor, and jsdom answers with
-  `Not implemented: navigation to another Document`.
-- **`useFiles.upload` re-lists even when every file in the batch failed**, so a drop that lands nothing
-  still costs one listing request. Kept because the batch has one settle path.
-
-## Working agreements worth re-reading
-
-`AGENTS.md` carries them: Finglish-with-Latin-letters for the user, branch first and **stop at the
-merge** unless asked (`git switch main && git merge --no-ff <branch>`), one commit per coherent change,
-and the standing decisions — the Variant A layout, the D3-promoted MVP scope, file access scoped to the
-project root, **a project can be created from the UI**, **per-session provider profiles** (66, with
-endpoint and credential travelling together), and **the composer's `/` menu** (75) — the session's own
-commands, never clodeck's own buttons.
+- **`modelUsage` is cumulative**, so the result line grows across a resumed chat. A per-turn delta (or
+  a provider-priced dollar figure) is a separate decision.
+- **Cause #1 of the cost note is unconfirmed for a specific run**: check the server's
+  `turn on profile …` line and compare with `claude -p … --output-format json` → `modelUsage`.
+- **`npm run e2e` has not been run against this phase's merged tree.** The unit suites cover each
+  change; the browser check of the combination is the gap.
+- **The mobile viewport fix has no browser test that can fail** — keep the class assertion, and do not
+  spend time trying to emulate a retracting Chrome toolbar.
