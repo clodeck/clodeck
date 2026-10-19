@@ -293,7 +293,19 @@ export interface SDKConversationResetMessage {
   uuid?: string;
 }
 
-/** Turn complete. Read the latest result's cost — never sum them. */
+/**
+ * One model's token totals from a `result` message, exactly as the SDK reports
+ * them. Input is split the way the API bills it: `inputTokens` is the part
+ * neither read from nor written to the cache, with cache traffic beside it.
+ */
+export interface SDKModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
+
+/** Turn complete. Read the latest result's usage — never sum them. */
 export interface SDKResultSuccessMessage {
   type: 'result';
   subtype: 'success';
@@ -303,6 +315,19 @@ export interface SDKResultSuccessMessage {
   is_error: boolean;
   num_turns: number;
   stop_reason: string | null;
+  /**
+   * Per-model token totals for the session so far — the SDK's own accounting,
+   * and the field to read instead of `total_cost_usd`. Cumulative: a resumed
+   * session's first result already carries its earlier turns, so read the latest
+   * result rather than summing results (`.scratch/clodeck/research/01-token-cost.md`).
+   */
+  modelUsage: Readonly<Record<string, SDKModelUsage>>;
+  /**
+   * The SDK's client-side estimate, priced from Claude's list rates — not a
+   * bill. A non-Claude model matches no price row, so the figure is a guess at
+   * the default model's rate (9–82× the real DeepSeek bill here), and the UI
+   * does not show it.
+   */
   total_cost_usd: number;
   duration_ms: number;
 }
@@ -319,6 +344,9 @@ export interface SDKResultErrorMessage {
   errors: readonly string[];
   num_turns: number;
   stop_reason: string | null;
+  /** The same per-model totals and the same cumulative rule as the success arm. */
+  modelUsage: Readonly<Record<string, SDKModelUsage>>;
+  /** The SDK's Claude-priced estimate — not a bill, and not shown. */
   total_cost_usd: number;
   duration_ms: number;
 }

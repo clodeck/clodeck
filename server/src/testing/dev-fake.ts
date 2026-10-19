@@ -61,6 +61,14 @@ function transcript(cwd: string): SDKMessage[] {
       result: 'Hello from the fake provider.',
       num_turns: 1,
       stop_reason: 'end_turn',
+      modelUsage: {
+        'fake-provider': {
+          inputTokens: 12,
+          outputTokens: 6,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+      },
       total_cost_usd: 0,
       duration_ms: 0,
     },

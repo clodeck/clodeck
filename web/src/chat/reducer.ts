@@ -3,6 +3,7 @@ import type {
   ContentBlock,
   ResumePayload,
   SDKMessage,
+  SDKModelUsage,
   ServerEvent,
   SessionMessage,
   SessionState,
@@ -68,7 +69,12 @@ export interface TurnResult {
   subtype: string;
   /** The final assistant text — present only on `subtype: 'success'`. */
   text: string | null;
-  costUsd: number;
+  /**
+   * Per-model token totals for the session so far, straight from the result.
+   * The UI shows these instead of `total_cost_usd`, which is priced at Claude
+   * list rates and is only a guess for any other endpoint.
+   */
+  modelUsage: Readonly<Record<string, SDKModelUsage>>;
   stopReason: string | null;
   numTurns: number;
   isError: boolean;
@@ -406,11 +412,15 @@ function applyUserBlock(view: ChatView, block: ContentBlock, parentToolUseId: st
 }
 
 function applyResult(view: ChatView, message: Extract<SDKMessage, { type: 'result' }>): ChatView {
-  // The fields every result carries, whichever arm builds it: cost is cumulative
-  // (read the latest, never summed), and both variants can be continued when the
-  // SDK capped the turn rather than failed it (research 01 §3).
+  // The fields every result carries, whichever arm builds it: usage is
+  // cumulative (read the latest, never summed), and both variants can be
+  // continued when the SDK capped the turn rather than failed it (research 01
+  // §3). `total_cost_usd` is deliberately not carried: it is a Claude-priced
+  // estimate, not a bill (`.scratch/clodeck/research/01-token-cost.md` §3).
   const common = {
-    costUsd: message.total_cost_usd,
+    // `?? {}`: a crash/startup result on an older emitter may omit the totals,
+    // and a line with no numbers is better than a render that throws.
+    modelUsage: message.modelUsage ?? {},
     stopReason: message.stop_reason,
     numTurns: message.num_turns,
     isError: message.is_error,

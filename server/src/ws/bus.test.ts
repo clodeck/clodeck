@@ -422,10 +422,78 @@ describe('the /ws event bus', () => {
     client.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'two' } });
 
     const second = await provider.waitForQueryInput(2);
-    // The target applied once and was consumed.
-    expect(second).toMatchObject({ prompt: 'two' });
+    // The continue target applied once and was consumed; the send that follows
+    // continues the session the first turn named, which is now the chat's own.
+    expect(second).toMatchObject({ prompt: 'two', resume: SESSION_ID });
     expect(second.continueLatest).toBeUndefined();
+  });
+
+  it('continues the session the last turn created, with no target armed', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+    const port = await listen(app);
+
+    const client = await connect(port, cookie, idFor(cwd));
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'one' } });
+    await client.nextMatching(
+      (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+    );
+    client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'two' } });
+
+    // A chat is one conversation: a follow-up keeps the context the previous
+    // turn built instead of starting a fresh session and re-exploring it.
+    await expect(provider.waitForQueryInput(2)).resolves.toMatchObject({
+      prompt: 'two',
+      resume: SESSION_ID,
+    });
+  });
+
+  it('starts a new chat after clear_resume, even when a turn named a session', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+    const port = await listen(app);
+
+    const client = await connect(port, cookie, idFor(cwd));
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'one' } });
+    await client.nextMatching(
+      (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+    );
+    client.send({ v: 1, id: 'c2', type: 'clear_resume', payload: {} });
+    client.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'fresh' } });
+
+    // The session id went with the transcript, so auto-resume has nothing left
+    // to continue either.
+    const second = await provider.waitForQueryInput(2);
     expect(second.resume).toBeUndefined();
+    expect(second.continueLatest).toBeUndefined();
+  });
+
+  it('logs the result’s own token totals, never the Claude-priced estimate', async () => {
+    await mkdir(path.join(root, 'alpha'));
+    const cwd = await realpath(path.join(root, 'alpha'));
+    const lines: string[] = [];
+    const { app, cookie } = await makeApp(
+      { messages: transcript(cwd) },
+      { log: (line) => lines.push(line) },
+    );
+    const port = await listen(app);
+
+    const client = await connect(port, cookie, idFor(cwd));
+    await client.next(); // the snapshot
+    client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hi' } });
+    await client.nextMatching(
+      (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+    );
+
+    // `total_cost_usd` is a Claude-list-rate guess on this endpoint; the log
+    // records what the SDK actually counted.
+    expect(lines.filter((line) => line.startsWith('session tokens'))).toEqual([
+      'session tokens · fake-provider in 12 · cache read 0 · cache write 0 · out 1',
+    ]);
   });
 
   it('applies a named resume, with fork, to the next send', async () => {
@@ -1042,6 +1110,14 @@ function transcript(cwd: string): SDKMessage[] {
       result: 'hi',
       num_turns: 1,
       stop_reason: 'end_turn',
+      modelUsage: {
+        'fake-provider': {
+          inputTokens: 12,
+          outputTokens: 1,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+      },
       total_cost_usd: 0,
       duration_ms: 1,
     },
@@ -1094,6 +1170,7 @@ function resetTranscript(cwd: string): SDKMessage[] {
       result: 'cleared',
       num_turns: 1,
       stop_reason: 'end_turn',
+      modelUsage: {},
       total_cost_usd: 0,
       duration_ms: 1,
     },

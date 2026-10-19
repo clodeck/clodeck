@@ -175,6 +175,7 @@ describe('the session a chat is in', () => {
             errors: ['too many turns'],
             num_turns: 5,
             stop_reason: 'max_turns',
+            modelUsage: {},
             total_cost_usd: 0.03,
             duration_ms: 10,
           },
@@ -283,5 +284,56 @@ describe('the new chat button', () => {
       'disabled',
       false,
     );
+  });
+});
+
+/**
+ * The result line's token segment. The SDK's `total_cost_usd` is priced at
+ * Claude list rates and is only a guess on another endpoint, so the line reports
+ * what the SDK actually counted: the models summed on the line, split in the
+ * tooltip.
+ */
+describe('the result line', () => {
+  it('shows the result’s own token totals, not the Claude-priced estimate', async () => {
+    const socket = renderLive();
+    act(() => {
+      socket.deliver(frame('stream_status', { status: 'turn_started' }, SESSION));
+    });
+    act(() => {
+      socket.deliver(
+        frame(
+          'sdk',
+          {
+            type: 'result',
+            subtype: 'success',
+            session_id: SESSION,
+            is_error: false,
+            result: 'done',
+            num_turns: 1,
+            stop_reason: 'end_turn',
+            modelUsage: {
+              'deepseek-flash[1m]': {
+                inputTokens: 61_081,
+                outputTokens: 6_851,
+                cacheReadInputTokens: 303_360,
+                cacheCreationInputTokens: 0,
+              },
+            },
+            total_cost_usd: 0.442016,
+            duration_ms: 10,
+          },
+          SESSION,
+        ),
+      );
+    });
+
+    const line = await screen.findByText(/61,081 in/);
+    expect(line.textContent).toContain('303,360 cached');
+    expect(line.textContent).toContain('6,851 out');
+    expect(line.getAttribute('title')).toBe(
+      'deepseek-flash[1m]: 61,081 in · 303,360 cache read · 0 cache write · 6,851 out',
+    );
+    // The Opus-priced estimate never reaches the surface.
+    expect(screen.queryByText(/\$/)).toBeNull();
   });
 });
