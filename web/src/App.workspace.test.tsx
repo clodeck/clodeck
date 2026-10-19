@@ -285,3 +285,21 @@ describe('the rail while the list is in flight', () => {
     expect(unavailable('Files')).toBe(true);
   });
 });
+
+/**
+ * The shell's height on a phone. jsdom lays nothing out and Playwright's
+ * emulated viewport makes `100vh` and `100dvh` the same number, so the bug
+ * itself — the bottom nav drawn below Chrome's visible edge, under its address
+ * bar — cannot be measured here. What is pinned is the unit that fixes it: the
+ * shell must size to the dynamic viewport, and a revert to `h-screen` fails.
+ */
+describe('the workspace shell', () => {
+  it('sizes itself to the dynamic viewport rather than the largest one', () => {
+    const { container } = render(workspace(null, []));
+    const shell = container.firstElementChild;
+    if (shell === null) throw new Error('the workspace drew nothing');
+
+    expect(shell.className).toContain('h-dvh');
+    expect(shell.className).not.toContain('h-screen');
+  });
+});
