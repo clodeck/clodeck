@@ -995,6 +995,56 @@ describe('dragging a file onto a folder', () => {
   });
 });
 
+/**
+ * A folder is a row like any other (widening ticket 44). Before this, only a
+ * file could be picked up, so a folder nested inside a folder had no way out to
+ * the root — the one destination a user reaches for first.
+ */
+describe('dragging a folder', () => {
+  it('picks a nested folder up and moves it out to the root', async () => {
+    const { calls } = stubFiles();
+    const { notifications } = renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    // The fixture's `src` listing is the same one, so the folder inside it is
+    // `src/src` — a folder in a folder, which is the case that was stuck.
+    fireEvent.click(screen.getByTitle('Expand folder'));
+    const nested = await screen.findByTitle('Expand folder');
+    const nestedRow = rowOf(nested);
+    expect(nestedRow.getAttribute('draggable')).toBe('true');
+
+    moveRowOnto(nestedRow, screen.getByRole('group', { name: 'Files tree' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm move' });
+    expect(within(dialog).getByText('Move "src" into "root"?')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    await waitFor(() => {
+      expect(notifications.textContent).toBe('moved src → root');
+    });
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([
+      { method: 'POST', path: 'src/src', to: '' },
+    ]);
+  });
+
+  it('discards a drop on the folder itself instead of letting it mean the root', async () => {
+    stubFiles();
+    renderPanel();
+    await screen.findByRole('button', { name: 'README.md' });
+
+    fireEvent.click(screen.getByTitle('Expand folder'));
+    const nested = await screen.findByTitle('Expand folder');
+    const nestedRow = rowOf(nested);
+
+    moveRowOnto(nestedRow, nestedRow);
+
+    // Not the "move into itself" dialog the server would refuse, and not the
+    // root dialog the event would have opened had it bubbled to the tree.
+    expect(screen.queryByRole('dialog', { name: 'Confirm move' })).toBeNull();
+    expect(nestedRow.className).not.toContain('outline-accent');
+  });
+});
+
 describe('the code view', () => {
   it('numbers every line of the file in a gutter that does not wrap', async () => {
     stubFiles();
