@@ -4,6 +4,7 @@ import {
   type ApprovalResponsePayload,
   type Project,
   type ResumePayload,
+  type SDKModelUsage,
 } from '@clodeck/shared';
 import { useEffect, useState, type ReactElement } from 'react';
 
@@ -396,10 +397,13 @@ function LiveIndicators({ view }: { view: ChatView }): ReactElement | null {
 }
 
 function ResultLine({ result, onResume }: { result: TurnResult; onResume: (() => void) | null }): ReactElement {
+  const usage = tokenTotals(result.modelUsage);
   return (
     <div className={`flex items-center gap-3 text-[11px] ${result.isError ? 'text-err' : 'text-ink-dim'}`}>
-      <p>
-        {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'} · ${result.costUsd.toFixed(4)}
+      <p title={usage.title}>
+        {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'}
+        {/* Cumulative for the session, so it is labelled as the session's. */}
+        {usage.text !== null && ` · session ${usage.text}`}
         {result.stopReason !== null && ` · ${result.stopReason}`}
       </p>
       {onResume !== null && (
@@ -413,6 +417,54 @@ function ResultLine({ result, onResume }: { result: TurnResult; onResume: (() =>
       )}
     </div>
   );
+}
+
+/**
+ * The result line's token segment. `modelUsage` is per model and cumulative for
+ * the session — a resumed session's first result already carries its earlier
+ * turns — so the line sums the models and the tooltip keeps the split. These
+ * numbers replace `total_cost_usd`, which is a client-side estimate priced at
+ * Claude's list rates and can be many times the real bill on another endpoint
+ * (`.scratch/clodeck/research/01-token-cost.md` §3).
+ */
+function tokenTotals(modelUsage: Readonly<Record<string, SDKModelUsage>>): {
+  text: string | null;
+  title: string | undefined;
+} {
+  const models = Object.entries(modelUsage);
+  if (models.length === 0) return { text: null, title: undefined };
+
+  const totals = models.reduce(
+    (sum, [, usage]) => ({
+      input: sum.input + usage.inputTokens,
+      cacheRead: sum.cacheRead + usage.cacheReadInputTokens,
+      cacheWrite: sum.cacheWrite + usage.cacheCreationInputTokens,
+      output: sum.output + usage.outputTokens,
+    }),
+    { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
+  );
+
+  const text = [
+    `${formatTokens(totals.input)} in`,
+    `${formatTokens(totals.cacheRead)} cached`,
+    ...(totals.cacheWrite > 0 ? [`${formatTokens(totals.cacheWrite)} cache write`] : []),
+    `${formatTokens(totals.output)} out`,
+  ].join(' · ');
+
+  // One line per model, so a subagent's share is not hidden inside the sum.
+  const title = models
+    .map(
+      ([model, usage]) =>
+        `${model}: ${formatTokens(usage.inputTokens)} in · ${formatTokens(usage.cacheReadInputTokens)} cache read · ${formatTokens(usage.cacheCreationInputTokens)} cache write · ${formatTokens(usage.outputTokens)} out`,
+    )
+    .join('\n');
+
+  return { text, title };
+}
+
+/** Exact counts with separators: these are the numbers a bill is checked against. */
+function formatTokens(count: number): string {
+  return count.toLocaleString('en-US');
 }
 
 function ErrorBanner({ code, message, onDismiss }: { code: string; message: string; onDismiss: () => void }): ReactElement {

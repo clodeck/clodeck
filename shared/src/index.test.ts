@@ -198,6 +198,7 @@ describe('@clodeck/shared', () => {
         is_error: false,
         num_turns: 1,
         stop_reason: 'end_turn',
+        modelUsage: {},
         total_cost_usd: 0.01,
         duration_ms: 1200,
       },

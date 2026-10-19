@@ -199,7 +199,15 @@ describe('chat reducer — streaming', () => {
     expect(view.progress).toEqual({ toolName: 'Bash', elapsedSeconds: 3 });
   });
 
-  it("records the result's final text and cost as the turn-complete signal", () => {
+  it("records the result's final text and token usage as the turn-complete signal", () => {
+    const modelUsage = {
+      'deepseek-flash[1m]': {
+        inputTokens: 418,
+        outputTokens: 37,
+        cacheReadInputTokens: 12_000,
+        cacheCreationInputTokens: 0,
+      },
+    };
     const view = apply(
       emptyView(),
       sdk({
@@ -210,6 +218,9 @@ describe('chat reducer — streaming', () => {
         result: 'All done.',
         num_turns: 2,
         stop_reason: 'end_turn',
+        modelUsage,
+        // The Claude-priced estimate is on the wire but deliberately not carried
+        // into the view: it is not a bill on this endpoint.
         total_cost_usd: 0.0123,
         duration_ms: 4200,
       }),
@@ -218,7 +229,7 @@ describe('chat reducer — streaming', () => {
     expect(view.lastResult).toEqual({
       subtype: 'success',
       text: 'All done.',
-      costUsd: 0.0123,
+      modelUsage,
       stopReason: 'end_turn',
       numTurns: 2,
       isError: false,
@@ -240,6 +251,7 @@ describe('chat reducer — resuming a capped turn', () => {
       errors: ['stopped before the work finished'],
       num_turns: 40,
       stop_reason: null,
+      modelUsage: {},
       total_cost_usd: 0.42,
       duration_ms: 9000,
     };
@@ -267,6 +279,7 @@ describe('chat reducer — resuming a capped turn', () => {
         result: 'All done.',
         num_turns: 1,
         stop_reason: 'end_turn',
+        modelUsage: {},
         total_cost_usd: 0.01,
         duration_ms: 100,
       }),
@@ -360,6 +373,14 @@ describe('chat reducer — snapshot, approvals, errors', () => {
             result: 'done',
             num_turns: 1,
             stop_reason: 'end_turn',
+            modelUsage: {
+              'claude-sonnet-5-5': {
+                inputTokens: 100,
+                outputTokens: 20,
+                cacheReadInputTokens: 900,
+                cacheCreationInputTokens: 0,
+              },
+            },
             total_cost_usd: 0.02,
             duration_ms: 10,
           },
@@ -374,7 +395,14 @@ describe('chat reducer — snapshot, approvals, errors', () => {
     expect(view.model).toBe('claude-sonnet-5-5');
     expect(view.state).toBe('requires_action');
     expect(view.pendingApprovals).toEqual([approval]);
-    expect(view.lastResult?.costUsd).toBe(0.02);
+    expect(view.lastResult?.modelUsage).toEqual({
+      'claude-sonnet-5-5': {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadInputTokens: 900,
+        cacheCreationInputTokens: 0,
+      },
+    });
     expect(view.entries).toEqual([
       { kind: 'assistant', text: 'Hello from the fake provider.' },
       expect.objectContaining({ kind: 'tool', name: 'Bash' }),

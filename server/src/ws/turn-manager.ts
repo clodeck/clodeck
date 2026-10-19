@@ -144,8 +144,15 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
         payload: { status: 'turn_started' },
       });
 
-      // The resume target applies to exactly one send.
-      const target = state.resume;
+      // The resume target applies to exactly one send. With none armed, the
+      // send continues the session this run already has: a chat is one
+      // conversation, so a follow-up keeps the context the last turn built
+      // instead of starting over (and re-exploring it). `clear_resume` drops
+      // the session id with the transcript, so a new chat still starts fresh,
+      // and an explicitly armed target (History, a resume button) still wins.
+      const target =
+        state.resume ??
+        (state.sessionId === undefined ? undefined : { sessionId: state.sessionId });
       state.resume = undefined;
 
       let active: SdkRun;
@@ -172,7 +179,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       }
 
       state.active = active;
-      void pump(state, active);
+      void pump(state, active, log);
       // The run's own list of what it can dispatch, asked for once as it starts
       // (the SDK announces a list only when it *changes*, which a fresh session
       // has not). Fire-and-forget: it is a menu, not the turn.
@@ -356,6 +363,26 @@ function keptKeyNames(pin: ProjectPin | null): string[] {
   return names;
 }
 
+/**
+ * The result's own token totals, one line per turn for the operator. It reads
+ * `modelUsage`, never `total_cost_usd`: the dollar field is a client-side
+ * estimate priced at Claude's list rates, and on a non-Claude endpoint it can be
+ * many times the real bill (`.scratch/clodeck/research/01-token-cost.md` §3).
+ *
+ * The totals are the session's, not the turn's: a resumed session's first
+ * result already carries its earlier turns, so the line grows across a chat.
+ */
+function describeResultUsage(result: Extract<SDKMessage, { type: 'result' }>): string {
+  const models = Object.entries(result.modelUsage ?? {});
+  if (models.length === 0) return 'session tokens · none reported';
+
+  const parts = models.map(
+    ([model, usage]) =>
+      `${model} in ${usage.inputTokens} · cache read ${usage.cacheReadInputTokens} · cache write ${usage.cacheCreationInputTokens} · out ${usage.outputTokens}`,
+  );
+  return `session tokens · ${parts.join(' · ')}`;
+}
+
 /** The protocol's resume payload, as the provider's input fields. */
 function resumeInput(target: ResumePayload | undefined): {
   continueLatest?: boolean;
@@ -380,7 +407,7 @@ function park(state: ProjectRun, request: ApprovalRequestPayload): Promise<Appro
 }
 
 /** Reads the run's messages in order, forwarding each as an `sdk` event. */
-async function pump(state: ProjectRun, active: SdkRun): Promise<void> {
+async function pump(state: ProjectRun, active: SdkRun, log: Log): Promise<void> {
   let ended = false;
   try {
     for await (const message of active.messages) {
@@ -402,6 +429,7 @@ async function pump(state: ProjectRun, active: SdkRun): Promise<void> {
       broadcast(state, { ...envelope(state), kind: 'sdk', payload: message });
 
       if (message.type === 'result') {
+        log(describeResultUsage(message));
         ended = true;
         broadcast(state, {
           ...envelope(state),
