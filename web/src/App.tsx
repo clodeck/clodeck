@@ -143,8 +143,13 @@ export function Workspace({
       {/* One breakpoint, `md` (768px), decides the layout: a row of rail ▸
           sidebar ▸ stage on desktop, a column of stage ▸ bottom nav on a phone.
           `overflow-hidden` is the shell's promise that no child can turn the
-          page itself into a horizontal scroller. */}
-      <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink md:flex-row">
+          page itself into a horizontal scroller.
+          The height is the *dynamic* viewport, not `h-screen`: on a phone the
+          100vh a plain `h-screen` resolves to is the largest viewport — the one
+          with the browser's own toolbar retracted — so the bottom nav was laid
+          out below the visible edge and Chrome's address bar sat on top of it.
+          `dvh` follows the viewport the user can actually see. */}
+      <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink md:flex-row">
         {/* The drawer lives *inside* the stage, so Terminal and Files have
             nothing to draw without a project; Chat is the stage's own shut
             state and needs none. */}
