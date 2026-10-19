@@ -499,6 +499,17 @@ function startDrag(event: DragEvent<HTMLElement>, path: string, move: MoveContro
 }
 
 /**
+ * Whether `dest` is the dragged entry itself or a folder inside it. Now that a
+ * folder can be picked up, its own row and every folder beneath it are drop
+ * targets by position but not by meaning — the server refuses both ("a
+ * directory cannot be moved into itself"), and letting the drag through would
+ * also bubble a miss to the tree's root area and silently mean "move to root".
+ */
+function insideDragged(dragged: string, dest: string): boolean {
+  return dest === dragged || dest.startsWith(`${dragged}/`);
+}
+
+/**
  * A drop target's drag props: a folder row, or the breadcrumb's root crumb. A
  * drag that is not an internal move is left alone entirely, so the panel's own
  * drop handling — and the browser's default for a text drag — are untouched.
@@ -510,6 +521,15 @@ function dropTarget(
   return {
     onDragOver: (event) => {
       if (move.dragging === null) return;
+      // Swallowed rather than declined: the root area is an ancestor, and a
+      // declined event would reach it and turn "onto itself" into "to root".
+      // `preventDefault` is still needed to claim the drop so it lands here,
+      // where the matching `onDrop` can discard it.
+      if (insideDragged(move.dragging, dest)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       move.onHover(dest);
@@ -522,6 +542,11 @@ function dropTarget(
     },
     onDrop: (event) => {
       if (move.dragging === null) return;
+      if (insideDragged(move.dragging, dest)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       move.onDrop(dest);
@@ -963,7 +988,6 @@ function EntryRow({
   onDelete: (entry: Confirm) => void;
 }): ReactElement {
   const isDir = entry.type === 'directory';
-  const isFile = entry.type === 'file';
   // The folder under a dragged row takes the prototype's outline. The row keeps
   // its `relative` for the menu's sake (see below), so this is a second class
   // rather than a wrapper.
@@ -990,16 +1014,18 @@ function EntryRow({
     // size alone would be a hover on a few characters, and the name's own title
     // (`Preview x`) still wins where it has one.
     //
-    // A **file** row is draggable and a **folder** row is a drop target (ticket
-    // 44). The drag carries `text/plain` and nothing else: a drag advertising
-    // `Files` would be read as an upload by the panel's own drop handler.
+    // Every row is draggable and a **folder** row is also a drop target (ticket
+    // 44, widened here): a file was the only row that could be picked up, so a
+    // folder inside a folder had no way out to the root. The drag carries
+    // `text/plain` and nothing else: a drag advertising `Files` would be read as
+    // an upload by the panel's own drop handler.
     <div
       className={`relative flex items-center gap-1 rounded ${tone}`}
       style={{ paddingLeft: 8 + depth * 14 }}
       title={entry.type === 'file' ? modifiedTitle(entry.mtime) : undefined}
-      draggable={isFile ? true : undefined}
-      onDragStart={isFile ? (event) => { startDrag(event, path, moveControl); } : undefined}
-      onDragEnd={isFile ? () => { moveControl.onEnd(); } : undefined}
+      draggable
+      onDragStart={(event) => { startDrag(event, path, moveControl); }}
+      onDragEnd={() => { moveControl.onEnd(); }}
       {...(isDir ? dropTarget(moveControl, path) : {})}
     >
       <EntryMain
