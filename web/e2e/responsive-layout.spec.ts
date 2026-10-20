@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { signIn } from './support';
+import { removeRow, signIn } from './support';
 
 /**
  * The phone layout (ticket 77), in a real browser.
@@ -137,6 +137,68 @@ test('the shell reflows to a bottom nav, an overlay sidebar, and a full-screen d
   await expect(page.locator('section[aria-label="Files"]')).toBeVisible();
   expect(await box()).toEqual({ x: 0, y: 0, width: WIDTH, height: HEIGHT });
   await expectNoHorizontalScroll(page);
+
+  // --- The file sheet leaves the file the width ---------------------------
+  // The old split kept a fixed 300px tree, which at 360px left the file about
+  // 60px: unreadable, and its edit chip off the edge. The tree is a sheet now,
+  // and this is the one place that can see it — jsdom renders no layout.
+  const FILE = 'zz-e2e-mobile.txt';
+  // Long lines on purpose: a pane that is still sized by its content runs wide,
+  // which is exactly how the chip used to disappear.
+  await page.setInputFiles('input[aria-label="Choose files to upload"]', {
+    name: FILE,
+    mimeType: 'text/plain',
+    buffer: Buffer.from(`const x = ${'a'.repeat(200)};\nsecond line\n`),
+  });
+  await expect(page.getByRole('status')).toHaveText(`uploaded ${FILE}`);
+
+  // The list is the sheet on landing, over a file pane that has nothing yet.
+  await expect(page.getByRole('button', { name: 'Close file list' })).toBeVisible();
+
+  await page.getByRole('button', { name: FILE, exact: true }).click();
+
+  // Picking a file hands it the width and puts the sheet away.
+  await expect(page.getByRole('button', { name: 'Close file list' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Browse', exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Source' })).toBeVisible();
+
+  // The code head — path, Download, the read-only chip — is inside the screen,
+  // not pushed past its right edge by a long line.
+  const head = await page.evaluate((file) => {
+    // The panel has two heads: the tree's, and the code column's, which names
+    // the open file. This is the second one.
+    const header =
+      Array.from(document.querySelectorAll('section[aria-label="Files"] header')).find((candidate) =>
+        candidate.textContent?.includes(file),
+      ) ?? null;
+    if (header === null) return null;
+    const bounds = header.getBoundingClientRect();
+    return { width: Math.round(bounds.width), right: Math.round(bounds.right) };
+  }, FILE);
+  expect(head).not.toBeNull();
+  expect(head?.width).toBe(WIDTH);
+  expect(head?.right).toBeLessThanOrEqual(WIDTH);
+  await expect(page.getByRole('button', { name: 'read-only', exact: true })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+
+  // Browse brings the list back; the ✕ puts it away again.
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close file list' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close file list' }).click();
+  await expect(page.getByRole('button', { name: 'Close file list' })).toBeHidden();
+
+  // A tap on the scrim is the third way out — the sliver of it a thumb reaches
+  // to the right of the 86%-wide sheet.
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Dismiss file list' })
+    .click({ position: { x: WIDTH - 8, y: HEIGHT / 2 } });
+  await expect(page.getByRole('button', { name: 'Close file list' })).toBeHidden();
+
+  // Leave the project as it was found.
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await removeRow(page, FILE);
+
   await page.getByRole('button', { name: 'Close drawer' }).click();
 
   // --- The composer is reachable at the floor width -----------------------
