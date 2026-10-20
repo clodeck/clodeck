@@ -1,10 +1,9 @@
-# Handoff — clodeck: four of six reports fixed; permission modes and project deletion decided, both builds pending
+# Handoff — clodeck: four of six reports fixed; permission modes and project deletion decided, both builds queued
 
 **Updated:** 2026-10-21
-**Where the tree is:** `main` at `a673331` (the file-drawer handoff merge). Work that is done but
-deliberately **left unmerged**:
-- `clodeck/81-permission-mode-contract` — decision 81, ADR 0003, and tickets 82–86. Nothing built yet.
-- `clodeck/87-delete-project-decision` — decision 87 and the docs moves this handoff records.
+**Where the tree is:** `main`, clean, carrying both merges of this phase — the permission-mode contract,
+ADR 0003 and tickets 82–86 (`ba496f6`), then the project-delete decision, `spec-10` and tickets 88–91
+(`2f72d1d`). Both branches were deleted after their merge. One branch is deliberately **left unmerged**:
 - `clodeck/file-panel-mobile-prototype` (`adb9f41`) — the throwaway prototype behind ticket 80. It is
   the primary source for the comparison and is **never** merged; delete it when it stops being useful.
 
@@ -19,8 +18,8 @@ e2e suite **7/7** on `main` itself.
 | 1 | On a phone the nav sat under Chrome's address bar | **fixed** | shell is `h-dvh`; merge `893ad47` |
 | 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **fixed** | file width + browse sheet below `md`; merge `233502e`; decision in `issues/80-mobile-file-drawer-decision.md` |
 | 3 | A folder nested in a folder could not be dragged to the root | **fixed** | every row draggable; merge `021456f` |
-| 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open — next** | protocol has `set_permission_mode`; no UI |
-| 5 | A project cannot be deleted | **decided — build pending** | decision in `issues/87-delete-project-decision.md`; still no `DELETE /api/projects/:id` |
+| 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **decided — build queued as 82–86** | decision 81 + ADR 0003; protocol has `set_permission_mode`; still no UI |
+| 5 | A project cannot be deleted | **decided — build queued as 88–91** | decision 87 + `spec-10`; still no `DELETE /api/projects/:id` |
 | 6 | clodeck looked more expensive than the CLI | **researched + two fixes** | note + auto-resume + token display; merges `943f3d2`, `5179415` |
 
 ## What landed (do not re-investigate)
@@ -91,7 +90,7 @@ a resumed session's first result already carries earlier turns), which is why th
 
 ## What remains
 
-### A. Permission modes — decided (ticket 81); the build is tickets 82–84
+### A. Permission modes — decided (ticket 81); the build is tickets 82–86
 
 **Decided 2026-10-21.** The four-mode contract — **Ask**, **Accept edits**, **Plan**, **Bypass** — is
 in `.scratch/clodeck/issues/81-permission-modes-decision.md`; the rule it rests on is
@@ -110,12 +109,15 @@ but never loosen it; `auto` and `dontAsk` are refused at the wire.
 - `web/src` has no mode control at all (82).
 - `bypassPermissions` still lacks `allowDangerouslySkipPermissions: true` (83).
 
-**Next:** `/to-spec` writes `spec-09-permission-modes.md` from ticket 81; `/to-tickets` writes 82–84.
+**Next:** the tickets are on `main` — 82 (composer picks the mode), 83 (every Bash call asks), 84 (plan
+denies without prompting), 85 (bypass with gates), 86 (operator docs). `spec-09-permission-modes.md` was
+never written: ticket 81 stands in for it, and the tickets were split straight from the decision. Write
+the spec only if the build turns out to need the collapse; do not treat its absence as a blocker.
 
 Tests to aim at: a bus test that `send_prompt` carries the mode and the *next* send keeps it; a web
 picker test; an approval path that proves Ask still parks a Bash call and Bypass does not.
 
-### B. Delete a project — decided (ticket 87); the build is next
+### B. Delete a project — decided (ticket 87); the build is tickets 88–91
 
 **Decided 2026-10-21.** The whole decision is `.scratch/clodeck/issues/87-delete-project-decision.md`;
 ten calls, in one paragraph:
@@ -144,24 +146,28 @@ ten calls, in one paragraph:
 Build: `deleteProject` on the `ProjectDiscovery` seam (never `ScopedFs.remove`, which is project-scoped
 and would unlink a symlink), the route in `server/src/projects.ts` mapping to the codes above, the typed
 dialog as an extension of `NameDialog`, and tests for the route, the seam's symlink refusal, the run
-forget, and the sidebar's refusal paths. `/to-spec` then writes `spec-10-project-delete.md`.
+forget, and the sidebar's refusal paths.
+
+**Queued:** `spec-10-project-delete.md` is the slice, and the tickets are **88** (the typed-name dialog —
+the prefactor), **89** (the route, the seam, the refusals and the forget), **90** (the sidebar flow,
+blocked by 88 and 89), **91** (operator docs, blocked by 89 and 90). 88 and 89 are independent and can
+run in parallel.
 
 ## Next-session prompt (paste this)
 
 ```text
-do ta kar moonde, be in tarteeb:
+do saf-e ticket rooy-e main hastan va hich kari az decision-hā moonde nist:
 
-1) permission modes: decision-e 81 baste shode (four-mode contract, ADR 0003) va ticket-haye
-   82-86 rooy-e branch-e clodeck/81-permission-mode-contract neveshte shodan vali hanuz
-   merge/build nashodan. ghadam: /to-spec -> spec-09-permission-modes.md, bad /implement.
+1) permission modes (82-86): decision-e 81 + ADR 0003 + ticket-ha rooy-e main hastan vali hich
+   kodi neveshte nashode. /implement rooy-e 82 (composer mode) ke frontier-e ready ast; 83/84/85/86
+   ham be tartib. spec-09 neveshte nashode — ticket 81 jāyash rā migirad, blocker nist.
 
-2) delete project: decision-e 87 (real delete, typed-name confirm, 409 vaghti turn/terminal
-   zende ast, JSONL-ha mimoonan, run state forget mishavad). ghadam: /to-spec ->
-   spec-10-project-delete.md, bad /to-tickets va /implement.
+2) delete project (88-91): spec-10 + decision-e 87 rooy-e main. 88 (typed dialog) va 89 (route +
+   seam + 409-ha + forget) mostaghelan ready-and; 90 (sidebar) blocked by 88+89; 91 (docs) blocked
+   by 89+90.
 
-tavajjoh: file drawer merge shode (233502e) va rooy-e main ast; branch-e prototype
-(clodeck/file-panel-mobile-prototype) amdan unmerged moonde va hichvaght merge nemishavad
-(throwaway, faghat primary source ast).
+tavajjoh: branch-e prototype (clodeck/file-panel-mobile-prototype) amdan unmerged moonde va
+hichvaght merge nemishavad (throwaway, faghat primary source ast).
 
 handoff: .scratch/clodeck/handoff.md — ghabl az shoroo, git log --oneline -8 ra check kon va
 agar shakhe avaz shode bood, avval vaziat ra befahm.
@@ -193,9 +199,9 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   `UI_PASSWORD`. A failed spec can leave `zz-*` files in `demo` and poison the next run.
 - **The checkout can move under you.** Another session or the sandcastle loop may switch branches
   mid-work; verify `git rev-parse --abbrev-ref HEAD` before writing or asserting state.
-- **`npm run sandcastle`** drains tickets one per branch. The queue is tickets **82–86**
-  (permission modes), and they live on the unmerged `clodeck/81-permission-mode-contract` branch — merge
-  it first. Delete-project has no build tickets until `/to-tickets` splits decision 87.
+- **`npm run sandcastle`** drains tickets one per branch. The queue is on `main`: 82–86 (permission
+  modes) and 88–89 (delete), with 90 and 91 unblocking as their blockers resolve. Every one of them is
+  `ready-for-agent` in the tracker's own reading — check with `node scripts/tickets.mjs list --brief`.
 
 ## Still load-bearing (updated this phase)
 
