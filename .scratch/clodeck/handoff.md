@@ -1,9 +1,10 @@
-# Handoff — clodeck: four of six reports fixed; permission modes and project deletion remain
+# Handoff — clodeck: four of six reports fixed; permission modes and project deletion decided, both builds pending
 
-**Updated:** 2026-10-20
-**Where the tree is:** `main`, clean, carrying this phase's work — the file drawer fix merged `--no-ff`
-(`233502e`) and the decision + this handoff merged `--no-ff` (`b3944c6`). Both branches were deleted
-after their merge. One branch is deliberately **left unmerged**:
+**Updated:** 2026-10-21
+**Where the tree is:** `main` at `a673331` (the file-drawer handoff merge). Work that is done but
+deliberately **left unmerged**:
+- `clodeck/81-permission-mode-contract` — decision 81, ADR 0003, and tickets 82–86. Nothing built yet.
+- `clodeck/87-delete-project-decision` — decision 87 and the docs moves this handoff records.
 - `clodeck/file-panel-mobile-prototype` (`adb9f41`) — the throwaway prototype behind ticket 80. It is
   the primary source for the comparison and is **never** merged; delete it when it stops being useful.
 
@@ -19,7 +20,7 @@ e2e suite **7/7** on `main` itself.
 | 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **fixed** | file width + browse sheet below `md`; merge `233502e`; decision in `issues/80-mobile-file-drawer-decision.md` |
 | 3 | A folder nested in a folder could not be dragged to the root | **fixed** | every row draggable; merge `021456f` |
 | 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open — next** | protocol has `set_permission_mode`; no UI |
-| 5 | A project cannot be deleted | **open** | no `DELETE /api/projects/:id` |
+| 5 | A project cannot be deleted | **decided — build pending** | decision in `issues/87-delete-project-decision.md`; still no `DELETE /api/projects/:id` |
 | 6 | clodeck looked more expensive than the CLI | **researched + two fixes** | note + auto-resume + token display; merges `943f3d2`, `5179415` |
 
 ## What landed (do not re-investigate)
@@ -114,46 +115,56 @@ but never loosen it; `auto` and `dontAsk` are refused at the wire.
 Tests to aim at: a bus test that `send_prompt` carries the mode and the *next* send keeps it; a web
 picker test; an approval path that proves Ask still parks a Bash call and Bypass does not.
 
-### B. Delete a project (decision, then build)
+### B. Delete a project — decided (ticket 87); the build is next
 
-Only `GET /projects` and `POST /projects` are registered (`server/src/projects.ts:20-27`). Projects
-are immediate child directories of `PROJECTS_ROOT`, with **no registry**, and `ProjectDiscovery`
-(`server/src/discovery.ts:19`) is the only module allowed to touch the root.
+**Decided 2026-10-21.** The whole decision is `.scratch/clodeck/issues/87-delete-project-decision.md`;
+ten calls, in one paragraph:
 
-**Decide the semantics first:**
-- truly delete the directory recursively (irreversible), or
-- move it to a trash directory, or
-- hide it from the list (a registry — conflicts with the standing "no registry" decision).
+- **A real delete.** `DELETE /api/projects/:id` removes the project directory recursively — no trash,
+  no hide-via-registry (there is no registry, and ticket 46 says the filesystem is the truth).
+- **The SDK transcripts stay.** Deleting the directory does not touch `~/.claude/projects/<path>/`; a
+  purge would have to reach outside the allowlist, which is the one place allowed to destroy data.
+- **`409` while busy**, and not on `runningSession(projectId)` — that misses a run that has not named a
+  session yet. Check the run's `active`/status and `terminals.has(projectId)`. Stop-then-delete was
+  rejected: `terminals.close()` leaves the owning WebSocket holding a dead terminal.
+- **Typed-name confirmation**, exact and case-sensitive, with the canonical path shown — the only
+  whole-working-tree destruction in the app, beside other rows in a narrow sidebar.
+- **Hover `⋯` row menu → `Delete…`** in `ProjectSwitcher`; rename stays deferred (ticket 47, call 4).
+- **A symlink entry is refused** (`400 symlink`): discovery dedups by canonical path, so a link can be
+  the visible row for another entry's id. Deletable only when exactly one root entry canonicalizes to
+  the id and it is a real directory.
+- **Codes:** `204` / `404` / `409 turn_in_progress` / `409 terminal_attached` / `400 symlink`.
+- **After:** reload, `deleted <name>` toast, and if it was selected, clear to the no-project empty state
+  rather than jumping to a neighbour.
+- **Forget the `ProjectRun` entry**: ids are canonical paths, so delete + re-create yields the same id,
+  and the stale entry's `sessionId` would silently auto-resume a deleted project's conversation.
+- **History may still show the old sessions** after a re-create (the transcripts were kept); Resume is
+  explicit, never automatic.
 
-If it deletes, the safety shape matters: typed confirmation of the project name; resolve the id
-through the allowlist (never trust the decode); refuse the root itself; refuse while a turn is live
-(`runningSession(projectId)` exists) or a terminal is attached; and decide what happens to the SDK
-session JSONL under `~/.claude/projects`, which deleting the directory does **not** remove.
-
-Then: `DELETE /api/projects/:id` on the gated scope → `204` / `404` / `409`, `deleteProject` on the
-discovery seam, sidebar confirm + reload + clear selection. Tests: route tests against a sandbox root,
-and the sidebar's refusal paths.
+Build: `deleteProject` on the `ProjectDiscovery` seam (never `ScopedFs.remove`, which is project-scoped
+and would unlink a symlink), the route in `server/src/projects.ts` mapping to the codes above, the typed
+dialog as an extension of `NameDialog`, and tests for the route, the seam's symlink refusal, the run
+forget, and the sidebar's refusal paths. `/to-spec` then writes `spec-10-project-delete.md`.
 
 ## Next-session prompt (paste this)
 
 ```text
-دو کار از لیست مونده، به همین ترتیب:
+do ta kar moonde, be in tarteeb:
 
-1) permission modes: backend فقط وسط turn با set_permission_mode کار می‌کند و UI ندارد.
-   با /grilling تصمیم بگیر: scope (per chat/session یا per project)، کدام modeها،
-   persistence بعد از reconnect/New chat، و allowDangerouslySkipPermissions برای
-   bypassPermissions. بعد decision ticket و /tdd.
+1) permission modes: decision-e 81 baste shode (four-mode contract, ADR 0003) va ticket-haye
+   82-86 rooy-e branch-e clodeck/81-permission-mode-contract neveshte shodan vali hanuz
+   merge/build nashodan. ghadam: /to-spec -> spec-09-permission-modes.md, bad /implement.
 
-2) delete project: route ندارد. اول semantics (delete روی disk vs trash vs hide) و safety
-   (typed confirm، refuse root، refuse وقتی turn/terminal زنده است، session JSONLها) را
-   تصمیم بگیر، بعد route + sidebar UI.
+2) delete project: decision-e 87 (real delete, typed-name confirm, 409 vaghti turn/terminal
+   zende ast, JSONL-ha mimoonan, run state forget mishavad). ghadam: /to-spec ->
+   spec-10-project-delete.md, bad /to-tickets va /implement.
 
-توجه: file drawer merge شده (233502e) و روی main است؛ branch-e prototype
-(clodeck/file-panel-mobile-prototype) عمداً unmerged مانده و هیچ‌وقت merge نمی‌شود
-(throwaway، فقط primary source است).
+tavajjoh: file drawer merge shode (233502e) va rooy-e main ast; branch-e prototype
+(clodeck/file-panel-mobile-prototype) amdan unmerged moonde va hichvaght merge nemishavad
+(throwaway, faghat primary source ast).
 
-handoff: .scratch/clodeck/handoff.md — قبل از شروع، git log --oneline -8 را چک کن و
-اگر شاخه عوض شده بود، اول وضعیت را بفهم.
+handoff: .scratch/clodeck/handoff.md — ghabl az shoroo, git log --oneline -8 ra check kon va
+agar shakhe avaz shode bood, avval vaziat ra befahm.
 ```
 
 ## Dev loop (unchanged, still load-bearing)
@@ -182,8 +193,9 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   `UI_PASSWORD`. A failed spec can leave `zz-*` files in `demo` and poison the next run.
 - **The checkout can move under you.** Another session or the sandcastle loop may switch branches
   mid-work; verify `git rev-parse --abbrev-ref HEAD` before writing or asserting state.
-- **`npm run sandcastle`** drains tickets one per branch. No tickets are queued right now; the two
-  remaining reports are decisions, not agent-ready tickets yet.
+- **`npm run sandcastle`** drains tickets one per branch. The queue is tickets **82–86**
+  (permission modes), and they live on the unmerged `clodeck/81-permission-mode-contract` branch — merge
+  it first. Delete-project has no build tickets until `/to-tickets` splits decision 87.
 
 ## Still load-bearing (updated this phase)
 
