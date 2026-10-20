@@ -70,7 +70,13 @@ describe('@clodeck/shared', () => {
       labelOf({
         ...base,
         kind: 'snapshot',
-        payload: { state: 'running', blocks: [], pendingApprovals: [], lastSeq: 2 },
+        payload: {
+          state: 'running',
+          permissionMode: 'default',
+          blocks: [],
+          pendingApprovals: [],
+          lastSeq: 2,
+        },
       }),
     ).toBe('snapshot:0');
     expect(

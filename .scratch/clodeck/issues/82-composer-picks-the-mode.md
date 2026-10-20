@@ -8,7 +8,7 @@ pishnahad nemishe (ticket 85).
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Agent Brief
 
@@ -47,18 +47,18 @@ mishavad — bedoone in, har turn-e jadid be `'default'` barmigardad.
 snapshot; `CLODECK_PERMISSION_MODE`.
 
 **Acceptance criteria:**
-- [ ] Bā `Ask` send mikoni; turn bā `default` ejrā mishavad va UI ham `Ask` neshoon midahad.
-- [ ] Mode-e entekhāb-shode ghabl az avvalin send (vaghti hich run-i nist) be SDK miresad.
-- [ ] Entekhāb-e mode vaghti run idle ast, dar send-e ba'di e'māl mishavad.
-- [ ] Switch-e miyān-e turn rooye tool call-hā-ye ba'di asar migozārad va turn-e ba'di bā hamoon mode
+- [x] Bā `Ask` send mikoni; turn bā `default` ejrā mishavad va UI ham `Ask` neshoon midahad.
+- [x] Mode-e entekhāb-shode ghabl az avvalin send (vaghti hich run-i nist) be SDK miresad.
+- [x] Entekhāb-e mode vaghti run idle ast, dar send-e ba'di e'māl mishavad.
+- [x] Switch-e miyān-e turn rooye tool call-hā-ye ba'di asar migozārad va turn-e ba'di bā hamoon mode
       shoroo mishavad.
-- [ ] Reconnect mode ra az snapshot bar-migardānad; New chat be `CLODECK_PERMISSION_MODE` barmigardad.
-- [ ] Project switch har project mode-e run-e khodesh ra negah midārad.
-- [ ] `auto`، `dontAsk`، va tā ticket 85 `bypassPermissions` dar validator rad mishan.
-- [ ] `CLODECK_PERMISSION_MODE`-e nāmotabar boot ra bā payām-e vāzeh mishopad.
-- [ ] Approval-e park-shode bā mode-e raise-shode javāb dāde mishavad.
-- [ ] Test-hā: server (payload، store، snapshot، reset، validator); web (chip، label، switch).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Reconnect mode ra az snapshot bar-migardānad; New chat be `CLODECK_PERMISSION_MODE` barmigardad.
+- [x] Project switch har project mode-e run-e khodesh ra negah midārad.
+- [x] `auto`، `dontAsk`، va tā ticket 85 `bypassPermissions` dar validator rad mishan.
+- [x] `CLODECK_PERMISSION_MODE`-e nāmotabar boot ra bā payām-e vāzeh mishopad.
+- [x] Approval-e park-shode bā mode-e raise-shode javāb dāde mishavad.
+- [x] Test-hā: server (payload، store، snapshot، reset، validator); web (chip، label، switch).
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Bypass va gate-hā-ye ash (85).

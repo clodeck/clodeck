@@ -33,7 +33,18 @@ export function parseClientMessage(raw: string): ClientIntent | null {
       // a client cannot ask for a profile with, say, an object.
       const profile = payload?.['profile'];
       if (profile !== undefined && typeof profile !== 'string') return null;
-      return { type: 'send_prompt', payload: profile === undefined ? { prompt } : { prompt, profile } };
+      // Absent leaves the run's stored mode alone; present must be a mode the
+      // contract offers, or the frame is refused rather than forwarded.
+      const permissionMode = payload?.['permissionMode'];
+      if (permissionMode !== undefined && !isSelectablePermissionMode(permissionMode)) return null;
+      return {
+        type: 'send_prompt',
+        payload: {
+          prompt,
+          ...(profile === undefined ? {} : { profile }),
+          ...(permissionMode === undefined ? {} : { permissionMode }),
+        },
+      };
     }
     case 'interrupt':
       return { type: 'interrupt' };
@@ -44,7 +55,7 @@ export function parseClientMessage(raw: string): ClientIntent | null {
     case 'set_permission_mode': {
       const payload = asObject(message['payload']);
       const mode = payload?.['mode'];
-      if (!isPermissionMode(mode)) return null;
+      if (!isSelectablePermissionMode(mode)) return null;
       return { type: 'set_permission_mode', mode };
     }
     case 'approval_response': {
@@ -100,23 +111,28 @@ function parseApprovalResponse(
 }
 
 /**
- * The runtime mirror of the `PermissionMode` union. `satisfies` is the link back
- * to `shared/src/sdk.ts`: a mode added to the union, or a typo here, fails the
- * build — so this guard can never silently reject a mode the type allows.
+ * The modes the wire accepts, not the whole `PermissionMode` union. `auto` and
+ * `dontAsk` are refused for good — `dontAsk` never reaches the modal, so its
+ * refusals would look like a hang — and `bypassPermissions` is held back until
+ * ticket 85 builds its gates (ADR 0003). The shared type stays the six-value
+ * mirror of the SDK; this is the narrower contract the product offers.
+ *
+ * `satisfies Partial<Record<PermissionMode, true>>` is the link back to
+ * `shared/src/sdk.ts`: a renamed mode, or one added outside the union, fails the
+ * build here rather than going silently unsupported on the wire.
  */
-const PERMISSION_MODES = {
+const SELECTABLE_PERMISSION_MODES = {
   default: true,
   acceptEdits: true,
-  bypassPermissions: true,
   plan: true,
-  dontAsk: true,
-  auto: true,
-} satisfies Record<PermissionMode, true>;
+} satisfies Partial<Record<PermissionMode, true>>;
 
-function isPermissionMode(value: unknown): value is PermissionMode {
+type SelectablePermissionMode = keyof typeof SELECTABLE_PERMISSION_MODES;
+
+function isSelectablePermissionMode(value: unknown): value is SelectablePermissionMode {
   // `hasOwn`, not `in`: a value like `toString` must be rejected, not found on
   // the prototype and accepted.
-  return typeof value === 'string' && Object.hasOwn(PERMISSION_MODES, value);
+  return typeof value === 'string' && Object.hasOwn(SELECTABLE_PERMISSION_MODES, value);
 }
 
 function parseObject(raw: string): Record<string, unknown> | null {

@@ -39,8 +39,18 @@ export interface TurnManager {
    * run carries the keys itself, so this is also where a turn's provider is
    * recorded: the line below is the only answer to "what did that turn run on"
    * that survives the turn — including when a project's pin narrowed it.
+   *
+   * `permissionMode` is the send's own choice, when the client made one. It
+   * outranks the run's stored mode, and becomes the mode the next turn starts
+   * in — the same rule a mid-turn switch follows, so the two cannot disagree.
    */
-  sendPrompt(projectId: string, cwd: string, prompt: string, profile: RunProfile): void;
+  sendPrompt(
+    projectId: string,
+    cwd: string,
+    prompt: string,
+    profile: RunProfile,
+    permissionMode?: PermissionMode,
+  ): void;
   /** Interrupt the active run. False when the project has no active turn. */
   interrupt(projectId: string): Promise<boolean>;
   /** Change the active run's permission mode. False when there is no active turn. */
@@ -79,11 +89,19 @@ export interface TurnManager {
 export interface TurnManagerOptions {
   /** Where each run's profile and model are recorded. Defaults to the console. */
   log?: Log;
+  /**
+   * The mode a run starts in, and the one a New chat returns to: the server's
+   * `CLODECK_PERMISSION_MODE` (ticket 82). Defaults to Ask.
+   */
+  permissionMode?: PermissionMode;
 }
 
 export function createTurnManager(provider: SdkProvider, options: TurnManagerOptions = {}): TurnManager {
   const projects = new Map<string, ProjectRun>();
   const log = options.log ?? logToConsole;
+  // The session's mode dies with it; this is the value it is born with, and the
+  // one a New chat returns to.
+  const defaultPermissionMode = options.permissionMode ?? 'default';
 
   function run(projectId: string): ProjectRun {
     const existing = projects.get(projectId);
@@ -92,6 +110,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
     const created: ProjectRun = {
       id: projectId,
       status: 'idle',
+      permissionMode: defaultPermissionMode,
       blocks: [],
       pending: new Map(),
       subscribers: new Set(),
@@ -118,7 +137,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       };
     },
 
-    sendPrompt(projectId, cwd, prompt, profile) {
+    sendPrompt(projectId, cwd, prompt, profile, permissionMode) {
       const state = run(projectId);
       // A second send would drive the model twice; the turn in flight owns the
       // project until it ends.
@@ -131,10 +150,16 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
         return;
       }
 
+      // The send's own choice outranks what the run kept; with neither, the
+      // boot default — which the run was born with. Recording it before the
+      // query is what makes the *next* turn start where this one ran.
+      const mode = permissionMode ?? state.permissionMode;
+      state.permissionMode = mode;
+
       // Recorded as the run starts, and only now: a send the busy check above
       // turned away ran nothing, and a line for it would answer "what did that
       // turn run on" about a turn that never was.
-      log(`turn on profile ${profile.name} · ${describeRun(profile)} · ${cwd}`);
+      log(`turn on profile ${profile.name} · ${describeRun(profile)} · mode ${mode} · ${cwd}`);
 
       state.status = 'running';
       state.turnId = randomUUID();
@@ -160,6 +185,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
         active = provider.query({
           cwd,
           prompt,
+          // Every `query()` is a fresh one, so the mode is passed every time —
+          // not only on the first send — or the turn after a switch would fall
+          // back to the SDK's default.
+          permissionMode: mode,
           // The keys the run carries, not the name: an operator renaming or
           // removing a profile mid-turn cannot move it, and a project's pin has
           // already had its say (`applyPin`). `null` sends no keys at all, so
@@ -204,6 +233,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       if (state.active === undefined) return false;
 
       await state.active.setPermissionMode(mode);
+      // The live switch and the session's memory are one act: the next turn is
+      // a fresh `query()` that reads this value, and a switch that only reached
+      // the running one would be forgotten at the turn boundary.
+      state.permissionMode = mode;
       return true;
     },
 
@@ -235,7 +268,13 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
     },
 
     clearResume(projectId) {
-      forgetTranscript(run(projectId), undefined);
+      const state = run(projectId);
+      // A new chat is a new session, and the mode is session state: it goes back
+      // to the server's default rather than carrying the old session's choice
+      // into the next one. The SDK's own conversation reset does *not* do this —
+      // that is the same conversation moving on, not a new chat.
+      state.permissionMode = defaultPermissionMode;
+      forgetTranscript(state, undefined);
     },
   };
 }
@@ -282,6 +321,9 @@ function snapshotOf(state: ProjectRun): EventDraft {
     kind: 'snapshot',
     payload: {
       state: state.status,
+      // The effective mode, never a blank: a reconnecting client shows it, and
+      // a session that has chosen nothing starts where the server said it would.
+      permissionMode: state.permissionMode,
       // Copies: a snapshot is a point in time, and the run keeps appending.
       blocks: [...state.blocks],
       pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
@@ -490,6 +532,12 @@ interface PendingApproval {
 interface ProjectRun {
   readonly id: string;
   status: SessionState;
+  /**
+   * The mode the run will start its next turn in. Born with the server's
+   * default, moved by a send's own choice or a mid-turn switch, and returned to
+   * the default by a New chat — never written anywhere else.
+   */
+  permissionMode: PermissionMode;
   readonly blocks: SDKMessage[];
   readonly pending: Map<string, PendingApproval>;
   readonly subscribers: Set<EmitDraft>;

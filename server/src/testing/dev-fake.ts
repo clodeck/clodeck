@@ -115,6 +115,9 @@ const app = buildApp({
   // The same config seam as `main.ts` here too — the fake stands in for a real
   // provider, not for the deployment around it (ticket 65).
   trustedProxies: config.trustedProxies,
+  // The same mode the real server would start sessions in, so the loop can
+  // exercise a non-Ask default by exporting the variable.
+  permissionMode: config.permissionMode,
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from

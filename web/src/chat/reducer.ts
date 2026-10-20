@@ -1,6 +1,7 @@
 import type {
   ApprovalRequestPayload,
   ContentBlock,
+  PermissionMode,
   ResumePayload,
   SDKMessage,
   SDKModelUsage,
@@ -100,6 +101,12 @@ export interface ChatView {
   model: string | null;
   /** The authoritative turn state the SDK reports. */
   state: SessionState;
+  /**
+   * The effective permission mode: the run's stored choice, restored by every
+   * snapshot, and moved locally the moment the user picks one — the chip says
+   * what the next turn will run under, not what the last one did.
+   */
+  permissionMode: PermissionMode;
   entries: readonly ChatEntry[];
   /** Text accumulated from `stream_event` deltas, not yet reconciled by a block. */
   streamingText: string;
@@ -147,6 +154,9 @@ export function emptyView(): ChatView {
     cwd: null,
     model: null,
     state: 'idle',
+    // The wire's first snapshot replaces this with the server's own default;
+    // until then Ask is the only mode with no choice behind it.
+    permissionMode: 'default',
     entries: [],
     streamingText: '',
     streamingTool: null,
@@ -207,7 +217,14 @@ function foldEvent(view: ChatView, event: ServerEvent): ChatView {
  */
 function fromSnapshot(payload: SnapshotPayload): ChatView {
   let view: ChatView = {
-    ...runState(payload.state, payload.pendingApprovals),
+    ...runState(
+      payload.state,
+      payload.pendingApprovals,
+      // The wire is untrusted even where the type says required: an older
+      // emitter's snapshot must land on Ask, not on an undefined mode no label
+      // can render.
+      permissionModeOf(payload.permissionMode),
+    ),
     // The run's list, kept outside the blocks because it never travelled as one.
     // It goes in *before* the blocks, so a `commands_changed` the run pushed
     // later in the session — replayed among them — is the one that stands.
@@ -221,15 +238,19 @@ function fromSnapshot(payload: SnapshotPayload): ChatView {
 
 /**
  * The project's run with none of a conversation's transcript: the turn state the
- * SDK reports and the approvals it is parked on, and nothing that belonged to
- * the conversation before. A `snapshot` rebuilds from exactly this and folds the
- * run's complete blocks onto it; a `conversation_reset` arrives at it directly,
- * because the SDK has already thrown every block a snapshot would have carried
- * away. One view, so the live frame and a reconnect cannot disagree about what
- * the run holds.
+ * SDK reports, the mode it will run the next turn in, and the approvals it is
+ * parked on, and nothing that belonged to the conversation before. A `snapshot`
+ * rebuilds from exactly this and folds the run's complete blocks onto it; a
+ * `conversation_reset` arrives at it directly, because the SDK has already
+ * thrown every block a snapshot would have carried away. One view, so the live
+ * frame and a reconnect cannot disagree about what the run holds.
  */
-function runState(state: SessionState, pendingApprovals: readonly ApprovalRequestPayload[]): ChatView {
-  return { ...emptyView(), state, pendingApprovals: [...pendingApprovals] };
+function runState(
+  state: SessionState,
+  pendingApprovals: readonly ApprovalRequestPayload[],
+  permissionMode: PermissionMode,
+): ChatView {
+  return { ...emptyView(), state, permissionMode, pendingApprovals: [...pendingApprovals] };
 }
 
 function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' | 'interrupted'): ChatView {
@@ -275,8 +296,9 @@ export function applySdkMessage(view: ChatView, message: SDKMessage): ChatView {
       // The SDK threw the conversation away — `/clear`, a plan-mode exit, a flow
       // of its own — so everything on screen goes with it. Identity is not read
       // out of the frame here: `new_conversation_id` reaches this view on the
-      // envelope, the way every other session id does (ticket 74).
-      return runState(view.state, view.pendingApprovals);
+      // envelope, the way every other session id does (ticket 74). The mode
+      // stays: this is the same session moving on, not a New chat.
+      return runState(view.state, view.pendingApprovals, view.permissionMode);
     case 'result':
       return applyResult(view, message);
     default:
@@ -460,6 +482,16 @@ export function dismissApproval(view: ChatView, requestId: string): ChatView {
 
 export function clearError(view: ChatView): ChatView {
   return view.lastError === null ? view : { ...view, lastError: null };
+}
+
+/**
+ * Shows the mode the user just picked, before any frame goes out. An idle
+ * choice has no server state to move yet — it rides the next `send_prompt` —
+ * and a mid-turn one is mirrored here while `set_permission_mode` reaches the
+ * run, so the chip always states the effective mode either way.
+ */
+export function withPermissionMode(view: ChatView, mode: PermissionMode): ChatView {
+  return view.permissionMode === mode ? view : { ...view, permissionMode: mode };
 }
 
 /**
@@ -656,6 +688,16 @@ function rewriteTool(
 
 function asSessionState(value: unknown): SessionState | null {
   return value === 'idle' || value === 'running' || value === 'requires_action' ? value : null;
+}
+
+/**
+ * The modes a snapshot can name today. The shared union carries the SDK's six,
+ * but the server offers three until Bypass's gates land (ADR 0003); anything
+ * else — including a missing field from an older emitter — lands on Ask, which
+ * is the mode a server with nothing declared would have run.
+ */
+function permissionModeOf(value: unknown): PermissionMode {
+  return value === 'acceptEdits' || value === 'plan' || value === 'default' ? value : 'default';
 }
 
 function str(value: unknown): string | null {

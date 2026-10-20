@@ -1,6 +1,8 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import type { PermissionMode } from '@clodeck/shared';
+
 import { warnToConsole, type Warn } from './logging.js';
 import { trustedProxyList } from './trusted-proxies.js';
 
@@ -37,6 +39,13 @@ export interface ServerConfig {
    * is otherwise one bucket shared by everyone behind it.
    */
   trustedProxies: string | null;
+  /**
+   * The permission mode a session starts in when it has chosen none, read once
+   * at boot from `CLODECK_PERMISSION_MODE` (ticket 82). The session may
+   * override it; a New chat goes back to this value rather than to an SDK
+   * default, which is why it is configuration and not a constant.
+   */
+  permissionMode: PermissionMode;
 }
 
 export interface LoadConfigOptions {
@@ -99,7 +108,49 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     // would cost the operator a boot rather than a warning, so it is caught at
     // the door every config comes through (`trusted-proxies.ts`).
     trustedProxies: trustedProxyList(envValue(env, 'CLODECK_TRUSTED_PROXIES'), warn),
+    // The one value here that is refused rather than warned about: a mode the
+    // contract does not offer is a promise the UI cannot keep, so the process
+    // stops at boot instead of running every turn in a mode nobody chose.
+    permissionMode: permissionModeFromEnv(env),
   };
+}
+
+/**
+ * The modes a deployment may choose as its default. `auto` and `dontAsk` are
+ * refused for good: `dontAsk` never calls `canUseTool`, so a refusal would look
+ * like a hang, and `auto`'s classifier is not observable from the UI (ADR
+ * 0003). `bypassPermissions` joins this set when ticket 85 lands its gates.
+ *
+ * `satisfies Partial<Record<PermissionMode, true>>` keeps each key a member of
+ * the shared union: a renamed or invented mode fails the build here rather than
+ * reaching a run.
+ */
+const BOOT_PERMISSION_MODES = {
+  default: true,
+  acceptEdits: true,
+  plan: true,
+} satisfies Partial<Record<PermissionMode, true>>;
+
+/**
+ * `CLODECK_PERMISSION_MODE`, or Ask when it is unset or blank. A value outside
+ * {@link BOOT_PERMISSION_MODES} throws: this is the one misconfiguration whose
+ * symptom would be a session quietly running under a policy the operator did
+ * not pick, so it is stopped at the door rather than reported and ignored.
+ */
+export function permissionModeFromEnv(env: NodeJS.ProcessEnv): PermissionMode {
+  const declared = envValue(env, 'CLODECK_PERMISSION_MODE');
+  if (declared === null) return 'default';
+
+  if (Object.hasOwn(BOOT_PERMISSION_MODES, declared)) {
+    return declared as keyof typeof BOOT_PERMISSION_MODES;
+  }
+
+  const unavailable =
+    declared === 'bypassPermissions' ? ' — Bypass is not available yet (ticket 85)' : '';
+  throw new Error(
+    `CLODECK_PERMISSION_MODE is "${declared}"; use one of ` +
+      `${Object.keys(BOOT_PERMISSION_MODES).join(', ')}${unavailable}`,
+  );
 }
 
 /**

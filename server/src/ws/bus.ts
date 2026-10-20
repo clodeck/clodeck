@@ -125,6 +125,10 @@ async function dispatchFrame(
           context.cwd,
           intent.payload.prompt,
           await profileForRun(context.options.profiles, context.cwd, intent.payload.profile),
+          // The send's own choice, or undefined to let the run keep its stored
+          // mode. It travels with the prompt so an idle choice needs no second
+          // frame and cannot race the turn it belongs to.
+          intent.payload.permissionMode,
         );
         break;
       case 'interrupt':
