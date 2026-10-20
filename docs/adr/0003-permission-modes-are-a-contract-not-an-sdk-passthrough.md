@@ -61,9 +61,16 @@ next to the labels that state it.
 
 - **The label and the wire value differ**, deliberately: the UI says *Ask*, the wire says `default`.
   One mapping, in one place; a future reader can still match clodeck's four to the SDK's union.
-- **A mechanism must force calls to the callback.** Whether that is a per-run `PreToolUse` hook or a
-  per-run settings layer is ticket 83's first job. A global `permissions.ask: ["Bash"]` cannot be used:
-  it is evaluated before the mode and would also prompt in Bypass.
+- **The verified mechanism is a `PreToolUse` hook** returning `permissionDecision: 'ask'` (probed
+  2026-10-21 against SDK 0.3.296). It runs before rules and mode, and its decision is made in
+  clodeck's closure, so it can be conditional on the mode. A per-run settings layer with
+  `permissions.ask` also works but can only *add* rules — it cannot remove a project's ask rule — and
+  a global one cannot be used because ask rules are evaluated before the mode and would also prompt
+  in Bypass.
+- **Plan has three SDK exceptions:** the SDK's own plan file under `~/.claude/plans/` is
+  auto-approved; `AskUserQuestion` and `ExitPlanMode` reach the callback, so the plan denial must
+  exempt the clarifying question and may answer `ExitPlanMode` with a denial that keeps the session
+  in Plan.
 - **The SDK's `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` warning is expected** for `Read`, `Glob` and `Grep`:
   they are pre-approved on purpose and never reach the callback.
 - **Bypass is gated four ways** — the SDK flag, `CLODECK_ALLOW_BYPASS`, a project's

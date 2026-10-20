@@ -49,6 +49,10 @@ The first mode is named **Ask**, not "Default": the mode's name should say what 
 match clodeck's choice to the SDK's union one-to-one. (The CLI's `manual` alias is the same mode under
 a third name; clodeck does not use it.)
 
+The Plan row has one deliberate exception: writing the SDK's own plan file under `~/.claude/plans/`
+is auto-approved by the SDK and never reaches the callback. That write is how plan mode records the
+plan; it is not a project edit, and clodeck does not try to block it.
+
 ## Where the contract is stricter than the SDK (three deltas)
 
 The SDK's own semantics are documented and are not these. Each delta is deliberate.
@@ -66,11 +70,12 @@ The SDK's own semantics are documented and are not these. Each delta is delibera
    a plan, and nothing executes while it is being written. Leaving Plan is a mode change, not an
    approval.
 
-**How each delta is enforced is a build decision, not this one.** The decision binds the behaviour.
-The mechanism has two viable shapes — a per-run `PreToolUse` hook that forces the call to the
-callback, or a per-run settings layer with `permissions.ask: ["Bash"]` — and the second cannot be
-global: ask rules are evaluated *before* the mode, so a global one would also prompt in Bypass. The
-first job of ticket 83 is to pick the mechanism and prove it against the real SDK.
+**How each delta is enforced is ticket 83's job, and it has been probed.** Both candidate mechanisms
+work: a per-run `PreToolUse` hook returning `permissionDecision: 'ask'`, and a per-run settings layer
+with `permissions.ask: ["Bash"]`. The hook is the one that can be conditional on the mode — it runs
+first, and its decision is made in clodeck's own closure — and it is the one the probes below drove
+end to end. The settings layer merges with the project's file rather than replacing it, but it can
+only **add** rules; it cannot remove a project's ask rule, which is why Bypass can never silence one.
 
 ## Project settings can tighten, never loosen
 
@@ -89,6 +94,30 @@ The rule clodeck adopts:
 The price is one honest sentence, which both the UI and the Bypass warning carry:
 
 > A project's own deny/ask rules in `.claude/settings.json` will still apply.
+
+## The measurements the contract rests on
+
+Probed against the installed SDK (`@anthropic-ai/claude-agent-sdk@0.3.296`, bundled Claude Code
+2.1.296): real runs, a fresh temporary project, `settingSources: ['project']`, and a `canUseTool` that
+logged every call. Each fact below is a run, not a doc reading.
+
+1. **A `PreToolUse` hook returning `permissionDecision: 'ask'` forces the call to `canUseTool`.**
+   `ls` in `default` and `mkdir` in `acceptEdits` reach the callback only when the hook is present.
+   The hook runs before deny/ask rules and the mode, and its `permissionDecisionReason` arrives as
+   the callback's `decisionReason`.
+2. **`settings: { permissions: { ask: ['Bash'] } }` merges with the project's file; lists union.**
+   A project's `allow`, `deny` and `ask` rules all survive and the injected rule is added. It cannot
+   be injected globally: ask rules are evaluated before the mode, so a global one would also prompt
+   in Bypass. The injection must be per mode.
+3. **A project's ask rule fires in Bypass, and the flag layer cannot remove it.** This turns decision
+   9 ("tighten, never loosen") from an assertion into a measurement. The SDK's own
+   `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` warning says bypass approves everything "except explicit deny
+   rules"; it omits ask rules and is wrong about them — do not design from the warning.
+4. **`plan` routes edits and shell writes to `canUseTool`**, and a `deny` there shows no UI and lets
+   the turn continue; the model reads the message and keeps planning. Two exceptions the build must
+   handle: `AskUserQuestion` and `ExitPlanMode` also reach the callback, so a blanket non-read-only
+   deny would silence the clarifying question the mode is for; denying `ExitPlanMode` leaves the
+   session in Plan, which is the intended way to stay there.
 
 ## The settled decisions
 
@@ -119,6 +148,8 @@ The price is one honest sentence, which both the UI and the Bypass warning carry
 - **`allowedTools: ['Read','Glob','Grep']`** as the only pre-approval (`anthropic.ts:106`). The SDK's
   `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` warning is expected here: those three tools are *meant* not to
   reach the callback.
+- **`settingSources: ['project']`.** The server's own `~/.claude/settings.json` is not loaded, so a
+  user-level rule cannot loosen the contract; the project file is the only settings channel.
 - **The provider picker and its lock after the first turn** (`ProviderPicker.tsx:33-34, :86-99`). A
   provider is a transport fact; a permission mode is not.
 - **The file layer, the allowlist, the auth gate, the origin check and the terminal.** Untouched.
