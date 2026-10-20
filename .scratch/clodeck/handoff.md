@@ -1,19 +1,23 @@
-# Handoff — clodeck: three of six reports fixed; the rest need decisions first
+# Handoff — clodeck: four of six reports fixed; permission modes and project deletion remain
 
 **Updated:** 2026-10-20
-**Where the tree is:** `main`, clean, **local only — not pushed** (8 commits ahead of
-`origin/main`; the last is `5179415`). Every branch this phase used was merged `--no-ff` and deleted.
-**Tests on the merged tree:** `npm run typecheck` clean; `npm test` green — tooling **25**,
-shared **10**, server **385** passed + 9 skipped, web **281** (30 files).
+**Where the tree is:** `main`, clean and level with `origin/main` (last `2522ea9`). Two **unmerged**
+local branches carry this phase's work — do not start from `main` expecting either:
+- `clodeck/80-mobile-file-drawer` (`25327fd`) — the phone file drawer fix (merge this first)
+- `clodeck/file-panel-mobile-prototype` (`adb9f41`) — the throwaway prototype behind it; **do not merge**
+
+**Tests on the fixed branch:** `npm run typecheck` clean; `npm test` green — tooling **25**,
+shared **10**, server **385** passed + 9 skipped, web **281** (30 files); the whole dev-pair
+e2e suite **7/7** against the branch's dev pair.
 
 ## The six reports, and where each stands
 
 | # | Report | State | Where it lives |
 |---|---|---|---|
 | 1 | On a phone the nav sat under Chrome's address bar | **fixed** | shell is `h-dvh`; merge `893ad47` |
-| 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **open — next** | `web/src/files/FilePanel.tsx:295` |
+| 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **fixed** | file width + browse sheet below `md`; `clodeck/80-mobile-file-drawer` (`25327fd`); decision in `issues/80-mobile-file-drawer-decision.md` |
 | 3 | A folder nested in a folder could not be dragged to the root | **fixed** | every row draggable; merge `021456f` |
-| 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open** | protocol has `set_permission_mode`; no UI |
+| 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open — next** | protocol has `set_permission_mode`; no UI |
 | 5 | A project cannot be deleted | **open** | no `DELETE /api/projects/:id` |
 | 6 | clodeck looked more expensive than the CLI | **researched + two fixes** | note + auto-resume + token display; merges `943f3d2`, `5179415` |
 
@@ -26,6 +30,27 @@ one with the browser toolbar retracted. The bottom nav was laid out below the vi
 is now `h-dvh` (`web/src/App.tsx`), and `App.workspace.test.tsx` pins the class. **A Playwright test
 cannot catch this**: emulation makes `100vh` and `100dvh` the same number, which is why the check is a
 class assertion rather than a bounding box.
+
+### 2. Mobile file drawer
+
+The old panel was two columns at every width — a fixed `w-[300px]` tree and a `flex-1` code column — and
+the phone's drawer is a full-screen sheet, so at 360px the file got ~60px. The tree column is now a
+**slide-over sheet below `md`**: the file takes the width, a `Browse` bar summons the list, and a file
+pick, the sheet's ✕, or the scrim dismisses it. `md:` classes put the old column back, so there is one
+copy of the tree and the move/upload/drag wiring is not duplicated.
+
+Two findings, both load-bearing:
+- **A missing `min-w-0` on a flex wrapper** let a long line stretch the pane to content width — the code
+  head measured 809px at 360px, and the `read-only` chip landed off screen. That was the prototype's
+  first bug (`adb9f41`), and the reason the e2e now asserts the head is exactly 360 wide. It was not the
+  256 KiB `truncated` rule; that chip is deliberately unclickable.
+- **The scrim sits inside the code column**, not as a third child of the `section`: "two direct children"
+  is the layout contract `FilePanel.test.tsx` asserts.
+
+The shape was chosen with `?variant=A|B|C` in `web/src/files/mobilePrototype.tsx` on
+`clodeck/file-panel-mobile-prototype` (throwaway, **not** merged) — A drill-down replaced the list with
+the file, B stacked both panes with a divider; the user picked **C**, and the full verdict is in
+`issues/80-mobile-file-drawer-decision.md`.
 
 ### 3. Folder drag-to-move
 
@@ -64,21 +89,7 @@ a resumed session's first result already carries earlier turns), which is why th
 
 ## What remains
 
-### A. Mobile file manager (next; shape first)
-
-`FilePanel.tsx:295` is a fixed `w-[300px]` tree column beside a `flex-1 min-w-0` code column. At the
-360px floor the content column gets ~60px, which is exactly the report. The drawer itself is already a
-full-screen sheet on a phone (`App.tsx`), so the split is *inside* the sheet.
-
-**Decide the shape before coding** — this is a UI question a prototype answers faster than prose:
-- **drill-down:** selecting a file hides the list; a Back control returns to it; or
-- **stacked panes:** list on top / file below, with a resize or a toggle.
-
-`/prototype` is the right first move. Then implement, and extend `web/e2e/responsive-layout.spec.ts`
-with the file-panel case: at 360px, after selecting a file, the content is readable (the tree is not
-still taking 300px), there is no horizontal scroll, and Back returns to the list.
-
-### B. Permission modes (decision, then build)
+### A. Permission modes (decision, then build)
 
 **What exists:** `PermissionMode` already has all six SDK values (`shared/src/sdk.ts:26`); the wire
 has `set_permission_mode` (`shared/src/protocol.ts:152`), handled at `server/src/ws/bus.ts:133`; the
@@ -101,7 +112,7 @@ says. Then a decision ticket under `.scratch/clodeck/issues/`, then `/tdd`.
 Tests to aim at: a bus test that `send_prompt` carries the mode and the *next* send keeps it; a web
 picker test; an approval path that proves `default` still parks and `bypassPermissions` does not.
 
-### C. Delete a project (decision, then build)
+### B. Delete a project (decision, then build)
 
 Only `GET /projects` and `POST /projects` are registered (`server/src/projects.ts:20-27`). Projects
 are immediate child directories of `PROJECTS_ROOT`, with **no registry**, and `ProjectDiscovery`
@@ -124,21 +135,20 @@ and the sidebar's refusal paths.
 ## Next-session prompt (paste this)
 
 ```text
-سه کار از لیست قبلی مونده، به همین ترتیب:
+دو کار از لیست مونده، به همین ترتیب:
 
-1) file manager روی موبایل: FilePanel دو ستونه است (tree ثابت 300px + content) و روی 360px
-   محتوای فایل خوانا/قابل ویرایش نیست. اول با /prototype شکل موبایل را انتخاب کن
-   (drill-down با Back یا stacked panes)، بعد پیاده‌سازی + تست موبایل در
-   web/e2e/responsive-layout.spec.ts.
-
-2) permission modes: backend فقط وسط turn با set_permission_mode کار می‌کند و UI ندارد.
+1) permission modes: backend فقط وسط turn با set_permission_mode کار می‌کند و UI ندارد.
    با /grilling تصمیم بگیر: scope (per chat/session یا per project)، کدام modeها،
    persistence بعد از reconnect/New chat، و allowDangerouslySkipPermissions برای
    bypassPermissions. بعد decision ticket و /tdd.
 
-3) delete project: route ندارد. اول semantics (delete روی disk vs trash vs hide) و safety
+2) delete project: route ندارد. اول semantics (delete روی disk vs trash vs hide) و safety
    (typed confirm، refuse root، refuse وقتی turn/terminal زنده است، session JSONLها) را
    تصمیم بگیر، بعد route + sidebar UI.
+
+توجه: file drawer هنوز merge نشده — روی clodeck/80-mobile-file-drawer است (25327fd) و
+این handoff روی docs/80-mobile-file-drawer-decision. merge فقط با اجازه کاربر، و
+clodeck/file-panel-mobile-prototype هیچ‌وقت merge نمی‌شود (throwaway).
 
 handoff: .scratch/clodeck/handoff.md — قبل از شروع، git log --oneline -8 را چک کن و
 اگر شاخه عوض شده بود، اول وضعیت را بفهم.
@@ -170,7 +180,7 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   `UI_PASSWORD`. A failed spec can leave `zz-*` files in `demo` and poison the next run.
 - **The checkout can move under you.** Another session or the sandcastle loop may switch branches
   mid-work; verify `git rev-parse --abbrev-ref HEAD` before writing or asserting state.
-- **`npm run sandcastle`** drains tickets one per branch. No tickets are queued right now; the three
+- **`npm run sandcastle`** drains tickets one per branch. No tickets are queued right now; the two
   remaining reports are decisions, not agent-ready tickets yet.
 
 ## Still load-bearing (updated this phase)
@@ -180,6 +190,10 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
 - **Result usage:** the UI shows session token totals from `modelUsage`, never `total_cost_usd`; the
   server logs the same per model. The dollar field is still on the wire (the SDK sends it) and is
   documented as a Claude-list-rate guess.
+- **Below `md` the file drawer is the file, with the tree as a browse sheet.** The sheet starts open and
+  a file pick, its ✕, or the scrim shuts it; `Browse` brings it back. Above `md` the `md:` classes put the
+  fixed 300px column back — one tree element, not two. The sheet's wrapper must keep `min-w-0`, or a long
+  line stretches the head and hides the edit chip (issue 80).
 - **Every file row is draggable**, and a folder row is also a drop target; self/descendant drops are
   swallowed. The drag carries `text/plain` only — an OS-file drag carries `Files` and is the upload.
 - **A project is created by `POST /api/projects { name }`**, on the discovery seam, never by `ScopedFs`
@@ -193,7 +207,8 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   a provider-priced dollar figure) is a separate decision.
 - **Cause #1 of the cost note is unconfirmed for a specific run**: check the server's
   `turn on profile …` line and compare with `claude -p … --output-format json` → `modelUsage`.
-- **`npm run e2e` has not been run against this phase's merged tree.** The unit suites cover each
-  change; the browser check of the combination is the gap.
+- **The dev-pair e2e suite was run on the file-drawer branch (7/7), not on a merged `main`.** The
+  direct-route spec was not run. After the two branches merge, one `npm run e2e -- --project=dev-pair`
+  on `main` closes the combination gap.
 - **The mobile viewport fix has no browser test that can fail** — keep the class assertion, and do not
   spend time trying to emulate a retracting Chrome toolbar.
