@@ -1,21 +1,22 @@
 # Handoff — clodeck: four of six reports fixed; permission modes and project deletion remain
 
 **Updated:** 2026-10-20
-**Where the tree is:** `main`, clean and level with `origin/main` (last `2522ea9`). Two **unmerged**
-local branches carry this phase's work — do not start from `main` expecting either:
-- `clodeck/80-mobile-file-drawer` (`25327fd`) — the phone file drawer fix (merge this first)
-- `clodeck/file-panel-mobile-prototype` (`adb9f41`) — the throwaway prototype behind it; **do not merge**
+**Where the tree is:** `main`, clean, carrying this phase's work — the file drawer fix merged `--no-ff`
+(`233502e`) and the decision + this handoff merged `--no-ff` (`b3944c6`). Both branches were deleted
+after their merge. One branch is deliberately **left unmerged**:
+- `clodeck/file-panel-mobile-prototype` (`adb9f41`) — the throwaway prototype behind ticket 80. It is
+  the primary source for the comparison and is **never** merged; delete it when it stops being useful.
 
-**Tests on the fixed branch:** `npm run typecheck` clean; `npm test` green — tooling **25**,
+**Tests on the merged tree:** `npm run typecheck` clean; `npm test` green — tooling **25**,
 shared **10**, server **385** passed + 9 skipped, web **281** (30 files); the whole dev-pair
-e2e suite **7/7** against the branch's dev pair.
+e2e suite **7/7** on `main` itself.
 
 ## The six reports, and where each stands
 
 | # | Report | State | Where it lives |
 |---|---|---|---|
 | 1 | On a phone the nav sat under Chrome's address bar | **fixed** | shell is `h-dvh`; merge `893ad47` |
-| 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **fixed** | file width + browse sheet below `md`; `clodeck/80-mobile-file-drawer` (`25327fd`); decision in `issues/80-mobile-file-drawer-decision.md` |
+| 2 | Mobile file manager: the 300px tree never closes, so the file is unreadable | **fixed** | file width + browse sheet below `md`; merge `233502e`; decision in `issues/80-mobile-file-drawer-decision.md` |
 | 3 | A folder nested in a folder could not be dragged to the root | **fixed** | every row draggable; merge `021456f` |
 | 4 | Permission modes (ask / accept edits / plan / bypass) missing in chat | **open — next** | protocol has `set_permission_mode`; no UI |
 | 5 | A project cannot be deleted | **open** | no `DELETE /api/projects/:id` |
@@ -146,9 +147,9 @@ and the sidebar's refusal paths.
    (typed confirm، refuse root، refuse وقتی turn/terminal زنده است، session JSONLها) را
    تصمیم بگیر، بعد route + sidebar UI.
 
-توجه: file drawer هنوز merge نشده — روی clodeck/80-mobile-file-drawer است (25327fd) و
-این handoff روی docs/80-mobile-file-drawer-decision. merge فقط با اجازه کاربر، و
-clodeck/file-panel-mobile-prototype هیچ‌وقت merge نمی‌شود (throwaway).
+توجه: file drawer merge شده (233502e) و روی main است؛ branch-e prototype
+(clodeck/file-panel-mobile-prototype) عمداً unmerged مانده و هیچ‌وقت merge نمی‌شود
+(throwaway، فقط primary source است).
 
 handoff: .scratch/clodeck/handoff.md — قبل از شروع، git log --oneline -8 را چک کن و
 اگر شاخه عوض شده بود، اول وضعیت را بفهم.
@@ -207,8 +208,7 @@ npm run dev          rem -> http://localhost:5173   (npm run dev:fake if there i
   a provider-priced dollar figure) is a separate decision.
 - **Cause #1 of the cost note is unconfirmed for a specific run**: check the server's
   `turn on profile …` line and compare with `claude -p … --output-format json` → `modelUsage`.
-- **The dev-pair e2e suite was run on the file-drawer branch (7/7), not on a merged `main`.** The
-  direct-route spec was not run. After the two branches merge, one `npm run e2e -- --project=dev-pair`
-  on `main` closes the combination gap.
+- **The direct-route e2e spec was not run** (it needs the built client served at the LAN origin and a
+  provider credential). The dev-pair suite is 7/7 on `main`; that part of the gap is closed.
 - **The mobile viewport fix has no browser test that can fail** — keep the class assertion, and do not
   spend time trying to emulate a retracting Chrome toolbar.
