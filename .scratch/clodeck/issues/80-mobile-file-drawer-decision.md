@@ -3,8 +3,8 @@
 **What to build:** Nothing more than this ticket records. This is the decision ticket for the second of
 the 2026-10-20 reports: on a phone the file drawer's fixed 300px tree leaves the file about 60px wide, so
 a file cannot be read or edited. It records **which shape wins**, folds it into the panel, and points at
-the throwaway prototype that settled it. The build landed in the same effort, on its own branch
-(`clodeck/80-mobile-file-drawer`, `25327fd`).
+the throwaway prototype that settled it. The build landed in the same effort and is on `main`
+(`25327fd`, merged `--no-ff` as `233502e`).
 
 **Blocked by:** none
 
@@ -45,7 +45,7 @@ Verified: head 360 wide, chip visible, click still opens the editor.
 
 ## What the real implementation does
 
-`25327fd`, on `clodeck/80-mobile-file-drawer`:
+`25327fd`, merged as `233502e`:
 
 - The tree column **is** the sheet below `md`: `absolute inset-y-0 left-0 w-[86%] max-w-[320px]`, with
   `md:` classes putting the fixed column back. One copy of the tree at both sizes — the download, move,
@@ -66,4 +66,4 @@ Verified: head 360 wide, chip visible, click still opens the editor.
 exactly `WIDTH` (360) with its right edge inside the screen and the `read-only` chip visible — the
 assertion that fails on the old 809px behaviour — plus all three ways out (pick, ✕, scrim) and cleanup.
 The unit suite is unchanged and green; jsdom computes no layout, so the sheet's geometry is e2e-only.
-The whole dev-pair suite was run against this branch: 7/7.
+The whole dev-pair suite was run on the merged tree: 7/7.
