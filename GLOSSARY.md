@@ -59,3 +59,29 @@ A project whose `.claude/settings.json` declares the provider's endpoint or its 
 outranks a session's choice, because the endpoint and its credential travel together — which is why the
 effective provider is always shown.
 _Avoid_: locked project, fixed project, hardcoded provider
+
+**Permission mode**:
+The policy a session runs under, chosen per session and held by its run. clodeck offers exactly four —
+Ask, Accept edits, Plan, Bypass — and their labels are a contract, not another name for the SDK's
+constants. A project's settings can tighten a mode, never loosen it.
+_Avoid_: permission level, sandbox mode, approval mode
+
+**Ask**:
+The permission mode where reads are free and every Bash call and every edit asks. The wire value is
+`default`.
+_Avoid_: default mode, manual mode, safe mode
+
+**Accept edits**:
+The permission mode where reads and edits are free and every Bash call still asks. The wire value is
+`acceptEdits`.
+_Avoid_: auto-accept, edit mode
+
+**Plan**:
+The permission mode where reads are free and edits and Bash are denied without a prompt. The wire
+value is `plan`.
+_Avoid_: planning mode, read-only mode
+
+**Bypass**:
+The permission mode where every call runs without a prompt. Gated by the server, by the project and by
+a confirmation; a project's deny/ask rules still apply. The wire value is `bypassPermissions`.
+_Avoid_: full access, god mode, skip permissions, YOLO mode

@@ -90,28 +90,29 @@ a resumed session's first result already carries earlier turns), which is why th
 
 ## What remains
 
-### A. Permission modes (decision, then build)
+### A. Permission modes — decided (ticket 81); the build is tickets 82–84
 
-**What exists:** `PermissionMode` already has all six SDK values (`shared/src/sdk.ts:26`); the wire
-has `set_permission_mode` (`shared/src/protocol.ts:152`), handled at `server/src/ws/bus.ts:133`; the
-run passes `permissionMode: input.permissionMode ?? 'default'` (`server/src/sdk/anthropic.ts:108`).
+**Decided 2026-10-21.** The four-mode contract — **Ask**, **Accept edits**, **Plan**, **Bypass** — is
+in `.scratch/clodeck/issues/81-permission-modes-decision.md`; the rule it rests on is
+`docs/adr/0003-permission-modes-are-a-contract-not-an-sdk-passthrough.md`.
 
-**What is missing:**
-- `turn-manager.ts:202` refuses `set_permission_mode` unless a turn is **already running**
-  (`no_active_turn`). A mode chosen before the first send has nowhere to go: `SendPromptPayload`
-  (`shared/src/protocol.ts:113`) carries only `{ prompt, profile }`.
-- `web/src` has **no mode control at all** (grep `permission` finds only the approval dialog).
-- `bypassPermissions` needs `allowDangerouslySkipPermissions: true` in the SDK `Options`
-  (`sdk.d.ts:1994`) — not set today. `auto` and `dontAsk` are in the union but have never been
-  exercised by clodeck.
+**In one paragraph:** the session (the run), not the project, owns the mode; the default comes from
+`CLODECK_PERMISSION_MODE`; the mode is stored in `ProjectRun` and passed to every `query()`. Ask and
+Accept edits force **every** Bash call to the approval callback (read-only and filesystem commands
+included); Plan **denies** edits and Bash without prompting; a project's settings can tighten a mode
+but never loosen it; `auto` and `dontAsk` are refused at the wire.
 
-**Decisions to grill, not guess:** scope (per chat/session, per project, or both), which of the six to
-expose, what a mid-turn switch means, whether the choice survives a reconnect or a `New chat`, where
-the control sits (the composer line already holds the provider picker), and what the bypass warning
-says. Then a decision ticket under `.scratch/clodeck/issues/`, then `/tdd`.
+**What is still missing (the build):**
+- `SendPromptPayload` (`shared/src/protocol.ts:113`) still carries only `{ prompt, profile }` — the
+  first send cannot name a mode (82).
+- `ProjectRun` has no mode, so every turn falls back to `'default'` (82).
+- `web/src` has no mode control at all (82).
+- `bypassPermissions` still lacks `allowDangerouslySkipPermissions: true` (83).
+
+**Next:** `/to-spec` writes `spec-09-permission-modes.md` from ticket 81; `/to-tickets` writes 82–84.
 
 Tests to aim at: a bus test that `send_prompt` carries the mode and the *next* send keeps it; a web
-picker test; an approval path that proves `default` still parks and `bypassPermissions` does not.
+picker test; an approval path that proves Ask still parks a Bash call and Bypass does not.
 
 ### B. Delete a project (decision, then build)
 
