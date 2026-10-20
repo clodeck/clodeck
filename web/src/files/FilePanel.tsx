@@ -46,6 +46,13 @@ import { useFiles, type FileViewer, type FileViewerActions, type PreviewState } 
  * editor) in the body. Neither column grows the other: both are `min-h-0` and
  * scroll on their own, because the panel lives inside a fixed-height drawer.
  *
+ * Below `md` that split has no room — at 360px a fixed 300px tree leaves the
+ * file about 60px, too narrow to read, let alone edit — so the same two columns
+ * become one: the file takes the width, and the tree is a slide-over sheet the
+ * `Browse` bar summons and a file pick (or the ✕, or the scrim) dismisses. The
+ * sheet is the tree column itself with `md:` classes putting the desktop column
+ * back, so the download/move/upload wiring is one copy at both sizes.
+ *
  * The tree keeps its old behaviour: folders expand in place (a click toggles
  * them, it never navigates), each expanded folder's listing is fetched lazily on
  * first open, and the last folder clicked is the "active" folder that New
@@ -91,6 +98,13 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
    * becoming a stored preference per project.
    */
   const [view, setView] = useState<View>('tree');
+  /**
+   * Whether the tree is on screen **below `md`**, where it is a sheet over the
+   * file rather than a column beside it. It starts open because the drawer's
+   * reason to be opened is usually the list; above `md` the tree is always
+   * shown and this is ignored. Panel state, like `view`: it dies with the panel.
+   */
+  const [browseOpen, setBrowseOpen] = useState(true);
   /**
    * The markdown file whose *rendered* form is on screen, if any. It holds a
    * path rather than a flag because opening a file has to reset it: every file
@@ -282,6 +296,20 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
     }
   };
 
+  /**
+   * The tree's actions with one addition: below `md` the tree is a sheet, and
+   * picking a file is one of the ways to shut it. Wrapping the one action keeps
+   * a layout concern out of `useFiles` — the seam itself knows nothing about a
+   * breakpoint.
+   */
+  const treeActions: FileViewerActions = {
+    ...actions,
+    preview: (path) => {
+      setBrowseOpen(false);
+      actions.preview(path);
+    },
+  };
+
   return (
     <section
       className="relative flex min-h-0 flex-1"
@@ -291,8 +319,28 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
       onDrop={onDrop}
     >
       {/* The tree column: the toolbar and the breadcrumb it acts in, then the
-          tree itself. It is the only column with a fixed width. */}
-      <div className="flex w-[300px] shrink-0 flex-col border-r border-line">
+          tree itself. Above `md` it is the only column with a fixed width; below
+          it, it is a sheet over the file — `md:` classes put the column back, so
+          this is one element at both sizes rather than two copies of the tree. */}
+      <div
+        className={`absolute inset-y-0 left-0 z-20 flex w-[86%] max-w-[320px] flex-col border-r border-line bg-panel shadow-2xl transition-transform md:static md:z-auto md:w-[300px] md:max-w-none md:shrink-0 md:translate-x-0 md:visible md:shadow-none md:transition-none ${
+          browseOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'
+        }`}
+      >
+        {/* The sheet's own head, below `md` only: the drawer's tabs say Files,
+            not which list this is, and its ✕ is the way out a thumb can reach
+            without aiming at the sliver of scrim. */}
+        <div className="flex shrink-0 items-center justify-between border-b border-line px-3 py-1.5 md:hidden">
+          <span className="text-[11px] text-ink-dim">Files</span>
+          <button
+            type="button"
+            aria-label="Close file list"
+            onClick={() => { setBrowseOpen(false); }}
+            className="rounded px-2 py-1 text-[11px] text-ink-dim hover:bg-white/5 hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
         {/* The breadcrumb gets its own line: the toolbar is one row of five
             icons, and a squeezed path is the one thing here the reader cannot do
             without (it is where new file/folder land). */}
@@ -364,7 +412,7 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
             view={view}
             viewer={viewer}
             menu={menu}
-            actions={actions}
+            actions={treeActions}
             moveControl={moveControl}
             download={download}
             onMenu={setMenu}
@@ -378,7 +426,31 @@ export function FilePanel({ project }: { project: Project }): ReactElement {
           the head, its bytes in the body. The head's right-hand side is the
           selection's action area: download, the markdown mode switch, and the
           read-only ⇄ writable toggle. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* The scrim, below `md` only: a tap outside the sheet shuts it, the
+            same second way out the sidebar's overlay has. It lives in the code
+            column so the panel still has exactly two children — the two columns
+            are the layout's contract, and a third sibling would break it. Above
+            `md` the tree is a column and there is nothing to dismiss. */}
+        {browseOpen && (
+          <button
+            type="button"
+            aria-label="Dismiss file list"
+            onClick={() => { setBrowseOpen(false); }}
+            className="absolute inset-0 z-10 cursor-default bg-canvas/60 md:hidden"
+          />
+        )}
+        {/* The sheet's door, below `md` only: the file keeps the width, and the
+            list comes back over it on demand. Above `md` the tree never left. */}
+        <div className="flex shrink-0 items-center border-b border-line bg-bg-2 px-1 py-0.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => { setBrowseOpen(true); }}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+          >
+            <Icon name="menu" /> Browse
+          </button>
+        </div>
         <CodeHead
           active={activeDir}
           download={download}
