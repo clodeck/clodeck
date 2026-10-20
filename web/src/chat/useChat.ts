@@ -81,11 +81,6 @@ export function useChat(project: Project): ChatController {
   const [view, setView] = useState<ChatView>(emptyView);
   const [connection, setConnection] = useState<ChatConnection>('connecting');
   const socketRef = useRef<WebSocket | null>(null);
-  // The mode choice is made from a click handler that outlives the render it
-  // was attached to, so whether the run is live is read from the latest view
-  // rather than from a callback's stale closure.
-  const running = useRef(false);
-  running.current = view.state !== 'idle';
 
   useEffect(() => {
     let closed = false;
@@ -172,11 +167,11 @@ export function useChat(project: Project): ChatController {
       // A live run is told now: the switch governs its remaining tool requests.
       // An idle project has no run to tell — the next send carries the choice
       // with the prompt, which is also what keeps it from racing a turn start.
-      if (running.current) {
+      if (view.state !== 'idle') {
         send(clientMessage({ type: 'set_permission_mode', payload: { mode } }));
       }
     },
-    [send],
+    [send, view.state],
   );
 
   const interrupt = useCallback((): void => {

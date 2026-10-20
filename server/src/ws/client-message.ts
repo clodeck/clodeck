@@ -1,8 +1,9 @@
-import type {
-  ApprovalResponsePayload,
-  PermissionMode,
-  ResumePayload,
-  SendPromptPayload,
+import {
+  isSelectablePermissionMode,
+  type ApprovalResponsePayload,
+  type PermissionMode,
+  type ResumePayload,
+  type SendPromptPayload,
 } from '@clodeck/shared';
 
 /**
@@ -108,31 +109,6 @@ function parseApprovalResponse(
   const message = payload['message'];
   if (typeof message === 'string') response.message = message;
   return response;
-}
-
-/**
- * The modes the wire accepts, not the whole `PermissionMode` union. `auto` and
- * `dontAsk` are refused for good — `dontAsk` never reaches the modal, so its
- * refusals would look like a hang — and `bypassPermissions` is held back until
- * ticket 85 builds its gates (ADR 0003). The shared type stays the six-value
- * mirror of the SDK; this is the narrower contract the product offers.
- *
- * `satisfies Partial<Record<PermissionMode, true>>` is the link back to
- * `shared/src/sdk.ts`: a renamed mode, or one added outside the union, fails the
- * build here rather than going silently unsupported on the wire.
- */
-const SELECTABLE_PERMISSION_MODES = {
-  default: true,
-  acceptEdits: true,
-  plan: true,
-} satisfies Partial<Record<PermissionMode, true>>;
-
-type SelectablePermissionMode = keyof typeof SELECTABLE_PERMISSION_MODES;
-
-function isSelectablePermissionMode(value: unknown): value is SelectablePermissionMode {
-  // `hasOwn`, not `in`: a value like `toString` must be rejected, not found on
-  // the prototype and accepted.
-  return typeof value === 'string' && Object.hasOwn(SELECTABLE_PERMISSION_MODES, value);
 }
 
 function parseObject(raw: string): Record<string, unknown> | null {

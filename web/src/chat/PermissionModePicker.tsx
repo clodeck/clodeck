@@ -1,4 +1,9 @@
-import type { PermissionMode } from '@clodeck/shared';
+import {
+  isSelectablePermissionMode,
+  SELECTABLE_PERMISSION_MODES,
+  type PermissionMode,
+  type SelectablePermissionMode,
+} from '@clodeck/shared';
 import { useState, type ReactElement } from 'react';
 
 /**
@@ -22,14 +27,18 @@ import { useState, type ReactElement } from 'react';
  */
 
 /**
- * What the picker may offer. Bypass is absent on purpose: its gates and its
- * confirmation are ticket 85's, and the server refuses the value until then.
+ * The label each offered mode promises. Bypass has none yet on purpose: its
+ * gates and its confirmation are ticket 85's, and the server refuses the value
+ * until then.
  */
-const OPTIONS: readonly { mode: PermissionMode; label: string }[] = [
-  { mode: 'default', label: 'Ask' },
-  { mode: 'acceptEdits', label: 'Accept edits' },
-  { mode: 'plan', label: 'Plan' },
-];
+const LABELS: Record<SelectablePermissionMode, string> = {
+  default: 'Ask',
+  acceptEdits: 'Accept edits',
+  plan: 'Plan',
+};
+
+/** The offered modes in menu order, labelled from the contract's names. */
+const OPTIONS = SELECTABLE_PERMISSION_MODES.map((mode) => ({ mode, label: LABELS[mode] }));
 
 interface PermissionModePickerProps {
   /** The effective mode: the run's, or the choice waiting for the next send. */
@@ -111,6 +120,6 @@ export function PermissionModePicker({ mode, onChoose }: PermissionModePickerPro
  * still rendered as its wire value rather than as a blank, so a snapshot from a
  * newer server never produces a nameless chip.
  */
-export function permissionModeLabel(mode: PermissionMode): string {
-  return OPTIONS.find((option) => option.mode === mode)?.label ?? mode;
+function permissionModeLabel(mode: PermissionMode): string {
+  return isSelectablePermissionMode(mode) ? LABELS[mode] : mode;
 }

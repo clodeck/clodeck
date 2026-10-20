@@ -1,7 +1,11 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import type { PermissionMode } from '@clodeck/shared';
+import {
+  isSelectablePermissionMode,
+  SELECTABLE_PERMISSION_MODES,
+  type PermissionMode,
+} from '@clodeck/shared';
 
 import { warnToConsole, type Warn } from './logging.js';
 import { trustedProxyList } from './trusted-proxies.js';
@@ -116,40 +120,21 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
 }
 
 /**
- * The modes a deployment may choose as its default. `auto` and `dontAsk` are
- * refused for good: `dontAsk` never calls `canUseTool`, so a refusal would look
- * like a hang, and `auto`'s classifier is not observable from the UI (ADR
- * 0003). `bypassPermissions` joins this set when ticket 85 lands its gates.
- *
- * `satisfies Partial<Record<PermissionMode, true>>` keeps each key a member of
- * the shared union: a renamed or invented mode fails the build here rather than
- * reaching a run.
- */
-const BOOT_PERMISSION_MODES = {
-  default: true,
-  acceptEdits: true,
-  plan: true,
-} satisfies Partial<Record<PermissionMode, true>>;
-
-/**
  * `CLODECK_PERMISSION_MODE`, or Ask when it is unset or blank. A value outside
- * {@link BOOT_PERMISSION_MODES} throws: this is the one misconfiguration whose
- * symptom would be a session quietly running under a policy the operator did
- * not pick, so it is stopped at the door rather than reported and ignored.
+ * {@link SELECTABLE_PERMISSION_MODES} throws: this is the one misconfiguration
+ * whose symptom would be a session quietly running under a policy the operator
+ * did not pick, so it is stopped at the door rather than reported and ignored.
  */
 export function permissionModeFromEnv(env: NodeJS.ProcessEnv): PermissionMode {
   const declared = envValue(env, 'CLODECK_PERMISSION_MODE');
   if (declared === null) return 'default';
-
-  if (Object.hasOwn(BOOT_PERMISSION_MODES, declared)) {
-    return declared as keyof typeof BOOT_PERMISSION_MODES;
-  }
+  if (isSelectablePermissionMode(declared)) return declared;
 
   const unavailable =
     declared === 'bypassPermissions' ? ' — Bypass is not available yet (ticket 85)' : '';
   throw new Error(
     `CLODECK_PERMISSION_MODE is "${declared}"; use one of ` +
-      `${Object.keys(BOOT_PERMISSION_MODES).join(', ')}${unavailable}`,
+      `${SELECTABLE_PERMISSION_MODES.join(', ')}${unavailable}`,
   );
 }
 

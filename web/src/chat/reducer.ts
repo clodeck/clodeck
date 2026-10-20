@@ -1,15 +1,16 @@
-import type {
-  ApprovalRequestPayload,
-  ContentBlock,
-  PermissionMode,
-  ResumePayload,
-  SDKMessage,
-  SDKModelUsage,
-  ServerEvent,
-  SessionMessage,
-  SessionState,
-  SlashCommand,
-  SnapshotPayload,
+import {
+  isSelectablePermissionMode,
+  type ApprovalRequestPayload,
+  type ContentBlock,
+  type PermissionMode,
+  type ResumePayload,
+  type SDKMessage,
+  type SDKModelUsage,
+  type ServerEvent,
+  type SessionMessage,
+  type SessionState,
+  type SlashCommand,
+  type SnapshotPayload,
 } from '@clodeck/shared';
 
 /**
@@ -692,12 +693,12 @@ function asSessionState(value: unknown): SessionState | null {
 
 /**
  * The modes a snapshot can name today. The shared union carries the SDK's six,
- * but the server offers three until Bypass's gates land (ADR 0003); anything
+ * but the contract offers three until Bypass's gates land (ADR 0003); anything
  * else — including a missing field from an older emitter — lands on Ask, which
  * is the mode a server with nothing declared would have run.
  */
 function permissionModeOf(value: unknown): PermissionMode {
-  return value === 'acceptEdits' || value === 'plan' || value === 'default' ? value : 'default';
+  return isSelectablePermissionMode(value) ? value : 'default';
 }
 
 function str(value: unknown): string | null {
