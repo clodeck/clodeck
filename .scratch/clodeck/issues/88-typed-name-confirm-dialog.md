@@ -10,15 +10,15 @@ In ticket vojood dārad tā 90 dar morede **flow** bāshad, na dar morede yek pr
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Vāgh-ti dialog bā yek esm-e lazemi sākhte mishavad, dokme-e tāyid bā meghdār-e khāli, nāqes, yā bā
+- [x] Vāgh-ti dialog bā yek esm-e lazemi sākhte mishavad, dokme-e tāyid bā meghdār-e khāli, nāqes, yā bā
       horuf-e koochak/bozorg-e eshtebāh **qāfel** ast; bā match-e daghigh **fā'āl** mishavad.
-- [ ] Dialog mitavānad dar kenār-e field yek khat-e masir va yek warning-e bargasht-napazir neshoon
+- [x] Dialog mitavānad dar kenār-e field yek khat-e masir va yek warning-e bargasht-napazir neshoon
       bedahad; masir vojud nadashte bāshad khat ham nist.
-- [ ] Cancel dar har hāl mojood ast va hich kāri nemikonad; component hich request-i be network nemifrestad.
-- [ ] Estefāde-hā-ye mojood-e dialog-e esm-e bāghi **bedoone taghir** kar mikonand (mode-e typed-name
+- [x] Cancel dar har hāl mojood ast va hich kāri nemikonad; component hich request-i be network nemifrestad.
+- [x] Estefāde-hā-ye mojood-e dialog-e esm-e bāghi **bedoone taghir** kar mikonand (mode-e typed-name
       opt-in ast).
-- [ ] Test-ha dar suite-e dialog: qāfel → tāyp → fā'āl (ba harf-e bozorg eshtebāh qāfel mimānad), va
+- [x] Test-ha dar suite-e dialog: qāfel → tāyp → fā'āl (ba harf-e bozorg eshtebāh qāfel mimānad), va
       masir/cancel.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.

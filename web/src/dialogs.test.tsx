@@ -16,6 +16,7 @@ import { MAX_NAME_BYTES, nameRefusal } from './files/reducer';
 afterEach(() => {
   // No vitest globals, so testing-library's auto-cleanup is not registered.
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 /** The dialog, with the drawer's own rule — the shared one both callers send. */
@@ -39,6 +40,37 @@ function renderDialog(): { dialog: HTMLElement; confirm: HTMLElement } {
 /** Type a name into the dialog's one box. */
 function type(text: string): void {
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: text } });
+}
+
+/** The typed-name confirmation of a project delete, with no name rule of its own. */
+function renderTypedDialog(options: { path?: string } = {}): {
+  dialog: HTMLElement;
+  confirm: HTMLElement;
+  cancel: HTMLElement;
+  onSubmit: (name: string) => Promise<void>;
+  onCancel: () => void;
+} {
+  const onSubmit = vi.fn(async () => {});
+  const onCancel = vi.fn();
+  render(
+    <NameDialog
+      title="Delete project"
+      confirmLabel="Delete"
+      initial=""
+      error={null}
+      typedName={{ name: 'alpha', ...options }}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+    />,
+  );
+
+  return {
+    dialog: screen.getByRole('dialog', { name: 'Delete project' }),
+    confirm: screen.getByRole('button', { name: 'Delete' }),
+    cancel: screen.getByRole('button', { name: 'Cancel' }),
+    onSubmit,
+    onCancel,
+  };
 }
 
 describe('NameDialog', () => {
@@ -97,5 +129,47 @@ describe('NameDialog', () => {
     type('a'.repeat(MAX_NAME_BYTES + 1));
     expect(dialog.textContent).toContain(`${String(MAX_NAME_BYTES)} bytes`);
     expect(dialog.textContent).not.toContain('already exists');
+  });
+
+  it('keeps the confirm dead until the exact name is typed, case included', () => {
+    const { confirm } = renderTypedDialog();
+
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+
+    type('alph');
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+
+    // The right letters in the wrong case are still the wrong name.
+    type('Alpha');
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+
+    type('alpha');
+    expect(confirm.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('shows the path beside the field, and no path line when there is none', () => {
+    const { dialog } = renderTypedDialog({ path: '/srv/projects/alpha' });
+
+    expect(dialog.textContent).toContain('/srv/projects/alpha');
+    expect(dialog.textContent).toContain('This cannot be undone.');
+
+    cleanup();
+
+    const { dialog: withoutPath } = renderTypedDialog();
+    expect(withoutPath.textContent).not.toContain('/srv/projects/alpha');
+    expect(withoutPath.textContent).toContain('This cannot be undone.');
+  });
+
+  it('always offers a Cancel that does nothing but call back', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const { confirm, cancel, onSubmit, onCancel } = renderTypedDialog();
+
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(cancel);
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

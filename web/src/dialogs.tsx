@@ -18,20 +18,27 @@ import { useState, type ReactElement, type ReactNode } from 'react';
  * and the disabled-confirm rule; the caller owns what a submit *means*, which is
  * why a refusal comes back as the `error` prop and leaves the dialog open.
  *
- * The rule is a prop rather than a default because the two callers have
- * different ones: a file name is a drawer name (`nameRefusal`), while a project
- * name is that *and* non-dot (discovery skips dot-directories, so such a project
- * would never be listed). The rule answers with a reason, not a bare `false`, so
- * the dialog can say why the confirm is dead in the box it is sitting over —
- * the server's own refusal still lands in the same line, for the refusals the
- * client cannot see coming.
+ * The rule is a prop because the callers have different ones: a file name is a
+ * drawer name (`nameRefusal`), while a project name is that *and* non-dot
+ * (discovery skips dot-directories, so such a project would never be listed).
+ * The rule answers with a reason, not a bare `false`, so the dialog can say why
+ * the confirm is dead in the box it is sitting over — the server's own refusal
+ * still lands in the same line, for the refusals the client cannot see coming. A
+ * caller with no name rule of its own, like the typed-name confirmation, can
+ * leave it out.
+ *
+ * `typedName` opts into that confirmation: nothing enables the button until the
+ * box spells the existing name exactly, case-sensitively, and the dialog shows
+ * the path that action would take (when the caller has one to show) and says it
+ * cannot be undone. Callers that do not pass it see the dialog they always had.
  */
 export function NameDialog({
   title,
   confirmLabel,
   initial,
   error,
-  refusal,
+  refusal = () => null,
+  typedName,
   onSubmit,
   onCancel,
 }: {
@@ -39,14 +46,18 @@ export function NameDialog({
   confirmLabel: string;
   initial: string;
   error: string | null;
-  refusal: (name: string) => string | null;
+  refusal?: (name: string) => string | null;
+  typedName?: { name: string; path?: string };
   onSubmit: (name: string) => Promise<void>;
   onCancel: () => void;
 }): ReactElement {
   const [value, setValue] = useState(initial);
   const name = value.trim();
   const refused = refusal(name);
-  const valid = refused === null;
+  // Against the raw box, not the trimmed `name`: the confirmation is of exactly
+  // what was typed, whitespace and case included, not of what a submit would send.
+  const typedOk = typedName === undefined || value === typedName.name;
+  const valid = refused === null && typedOk;
   // The client's refusal is about the box's *current* content, so it speaks for
   // it while there is anything to refuse; otherwise the caller's `error` — the
   // server's word on the last submit — keeps the line. An empty box says
@@ -71,6 +82,12 @@ export function NameDialog({
           placeholder="name"
           className="mt-3 w-full rounded border border-line bg-canvas px-2 py-1 font-mono text-[12px] text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
         />
+        {typedName?.path !== undefined && (
+          <p className="mt-2 font-mono text-[11px] break-words text-ink-dim">{typedName.path}</p>
+        )}
+        {typedName !== undefined && (
+          <p className="mt-1 text-[12px] text-ink-dim">This cannot be undone.</p>
+        )}
         {message !== null && (
           <p className="mt-2 font-mono text-[11px] break-words text-err">{message}</p>
         )}
