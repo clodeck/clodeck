@@ -18,14 +18,14 @@ import { useState, type ReactElement, type ReactNode } from 'react';
  * and the disabled-confirm rule; the caller owns what a submit *means*, which is
  * why a refusal comes back as the `error` prop and leaves the dialog open.
  *
- * The rule is a prop rather than a default because the callers have different
- * ones: a file name is a drawer name (`nameRefusal`), while a project name is
- * that *and* non-dot (discovery skips dot-directories, so such a project would
- * never be listed). The rule answers with a reason, not a bare `false`, so the
- * dialog can say why the confirm is dead in the box it is sitting over —
- * the server's own refusal still lands in the same line, for the refusals the
- * client cannot see coming. A caller with no name rule of its own, like the
- * typed-name confirmation, can leave it out.
+ * The rule is a prop because the callers have different ones: a file name is a
+ * drawer name (`nameRefusal`), while a project name is that *and* non-dot
+ * (discovery skips dot-directories, so such a project would never be listed).
+ * The rule answers with a reason, not a bare `false`, so the dialog can say why
+ * the confirm is dead in the box it is sitting over — the server's own refusal
+ * still lands in the same line, for the refusals the client cannot see coming. A
+ * caller with no name rule of its own, like the typed-name confirmation, can
+ * leave it out.
  *
  * `typedName` opts into that confirmation: nothing enables the button until the
  * box spells the existing name exactly, case-sensitively, and the dialog shows
@@ -54,6 +54,8 @@ export function NameDialog({
   const [value, setValue] = useState(initial);
   const name = value.trim();
   const refused = refusal(name);
+  // Against the raw box, not the trimmed `name`: the confirmation is of exactly
+  // what was typed, whitespace and case included, not of what a submit would send.
   const typedOk = typedName === undefined || value === typedName.name;
   const valid = refused === null && typedOk;
   // The client's refusal is about the box's *current* content, so it speaks for
