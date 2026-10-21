@@ -542,6 +542,9 @@ function ApprovalDialog({
         </h3>
         {request.displayName !== undefined && <p className="mt-0.5 text-xs text-accent">{request.displayName}</p>}
         {request.description !== undefined && <p className="mt-2 text-sm text-ink-dim">{request.description}</p>}
+        {request.decisionReason !== undefined && (
+          <p className="mt-1 text-xs text-ink-dim italic">{request.decisionReason}</p>
+        )}
 
         <pre className="mt-3 max-h-48 overflow-auto rounded border border-line bg-canvas p-3 font-mono text-[11px] whitespace-pre-wrap text-ink">
           {formatInput(request.input)}

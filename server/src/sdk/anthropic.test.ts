@@ -1,19 +1,22 @@
 import type {
   CanUseTool,
   PermissionUpdate,
+  PreToolUseHookInput,
   SessionMessage as SdkSessionMessage,
   SDKSessionInfo,
 } from '@anthropic-ai/claude-agent-sdk';
 
-import type { ApprovalRequestPayload } from '@clodeck/shared';
+import type { ApprovalRequestPayload, PermissionMode } from '@clodeck/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  bashApprovalHooks,
   normalizeSessionInfo,
   normalizeSessionMessage,
   providerEnv,
   toSdkCanUseTool,
 } from './anthropic.js';
+import { BASH_APPROVAL_REASON } from './bash-approval.js';
 
 /**
  * The real provider is the only module that loads the SDK, so its translations
@@ -189,6 +192,22 @@ describe('toSdkCanUseTool', () => {
     expect(result).toEqual({ behavior: 'allow' });
   });
 
+  it('carries the gate’s own reason into the payload, and leaves it absent otherwise', async () => {
+    const seen: ApprovalRequestPayload[] = [];
+    const canUseTool = toSdkCanUseTool((request) => {
+      seen.push(request);
+      return Promise.resolve({ requestId: request.requestId, behavior: 'allow' });
+    });
+
+    await canUseTool('Bash', { command: 'ls' }, sdkOptions({ decisionReason: 'because' }));
+    await canUseTool('Bash', { command: 'ls' }, sdkOptions());
+
+    expect(seen[0]?.decisionReason).toBe('because');
+    // An absent reason stays absent: the wire carries no empty field for the
+    // modal to render as a blank line.
+    expect(seen[1]).not.toHaveProperty('decisionReason');
+  });
+
   it('maps an allow with edits and a deny reason back to the SDK result shape', async () => {
     const allow = toSdkCanUseTool(() =>
       Promise.resolve({ requestId: 'r1', behavior: 'allow', updatedInput: { command: 'ls -la' } }),
@@ -205,6 +224,62 @@ describe('toSdkCanUseTool', () => {
     expect(await deny('Read', {}, sdkOptions())).toEqual({ behavior: 'deny', message: 'not that file' });
     // The SDK's deny arm requires a message, so a silent deny still says something.
     expect((await silentDeny('Read', {}, sdkOptions())) as { message: string }).toHaveProperty('message');
+  });
+});
+
+describe('bashApprovalHooks', () => {
+  function hookFor(mode: PermissionMode) {
+    return bashApprovalHooks(mode)?.PreToolUse?.[0]?.hooks[0];
+  }
+
+  /** The event the SDK hands a `PreToolUse` hook; the rest of the fields are not read. */
+  function event(toolName: string): PreToolUseHookInput {
+    return {
+      hook_event_name: 'PreToolUse',
+      session_id: 's1',
+      transcript_path: '/tmp/s1.jsonl',
+      cwd: '/projects/a',
+      tool_name: toolName,
+      tool_input: {},
+      tool_use_id: 't1',
+    };
+  }
+
+  it('answers ask for every Bash call in Ask and Accept edits, with its reason', async () => {
+    for (const mode of ['default', 'acceptEdits'] as const) {
+      // The matcher is what keeps the hook to Bash in the first place; the name
+      // check inside is the same promise made for a caller that skips it.
+      expect(bashApprovalHooks(mode)?.PreToolUse?.[0]?.matcher).toBe('Bash');
+
+      const hook = hookFor(mode);
+      const result = await hook?.(event('Bash'), 't1', { signal: new AbortController().signal });
+
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'ask',
+          permissionDecisionReason: BASH_APPROVAL_REASON,
+        },
+      });
+    }
+  });
+
+  it('is not registered in Plan or Bypass', () => {
+    // Plan denies Bash without a prompt (ticket 84); Bypass never asks (85).
+    expect(bashApprovalHooks('plan')).toBeUndefined();
+    expect(bashApprovalHooks('bypassPermissions')).toBeUndefined();
+  });
+
+  it('leaves every other tool to the project’s rules', async () => {
+    const hook = hookFor('default');
+
+    // Read/Glob/Grep are pre-approved, Write/Edit are Accept-edits' business,
+    // and AskUserQuestion keeps its own gate — none of them is Bash's prompt.
+    for (const toolName of ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskUserQuestion']) {
+      await expect(
+        hook?.(event(toolName), 't1', { signal: new AbortController().signal }),
+      ).resolves.toEqual({ continue: true });
+    }
   });
 });
 
