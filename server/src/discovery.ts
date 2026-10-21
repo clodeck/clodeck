@@ -122,6 +122,16 @@ export function createProjectDiscovery(
     warn('no projects root configured — set PROJECTS_ROOT or projectsRoot in clodeck.config.json');
   }
 
+  /** The root resolved the way the allowlist compares it; null when it cannot be. */
+  async function canonicalRootPath(): Promise<string | null> {
+    if (root === null) return null;
+    try {
+      return await realpath(root);
+    } catch {
+      return null;
+    }
+  }
+
   return {
     /** Re-scans on every call: a single root is cheap, so there is nothing to invalidate (05 §4). */
     async listProjects(): Promise<Project[]> {
@@ -194,12 +204,7 @@ export function createProjectDiscovery(
      * project it was asked about and nothing above it.
      */
     async canonicalRoot(): Promise<string | null> {
-      if (root === null) return null;
-      try {
-        return await realpath(root);
-      } catch {
-        return null;
-      }
+      return canonicalRootPath();
     },
 
     /**
@@ -279,13 +284,10 @@ export function createProjectDiscovery(
       // immediate child" from the root and from anything below a project: both
       // sides are canonical, so the comparison is about directories rather
       // than spellings.
-      let canonicalRoot: string;
-      try {
-        canonicalRoot = await realpath(root);
-      } catch {
+      const canonicalRoot = await canonicalRootPath();
+      if (canonicalRoot === null || path.dirname(canonical) !== canonicalRoot) {
         return { status: 'not_found' };
       }
-      if (path.dirname(canonical) !== canonicalRoot) return { status: 'not_found' };
       if (!(await isDirectory(canonical))) return { status: 'not_found' };
 
       let entries: Dirent[];
@@ -296,22 +298,29 @@ export function createProjectDiscovery(
         return { status: 'not_found' };
       }
 
-      // The scan decides, not the id: a real directory and a link that names it
-      // are two entries for one canonical path, and deleting by id would have to
-      // guess which label the user meant (decision 87, D6).
+      // The scan decides, not the id: the entry to remove comes off `readdir`,
+      // never out of the decoded path. Plain files are skipped exactly as the
+      // scan skips them — a file cannot name a project directory.
       const matches: Dirent[] = [];
       for (const entry of entries) {
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
         const candidate = await allowlist.canonicalizeInsideRoot(path.join(root, entry.name));
         if (candidate === canonical) matches.push(entry);
       }
 
-      if (matches.length !== 1) return { status: 'symlink' };
+      // Exactly one entry may name the canonical path, and it must be the
+      // directory itself, never a link to it. `rm` on a link would unlink the
+      // link and leave every file in place, which would make the delete a lie;
+      // following it would destroy a target the user did not name. More than one
+      // match is the same refusal: deleting by id would have to guess which label
+      // the user meant (decision 87, D6).
       const [match] = matches;
-      // The one entry must be the directory itself, never a link to it. `rm` on
-      // a link would unlink the link and leave every file in place, which would
-      // make the delete a lie; following it would destroy a target the user did
-      // not name. Refusing is the only honest answer.
-      if (match === undefined || match.isSymbolicLink() || !match.isDirectory()) {
+      if (
+        matches.length !== 1 ||
+        match === undefined ||
+        match.isSymbolicLink() ||
+        !match.isDirectory()
+      ) {
         return { status: 'symlink' };
       }
 
