@@ -50,14 +50,12 @@ describe('planToolDecision', () => {
   });
 
   it('lets the SDK write its own plan file, absolute or relative to the run', () => {
-    const absolute = path.join(plansDirectory(), 'plan.md');
-    expect(planToolDecision('Write', { file_path: absolute }, CWD)).toBe('pass');
-    expect(planToolDecision('Edit', { file_path: path.join(plansDirectory(), 'plan.md') }, CWD)).toBe(
-      'pass',
-    );
+    const planFile = path.join(plansDirectory(), 'plan.md');
+    expect(planToolDecision('Write', { file_path: planFile }, CWD)).toBe('pass');
+    expect(planToolDecision('Edit', { file_path: planFile }, CWD)).toBe('pass');
 
     // The model can spell the same file relative to the run's cwd.
-    const relative = path.relative(CWD, absolute);
+    const relative = path.relative(CWD, planFile);
     expect(planToolDecision('Write', { file_path: relative }, CWD)).toBe('pass');
   });
 

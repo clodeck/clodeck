@@ -195,6 +195,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
       }
 
       const mode = latest.permissionMode ?? 'default';
+      const planMode = planDeniesTools(mode);
       toolSeq += 1;
       const id = toolSeq;
       const request = {
@@ -206,19 +207,22 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
 
       // Plan's gate is a hook, not a prompt: the call is denied before the SDK
       // would reach `canUseTool`, so the client sees nothing.
-      if (planDeniesTools(mode) && planToolDecision(toolName, input, latest.cwd) === 'deny') {
+      if (planMode && planToolDecision(toolName, input, latest.cwd) === 'deny') {
         return {
           asked: false,
           result: { requestId: request.requestId, behavior: 'deny', message: PLAN_DENIAL_REASON },
         };
       }
 
-      // Ask and Accept edits gate every Bash call; Plan's one gated tool is the
-      // clarifying question, which must still reach the modal.
-      const asks =
-        toolName === 'Bash'
-          ? bashNeedsApproval(mode)
-          : planDeniesTools(mode) && toolName === 'AskUserQuestion';
+      // Ask and Accept edits gate every Bash call. Plan's gate is the hook
+      // above, so the one tool it still sends to the modal is the clarifying
+      // question.
+      let asks: boolean;
+      if (planMode) {
+        asks = toolName === 'AskUserQuestion';
+      } else {
+        asks = toolName === 'Bash' && bashNeedsApproval(mode);
+      }
       if (!asks) {
         return { asked: false, result: { requestId: request.requestId, behavior: 'allow' } };
       }
