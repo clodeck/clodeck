@@ -5,7 +5,13 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
-import type { ApprovalRequestPayload, ServerEvent, SDKMessage, SlashCommand } from '@clodeck/shared';
+import type {
+  ApprovalRequestPayload,
+  PermissionMode,
+  ServerEvent,
+  SDKMessage,
+  SlashCommand,
+} from '@clodeck/shared';
 
 import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
@@ -111,6 +117,7 @@ describe('the /ws event bus', () => {
     if (event.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${event.kind}`);
     expect(event.payload).toEqual({
       state: 'idle',
+      permissionMode: 'default',
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -565,7 +572,13 @@ describe('the /ws event bus', () => {
     expect(cleared).toMatchObject({ kind: 'snapshot' });
     expect(cleared.sessionId).toBeUndefined();
     if (cleared.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${cleared.kind}`);
-    expect(cleared.payload).toEqual({ state: 'idle', blocks: [], pendingApprovals: [], lastSeq: 0 });
+    expect(cleared.payload).toEqual({
+      state: 'idle',
+      permissionMode: 'default',
+      blocks: [],
+      pendingApprovals: [],
+      lastSeq: 0,
+    });
 
     // Gone, not merely unseen: a socket that connects afterwards rebuilds from
     // the same nothing.
@@ -614,6 +627,7 @@ describe('the /ws event bus', () => {
     if (cleared[0]?.kind !== 'snapshot') throw new Error('expected a snapshot');
     expect(cleared[0].payload).toEqual({
       state: 'running',
+      permissionMode: 'default',
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -1030,6 +1044,237 @@ describe('the /ws event bus', () => {
   async function projectIdFor(directory: string): Promise<string> {
     return idFor(await realpath(directory));
   }
+
+  describe('the permission mode a turn runs under', () => {
+    /** One send from a socket, with `permissionMode` when the test names one. */
+    function send(
+      client: BusClient,
+      prompt: string,
+      permissionMode?: PermissionMode,
+    ): void {
+      client.send({
+        v: 1,
+        id: prompt,
+        type: 'send_prompt',
+        payload: permissionMode === undefined ? { prompt } : { prompt, permissionMode },
+      });
+    }
+
+    it('opens a connection in the deployment’s mode', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      // A deployment whose default is not the SDK's: the snapshot has to carry
+      // it, because that is the only way a fresh client can show the mode.
+      const { app, cookie } = await makeApp({}, { permissionMode: 'acceptEdits' });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      const snapshot = await client.next();
+
+      expect(snapshot).toMatchObject({ kind: 'snapshot', payload: { permissionMode: 'acceptEdits' } });
+    });
+
+    it('passes the send’s own mode to the query, and keeps it for the next turn', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one', 'acceptEdits');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('acceptEdits');
+      await client.nextMatching(
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+
+      // Every turn is a fresh `query()`. Without the run remembering the choice,
+      // this send would fall back to the SDK's default — the bug the ticket is
+      // about.
+      send(client, 'two');
+      await provider.waitForQueryInput(2);
+      expect(provider.queryInputs[1]?.permissionMode).toBe('acceptEdits');
+    });
+
+    it('switches a running turn and starts the next one in the new mode', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+      // Drain the opening frames so the next `stream_status` is the next turn's.
+      await client.nextMatching(
+        (event) => event.kind === 'sdk' && event.payload.type === 'assistant',
+      );
+
+      client.send({ v: 1, id: 'c2', type: 'set_permission_mode', payload: { mode: 'plan' } });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('plan');
+      provider.releaseRuns();
+      // The held run returns on the following microtask; the next frame travels
+      // a real socket, so the project is idle before it is dispatched.
+      await new Promise((resolve) => setImmediate(resolve));
+
+      send(client, 'two');
+      await provider.waitForQueryInput(2);
+      expect(provider.queryInputs[1]?.permissionMode).toBe('plan');
+    });
+
+    it('restores the run’s mode on a reconnecting socket', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+      const projectId = idFor(cwd);
+
+      const first = await connect(port, cookie, projectId);
+      await first.next(); // the snapshot
+      send(first, 'one', 'plan');
+      await provider.waitForQueryInput(1);
+      first.close();
+      await first.waitForClose();
+
+      // The mode is the run's, not the connection's: a new socket reads it back
+      // from the snapshot rather than starting in Ask.
+      const second = await connect(port, cookie, projectId);
+      const snapshot = await second.next();
+      expect(snapshot).toMatchObject({ kind: 'snapshot', payload: { permissionMode: 'plan' } });
+
+      provider.releaseRuns();
+    });
+
+    it('returns to CLODECK_PERMISSION_MODE on a New chat', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp(
+        { messages: transcript(cwd) },
+        { permissionMode: 'acceptEdits' },
+      );
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one', 'plan');
+      await provider.waitForQueryInput(1);
+      await client.nextMatching(
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+
+      client.send({ v: 1, id: 'c2', type: 'clear_resume', payload: {} });
+      const cleared = await client.nextMatching((event) => event.kind === 'snapshot');
+      expect(cleared).toMatchObject({ kind: 'snapshot', payload: { permissionMode: 'acceptEdits' } });
+
+      // The next session is the deployment's, not the one just thrown away.
+      send(client, 'fresh');
+      await provider.waitForQueryInput(2);
+      expect(provider.queryInputs[1]?.permissionMode).toBe('acceptEdits');
+    });
+
+    it('keeps each project’s mode with that project’s run', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      await mkdir(path.join(root, 'beta'));
+      const alpha = await realpath(path.join(root, 'alpha'));
+      const beta = await realpath(path.join(root, 'beta'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(alpha),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const first = await connect(port, cookie, idFor(alpha));
+      await first.next(); // the snapshot
+      send(first, 'one', 'plan');
+      await provider.waitForQueryInput(1);
+
+      // Another project is another run: it starts in the deployment's mode, not
+      // in the one the first project chose.
+      const other = await connect(port, cookie, idFor(beta));
+      const betaSnapshot = await other.next();
+      expect(betaSnapshot).toMatchObject({ kind: 'snapshot', payload: { permissionMode: 'default' } });
+
+      // Switching back is the run that never left.
+      const back = await connect(port, cookie, idFor(alpha));
+      const alphaSnapshot = await back.next();
+      expect(alphaSnapshot).toMatchObject({ kind: 'snapshot', payload: { permissionMode: 'plan' } });
+
+      provider.releaseRuns();
+    });
+
+    it('refuses the modes the contract does not offer, and starts nothing', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp();
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+
+      // `auto` and `dontAsk` are refused for good; Bypass waits for ticket 85.
+      for (const mode of ['auto', 'dontAsk', 'bypassPermissions'] as const) {
+        client.send({
+          v: 1,
+          id: `send-${mode}`,
+          type: 'send_prompt',
+          payload: { prompt: 'hello', permissionMode: mode },
+        });
+        const invalidSend = await client.nextMatching((event) => event.kind === 'error');
+        expect(invalidSend).toMatchObject({ payload: { code: 'invalid_message' } });
+
+        client.send({ v: 1, id: `set-${mode}`, type: 'set_permission_mode', payload: { mode } });
+        const invalidSet = await client.nextMatching((event) => event.kind === 'error');
+        expect(invalidSet).toMatchObject({ payload: { code: 'invalid_message' } });
+      }
+
+      expect(provider.queryInputs).toEqual([]);
+      expect(provider.permissionModes).toEqual([]);
+    });
+
+    it('answers a parked approval under the mode it was raised in', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+
+      // The tool gate is already waiting when the mode moves: the question was
+      // asked under Ask, so its answer is the one Ask expects — the switch is
+      // for what comes next, not a re-read of what the user is looking at.
+      const answer = provider.requestApproval(APPROVAL_REQUEST);
+      await client.nextMatching((event) => event.kind === 'approval_request');
+      client.send({ v: 1, id: 'c2', type: 'set_permission_mode', payload: { mode: 'plan' } });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('plan');
+
+      client.send({
+        v: 1,
+        id: 'c3',
+        type: 'approval_response',
+        payload: { requestId: APPROVAL_REQUEST.requestId, behavior: 'allow' },
+      });
+      await expect(answer).resolves.toMatchObject({
+        requestId: APPROVAL_REQUEST.requestId,
+        behavior: 'allow',
+      });
+
+      provider.releaseRuns();
+    });
+  });
 
 });
 

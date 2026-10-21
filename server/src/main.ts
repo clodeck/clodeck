@@ -38,6 +38,9 @@ const app = buildApp({
   // proxy's (ticket 65). Unset — the direct and tunnelled routes — trusts
   // nothing, exactly as before.
   trustedProxies: config.trustedProxies,
+  // The mode a session starts in — the deployment's default, overridable per
+  // session and reset by a New chat (ticket 82).
+  permissionMode: config.permissionMode,
 });
 
 // Loopback by default. It is defense in depth now, not the boundary: the gate

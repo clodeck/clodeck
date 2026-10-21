@@ -13,6 +13,7 @@ import { useToast } from '../toast/ToastProvider';
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
+import { PermissionModePicker } from './PermissionModePicker';
 import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
 import { TURN_RUNNING } from './reasons';
@@ -47,8 +48,17 @@ import { useSessions } from './useSessions';
 const NEW_CHAT_UNREACHABLE = 'the chat is not connected — starting a new one has to reach the server';
 
 export function ChatPanel({ project }: { project: Project }): ReactElement {
-  const { view, connection, sendPrompt, interrupt, respond, resume, newChat, dismissError } =
-    useChat(project);
+  const {
+    view,
+    connection,
+    sendPrompt,
+    setPermissionMode,
+    interrupt,
+    respond,
+    resume,
+    newChat,
+    dismissError,
+  } = useChat(project);
   const sessions = useSessions(project);
   // Per project, not per app: the list is the deployment's, but which of it a
   // session may choose from is the project's — a project that pins its provider
@@ -267,18 +277,23 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
             {view.lastError !== null && (
               <ErrorBanner code={view.lastError.code} message={view.lastError.message} onDismiss={dismissError} />
             )}
-            {/* Beside the composer, not in the header: the profile is what the
-                *next* message runs on, so it belongs where the message is typed. */}
-            <ProviderPicker
-              state={profiles.state}
-              name={profile}
-              locked={locked}
-              onChoose={chooseProfile}
-              onReload={profiles.reload}
-            />
+            {/* Beside the composer, not in the header: the profile and the
+                mode are what the *next* message runs on, so they belong where
+                the message is typed — and they sit together because a send
+                carries both. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <ProviderPicker
+                state={profiles.state}
+                name={profile}
+                locked={locked}
+                onChoose={chooseProfile}
+                onReload={profiles.reload}
+              />
+              <PermissionModePicker mode={view.permissionMode} onChoose={setPermissionMode} />
+            </div>
             <Composer
               onSend={(prompt) => {
-                sendPrompt(prompt, profile);
+                sendPrompt(prompt, profile, view.permissionMode);
               }}
               disabled={connection !== 'live'}
               commands={offeredCommands}

@@ -31,6 +31,29 @@ export type PermissionMode =
   | 'dontAsk'
   | 'auto';
 
+/**
+ * The modes clodeck offers today, as the wire names them: the narrower contract
+ * the product keeps, not the SDK's six-value union (ADR 0003). `auto` and
+ * `dontAsk` are refused for good; `bypassPermissions` joins this list when
+ * ticket 85 lands its gates.
+ *
+ * One list, because three consumers must agree: the wire validator, the boot
+ * default, and the client's snapshot parser. A mode this list does not name is
+ * one the server would refuse and no chip could render.
+ */
+export const SELECTABLE_PERMISSION_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+] as const satisfies readonly PermissionMode[];
+
+export type SelectablePermissionMode = (typeof SELECTABLE_PERMISSION_MODES)[number];
+
+/** True when `value` is one of the modes clodeck offers today. */
+export function isSelectablePermissionMode(value: unknown): value is SelectablePermissionMode {
+  return SELECTABLE_PERMISSION_MODES.some((mode) => mode === value);
+}
+
 /** The authoritative turn state the SDK reports (research 01 §2). */
 export type SessionState = 'idle' | 'running' | 'requires_action';
 

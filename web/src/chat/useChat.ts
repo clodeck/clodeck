@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   type ApprovalResponsePayload,
   type ClientMessage,
+  type PermissionMode,
   type Project,
   type ResumePayload,
   type ServerEvent,
@@ -13,6 +14,7 @@ import {
   clearError,
   dismissApproval,
   emptyView,
+  withPermissionMode,
   withResumeTarget,
   withUserPrompt,
   type ChatView,
@@ -32,11 +34,19 @@ export interface ChatController {
   connection: ChatConnection;
   /**
    * Send a prompt on `profile` — the name the picker chose, or the reserved
-   * `default` when nothing was remembered. It rides the frame rather than a
-   * second control message: the profile is a property of *this* turn, and the
-   * server resolves it as the run starts (spec-08 §"The run carries a provider").
+   * `default` when nothing was remembered — and under `permissionMode`, the
+   * mode the chip is showing. Both ride the frame rather than a second control
+   * message: they are properties of *this* turn, and the server resolves them
+   * as the run starts (spec-08 §"The run carries a provider"; ticket 82).
    */
-  sendPrompt: (prompt: string, profile: string) => void;
+  sendPrompt: (prompt: string, profile: string, permissionMode: PermissionMode) => void;
+  /**
+   * Choose the mode this session runs under. A mid-turn choice is sent at once
+   * (`set_permission_mode`) and applies to the rest of the turn; an idle one is
+   * remembered here and rides the next `send_prompt`, so the mode and the
+   * prompt leave together and there is no frame for a turn that does not exist.
+   */
+  setPermissionMode: (mode: PermissionMode) => void;
   interrupt: () => void;
   /** Answers the approval modal (Allow/Deny only for the MVP). */
   respond: (response: ApprovalResponsePayload) => void;
@@ -136,14 +146,32 @@ export function useChat(project: Project): ChatController {
   }, []);
 
   const sendPrompt = useCallback(
-    (prompt: string, profile: string): void => {
+    (prompt: string, profile: string, permissionMode: PermissionMode): void => {
       const trimmed = prompt.trim();
       if (trimmed === '') return;
       // Shown at once; the fold drops the bus's echo if one arrives.
       setView((current) => withUserPrompt(current, trimmed));
-      send(clientMessage({ type: 'send_prompt', payload: { prompt: trimmed, profile } }));
+      send(
+        clientMessage({
+          type: 'send_prompt',
+          payload: { prompt: trimmed, profile, permissionMode },
+        }),
+      );
     },
     [send],
+  );
+
+  const setPermissionMode = useCallback(
+    (mode: PermissionMode): void => {
+      setView((current) => withPermissionMode(current, mode));
+      // A live run is told now: the switch governs its remaining tool requests.
+      // An idle project has no run to tell — the next send carries the choice
+      // with the prompt, which is also what keeps it from racing a turn start.
+      if (view.state !== 'idle') {
+        send(clientMessage({ type: 'set_permission_mode', payload: { mode } }));
+      }
+    },
+    [send, view.state],
   );
 
   const interrupt = useCallback((): void => {
@@ -182,7 +210,17 @@ export function useChat(project: Project): ChatController {
     setView(emptyView());
   }, [send]);
 
-  return { view, connection, sendPrompt, interrupt, respond, resume, newChat, dismissError };
+  return {
+    view,
+    connection,
+    sendPrompt,
+    setPermissionMode,
+    interrupt,
+    respond,
+    resume,
+    newChat,
+    dismissError,
+  };
 }
 
 /**

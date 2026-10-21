@@ -50,6 +50,12 @@ export interface ApprovalRequestPayload {
 /** Sent on (re)connect: the run's state plus the session's complete blocks. */
 export interface SnapshotPayload {
   state: SessionState;
+  /**
+   * The mode the run's next turn will start in. Always present: it is the
+   * session's choice when one was made, and the boot default otherwise — the
+   * one fact a reconnecting client needs to show the effective mode again.
+   */
+  permissionMode: PermissionMode;
   /** Complete messages only — buffered deltas are collapsed, never replayed. */
   blocks: readonly SDKMessage[];
   pendingApprovals: readonly ApprovalRequestPayload[];
@@ -122,6 +128,17 @@ export interface SendPromptPayload {
    * rather than falling back to the default.
    */
   profile?: string;
+  /**
+   * The permission mode this turn runs under. Absent means the run's stored
+   * mode — which is the boot default until a session chooses — so a send
+   * carries the choice of the *next* message without a second frame, and a
+   * reconnect that lost the client's local state still runs on what the
+   * server kept.
+   *
+   * The value is untrusted: the validator refuses a mode the contract does not
+   * offer rather than forwarding it to the SDK (ADR 0003).
+   */
+  permissionMode?: PermissionMode;
 }
 
 /** No fields: interrupt targets the project's one active turn. */

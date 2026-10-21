@@ -2,6 +2,8 @@ import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import type { PermissionMode } from '@clodeck/shared';
+
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import { registerCommandRoutes } from './commands.js';
 import type { ProjectDiscovery } from './discovery.js';
@@ -76,6 +78,13 @@ export interface AppOptions {
    */
   trustedProxies: string | null;
   /**
+   * The permission mode a session starts in when it has chosen none, and the
+   * one a New chat returns to — `CLODECK_PERMISSION_MODE`, read at boot
+   * (ticket 82). Configuration, like `webRoot`: a fact about this deployment,
+   * not a facade with a fake behind it.
+   */
+  permissionMode: PermissionMode;
+  /**
    * Where a line about a run goes — the profile and model a turn actually used,
    * which is the only record of a choice that is otherwise client state
    * (spec-08 §"Testing"). Defaults to the console, so `main.ts` says nothing
@@ -115,7 +124,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const terminals = createTerminalManager(options.spawner);
   // One run state for the process: the session routes ask it what a turn is
   // writing (a delete must not remove that transcript), and the bus drives it.
-  const turns = createTurnManager(options.provider, { log: options.log });
+  const turns = createTurnManager(options.provider, {
+    log: options.log,
+    permissionMode: options.permissionMode,
+  });
 
   // Auth-exempt: used by the proxy's and Docker's healthchecks (wayfinder 08).
   app.get('/healthz', async () => ({ status: 'ok' }));

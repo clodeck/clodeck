@@ -1,6 +1,7 @@
 import {
   PROTOCOL_VERSION,
   type ApprovalRequestPayload,
+  type PermissionMode,
   type SDKMessage,
   type SDKSystemInitMessage,
   type ServerEvent,
@@ -38,6 +39,7 @@ function snapshot(
   blocks: readonly SDKMessage[],
   state: 'idle' | 'running' | 'requires_action',
   pendingApprovals: readonly ApprovalRequestPayload[] = [],
+  permissionMode: PermissionMode = 'default',
 ): ServerEvent {
   seq += 1;
   return {
@@ -45,7 +47,7 @@ function snapshot(
     seq,
     ts: '2026-01-01T00:00:00.000Z',
     kind: 'snapshot',
-    payload: { state, blocks, pendingApprovals, lastSeq: 0 },
+    payload: { state, permissionMode, blocks, pendingApprovals, lastSeq: 0 },
   };
 }
 
@@ -357,6 +359,12 @@ describe('chat reducer — snapshot, approvals, errors', () => {
     description: 'rm -rf build',
   };
 
+  it('reads the mode the run will use next out of a snapshot', () => {
+    // The one field a reconnecting client has no other way to learn: the mode
+    // is the run's, not the browser's, so the snapshot carries it (ticket 82).
+    expect(apply(emptyView(), snapshot([], 'idle', [], 'plan')).permissionMode).toBe('plan');
+  });
+
   it('rebuilds entries, state, session and pending approvals from a snapshot', () => {
     const view = apply(
       emptyView(),
@@ -554,6 +562,17 @@ describe('chat reducer — a conversation the SDK discards', () => {
     );
 
     expect(live).toEqual(rebuilt);
+  });
+
+  it('keeps the run’s permission mode across the SDK’s own reset', () => {
+    // A conversation reset is the same session moving on, not a New chat: the
+    // mode is the run's, and only the client's clear returns it to the default.
+    const view = applyServerEvent(
+      { ...midTurn(), permissionMode: 'plan' },
+      stamped(sdk(reset), NEXT_SESSION),
+    );
+
+    expect(view.permissionMode).toBe('plan');
   });
 });
 
@@ -794,7 +813,7 @@ describe('chat reducer — the commands the menu offers', () => {
         seq,
         ts: '2026-01-01T00:00:00.000Z',
         kind: 'snapshot',
-        payload: { state: 'idle', blocks, pendingApprovals: [], commands, lastSeq: 0 },
+        payload: { state: 'idle', permissionMode: 'default', blocks, pendingApprovals: [], commands, lastSeq: 0 },
       };
     }
 

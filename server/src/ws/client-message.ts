@@ -1,8 +1,9 @@
-import type {
-  ApprovalResponsePayload,
-  PermissionMode,
-  ResumePayload,
-  SendPromptPayload,
+import {
+  isSelectablePermissionMode,
+  type ApprovalResponsePayload,
+  type PermissionMode,
+  type ResumePayload,
+  type SendPromptPayload,
 } from '@clodeck/shared';
 
 /**
@@ -33,7 +34,18 @@ export function parseClientMessage(raw: string): ClientIntent | null {
       // a client cannot ask for a profile with, say, an object.
       const profile = payload?.['profile'];
       if (profile !== undefined && typeof profile !== 'string') return null;
-      return { type: 'send_prompt', payload: profile === undefined ? { prompt } : { prompt, profile } };
+      // Absent leaves the run's stored mode alone; present must be a mode the
+      // contract offers, or the frame is refused rather than forwarded.
+      const permissionMode = payload?.['permissionMode'];
+      if (permissionMode !== undefined && !isSelectablePermissionMode(permissionMode)) return null;
+      return {
+        type: 'send_prompt',
+        payload: {
+          prompt,
+          ...(profile === undefined ? {} : { profile }),
+          ...(permissionMode === undefined ? {} : { permissionMode }),
+        },
+      };
     }
     case 'interrupt':
       return { type: 'interrupt' };
@@ -44,7 +56,7 @@ export function parseClientMessage(raw: string): ClientIntent | null {
     case 'set_permission_mode': {
       const payload = asObject(message['payload']);
       const mode = payload?.['mode'];
-      if (!isPermissionMode(mode)) return null;
+      if (!isSelectablePermissionMode(mode)) return null;
       return { type: 'set_permission_mode', mode };
     }
     case 'approval_response': {
@@ -97,26 +109,6 @@ function parseApprovalResponse(
   const message = payload['message'];
   if (typeof message === 'string') response.message = message;
   return response;
-}
-
-/**
- * The runtime mirror of the `PermissionMode` union. `satisfies` is the link back
- * to `shared/src/sdk.ts`: a mode added to the union, or a typo here, fails the
- * build — so this guard can never silently reject a mode the type allows.
- */
-const PERMISSION_MODES = {
-  default: true,
-  acceptEdits: true,
-  bypassPermissions: true,
-  plan: true,
-  dontAsk: true,
-  auto: true,
-} satisfies Record<PermissionMode, true>;
-
-function isPermissionMode(value: unknown): value is PermissionMode {
-  // `hasOwn`, not `in`: a value like `toString` must be rejected, not found on
-  // the prototype and accepted.
-  return typeof value === 'string' && Object.hasOwn(PERMISSION_MODES, value);
 }
 
 function parseObject(raw: string): Record<string, unknown> | null {

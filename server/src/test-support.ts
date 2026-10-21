@@ -66,6 +66,9 @@ export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInsta
     auth: createTestAuth(),
     webRoot: null,
     trustedProxies: null,
+    // This ticket's default: the suite that is about a deployment default says
+    // so by overriding it, and every other suite runs in Ask.
+    permissionMode: 'default',
     ...overrides,
   });
 }

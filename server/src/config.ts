@@ -1,6 +1,12 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import {
+  isSelectablePermissionMode,
+  SELECTABLE_PERMISSION_MODES,
+  type PermissionMode,
+} from '@clodeck/shared';
+
 import { warnToConsole, type Warn } from './logging.js';
 import { trustedProxyList } from './trusted-proxies.js';
 
@@ -37,6 +43,13 @@ export interface ServerConfig {
    * is otherwise one bucket shared by everyone behind it.
    */
   trustedProxies: string | null;
+  /**
+   * The permission mode a session starts in when it has chosen none, read once
+   * at boot from `CLODECK_PERMISSION_MODE` (ticket 82). The session may
+   * override it; a New chat goes back to this value rather than to an SDK
+   * default, which is why it is configuration and not a constant.
+   */
+  permissionMode: PermissionMode;
 }
 
 export interface LoadConfigOptions {
@@ -99,7 +112,30 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     // would cost the operator a boot rather than a warning, so it is caught at
     // the door every config comes through (`trusted-proxies.ts`).
     trustedProxies: trustedProxyList(envValue(env, 'CLODECK_TRUSTED_PROXIES'), warn),
+    // The one value here that is refused rather than warned about: a mode the
+    // contract does not offer is a promise the UI cannot keep, so the process
+    // stops at boot instead of running every turn in a mode nobody chose.
+    permissionMode: permissionModeFromEnv(env),
   };
+}
+
+/**
+ * `CLODECK_PERMISSION_MODE`, or Ask when it is unset or blank. A value outside
+ * {@link SELECTABLE_PERMISSION_MODES} throws: this is the one misconfiguration
+ * whose symptom would be a session quietly running under a policy the operator
+ * did not pick, so it is stopped at the door rather than reported and ignored.
+ */
+export function permissionModeFromEnv(env: NodeJS.ProcessEnv): PermissionMode {
+  const declared = envValue(env, 'CLODECK_PERMISSION_MODE');
+  if (declared === null) return 'default';
+  if (isSelectablePermissionMode(declared)) return declared;
+
+  const unavailable =
+    declared === 'bypassPermissions' ? ' — Bypass is not available yet (ticket 85)' : '';
+  throw new Error(
+    `CLODECK_PERMISSION_MODE is "${declared}"; use one of ` +
+      `${SELECTABLE_PERMISSION_MODES.join(', ')}${unavailable}`,
+  );
 }
 
 /**
