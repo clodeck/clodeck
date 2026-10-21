@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import type {
   CanUseTool,
   PermissionUpdate,
@@ -13,10 +15,12 @@ import {
   bashApprovalHooks,
   normalizeSessionInfo,
   normalizeSessionMessage,
+  planDenialHooks,
   providerEnv,
   toSdkCanUseTool,
 } from './anthropic.js';
 import { BASH_APPROVAL_REASON } from './bash-approval.js';
+import { PLAN_DENIAL_REASON, plansDirectory } from './plan-denial.js';
 
 /**
  * The real provider is the only module that loads the SDK, so its translations
@@ -39,6 +43,19 @@ function titleOf(fields: Record<string, unknown>): string {
   return normalizeSessionInfo(
     info({ sessionId: 's1', summary: '', lastModified: 1_700_000_000_000, ...fields }),
   ).title;
+}
+
+/** The event the SDK hands a `PreToolUse` hook; the rest of the fields are not read. */
+function event(toolName: string, toolInput: unknown = {}): PreToolUseHookInput {
+  return {
+    hook_event_name: 'PreToolUse',
+    session_id: 's1',
+    transcript_path: '/tmp/s1.jsonl',
+    cwd: '/projects/a',
+    tool_name: toolName,
+    tool_input: toolInput,
+    tool_use_id: 't1',
+  };
 }
 
 describe('normalizeSessionInfo', () => {
@@ -232,19 +249,6 @@ describe('bashApprovalHooks', () => {
     return bashApprovalHooks(mode)?.PreToolUse?.[0]?.hooks[0];
   }
 
-  /** The event the SDK hands a `PreToolUse` hook; the rest of the fields are not read. */
-  function event(toolName: string): PreToolUseHookInput {
-    return {
-      hook_event_name: 'PreToolUse',
-      session_id: 's1',
-      transcript_path: '/tmp/s1.jsonl',
-      cwd: '/projects/a',
-      tool_name: toolName,
-      tool_input: {},
-      tool_use_id: 't1',
-    };
-  }
-
   it('answers ask for every Bash call in Ask and Accept edits, with its reason', async () => {
     for (const mode of ['default', 'acceptEdits'] as const) {
       // The matcher is what keeps the hook to Bash in the first place; the name
@@ -280,6 +284,52 @@ describe('bashApprovalHooks', () => {
         hook?.(event(toolName), 't1', { signal: new AbortController().signal }),
       ).resolves.toEqual({ continue: true });
     }
+  });
+});
+
+describe('planDenialHooks', () => {
+  function hookFor(mode: PermissionMode) {
+    return planDenialHooks(mode)?.PreToolUse?.[0]?.hooks[0];
+  }
+
+  function decide(toolName: string, toolInput: unknown = {}) {
+    return hookFor('plan')?.(event(toolName, toolInput), 't1', {
+      signal: new AbortController().signal,
+    });
+  }
+
+  it('is registered in Plan alone', () => {
+    expect(planDenialHooks('plan')).toBeDefined();
+    for (const mode of ['default', 'acceptEdits', 'bypassPermissions', 'dontAsk', 'auto'] as const) {
+      expect(planDenialHooks(mode)).toBeUndefined();
+    }
+  });
+
+  it('denies edits, commands and ExitPlanMode with a reason the model reads', async () => {
+    for (const [toolName, toolInput] of [
+      ['Write', { file_path: '/projects/a/a.ts', content: 'x' }],
+      ['Edit', { file_path: '/projects/a/a.ts', old_string: 'a', new_string: 'b' }],
+      ['Bash', { command: 'ls' }],
+      ['ExitPlanMode', {}],
+    ] as const) {
+      await expect(decide(toolName, toolInput)).resolves.toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: PLAN_DENIAL_REASON,
+        },
+      });
+    }
+  });
+
+  it('falls through for the clarifying question, the reads, and the plan file', async () => {
+    for (const toolName of ['AskUserQuestion', 'Read', 'Glob', 'Grep']) {
+      await expect(decide(toolName)).resolves.toEqual({ continue: true });
+    }
+
+    await expect(
+      decide('Write', { file_path: path.join(plansDirectory(), 'plan.md'), content: '# plan' }),
+    ).resolves.toEqual({ continue: true });
   });
 });
 

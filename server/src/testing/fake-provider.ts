@@ -9,6 +9,7 @@ import type {
 } from '@clodeck/shared';
 
 import { BASH_APPROVAL_REASON, bashNeedsApproval } from '../sdk/bash-approval.js';
+import { PLAN_DENIAL_REASON, planDeniesTools, planToolDecision } from '../sdk/plan-denial.js';
 import type { SdkProvider, SdkRunInput } from '../sdk/provider.js';
 
 /**
@@ -72,9 +73,10 @@ export interface FakeProvider extends SdkProvider {
    */
   requestApproval(request: ApprovalRequestPayload): Promise<ApprovalResponsePayload>;
   /**
-   * The ticket-83 gate, driven from outside the run: a Bash call in Ask or
+   * The per-mode gates, driven from outside the run: a Bash call in Ask or
    * Accept edits goes through `canUseTool` exactly as the real run's
-   * `PreToolUse` hook sends it. Every other tool is settled here as unprompted,
+   * `PreToolUse` hook sends it, and in Plan the denied tools settle as a deny
+   * with no callback at all. Every other tool is settled here as unprompted,
    * which is what Accept edits does for the file tools — a gate the test itself
    * wants to raise uses `requestApproval` instead.
    *
@@ -193,12 +195,32 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
       }
 
       const mode = latest.permissionMode ?? 'default';
-      if (toolName !== 'Bash' || !bashNeedsApproval(mode)) {
-        toolSeq += 1;
+      toolSeq += 1;
+      const id = toolSeq;
+      const request = {
+        requestId: `fake-tool-${id}`,
+        toolUseID: `fake-tool-use-${id}`,
+        toolName,
+        input,
+      };
+
+      // Plan's gate is a hook, not a prompt: the call is denied before the SDK
+      // would reach `canUseTool`, so the client sees nothing.
+      if (planDeniesTools(mode) && planToolDecision(toolName, input, latest.cwd) === 'deny') {
         return {
           asked: false,
-          result: { requestId: `fake-tool-${toolSeq}`, behavior: 'allow' },
+          result: { requestId: request.requestId, behavior: 'deny', message: PLAN_DENIAL_REASON },
         };
+      }
+
+      // Ask and Accept edits gate every Bash call; Plan's one gated tool is the
+      // clarifying question, which must still reach the modal.
+      const asks =
+        toolName === 'Bash'
+          ? bashNeedsApproval(mode)
+          : planDeniesTools(mode) && toolName === 'AskUserQuestion';
+      if (!asks) {
+        return { asked: false, result: { requestId: request.requestId, behavior: 'allow' } };
       }
 
       const callback = latest.canUseTool;
@@ -206,14 +228,11 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
         throw new Error('the fake provider has no canUseTool to drive — pass one to query()');
       }
 
-      toolSeq += 1;
-      const id = toolSeq;
       const result = await callback({
-        requestId: `fake-tool-${id}`,
-        toolUseID: `fake-tool-use-${id}`,
-        toolName,
-        input,
-        decisionReason: BASH_APPROVAL_REASON,
+        ...request,
+        // The Bash gate's own reason; a question needs none, because the SDK
+        // has already said what it is asking.
+        ...(toolName === 'Bash' ? { decisionReason: BASH_APPROVAL_REASON } : {}),
       });
       return { asked: true, result };
     },
