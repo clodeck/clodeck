@@ -1,5 +1,5 @@
 import type { Dirent, Stats } from 'node:fs';
-import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { Project } from '@clodeck/shared';
@@ -35,6 +35,26 @@ export interface ProjectDiscovery {
    */
   createProject(name: string): Promise<CreateProjectResult>;
   /**
+   * Delete one project directory from the root, recursively (ticket 89).
+   *
+   * It lives here for the same reason `createProject` does: it is a *root-level*
+   * operation, and discovery is the only module that touches the root. `ScopedFs`
+   * is not the seam for it — it is project-scoped by construction and its
+   * `remove` would happily unlink a symlink, which is exactly the outcome a
+   * project delete must refuse.
+   *
+   * An id is deletable only when exactly one entry of the root canonicalizes to
+   * it *and* that entry is a real directory (`lstat`, not a symlink). Anything
+   * else is refused: a link shown as a project would otherwise destroy the
+   * target while the label named the link, and an alias would make the id
+   * ambiguous (decision 87, D6). The root itself is not an immediate child, so
+   * it is never a target.
+   *
+   * The busy checks — a live run, an attached terminal — are the route's, not
+   * discovery's: they are process state, not facts about the root.
+   */
+  deleteProject(id: string): Promise<DeleteProjectResult>;
+  /**
    * The canonical projects root, or null when none is configured — the same
    * directory the allowlist compares against, handed out for one reader: the
    * command list, which walks from a project *up* to the root and no further
@@ -60,6 +80,16 @@ export type CreateProjectResult =
   | { status: 'invalid_name' } // not a single clean, non-dot segment
   | { status: 'exists' } // something is already at the name — never overwritten
   | { status: 'no_root' }; // unconfigured, absent, or not a directory at all
+
+/**
+ * What a {@link ProjectDiscovery.deleteProject} came to. `busy` is deliberately
+ * absent: whether a run or a terminal holds the project is process state the
+ * route checks first, and discovery neither knows nor asks.
+ */
+export type DeleteProjectResult =
+  | { status: 'ok' }
+  | { status: 'not_found' } // not a decodable, allowlisted, immediate-child directory
+  | { status: 'symlink' }; // no single real-directory entry names it — a link, or an alias
 
 export interface DiscoveryOptions {
   /** Where a misconfigured or unreadable root is reported (never a 500). */
@@ -227,6 +257,69 @@ export function createProjectDiscovery(
         status: 'ok',
         project: { id: toProjectId(canonical), name: path.basename(canonical), path: canonical },
       };
+    },
+
+    /**
+     * The delete is the mirror of the scan, not of the decode: the requested
+     * path is canonicalized (so an id is never authorization), then the root is
+     * re-scanned to find which of *its* entries that canonical path names. A
+     * project is an immediate child, so the root itself, a file, and a deeper
+     * directory all fail the same way — `not_found`.
+     */
+    async deleteProject(id: string): Promise<DeleteProjectResult> {
+      if (root === null || allowlist === null) return { status: 'not_found' };
+
+      const requested = decodeProjectId(id);
+      if (requested === null) return { status: 'not_found' };
+
+      const canonical = await allowlist.canonicalizeInsideRoot(requested);
+      if (canonical === null) return { status: 'not_found' };
+
+      // The root itself cannot be deleted. `dirname` is enough to tell "an
+      // immediate child" from the root and from anything below a project: both
+      // sides are canonical, so the comparison is about directories rather
+      // than spellings.
+      let canonicalRoot: string;
+      try {
+        canonicalRoot = await realpath(root);
+      } catch {
+        return { status: 'not_found' };
+      }
+      if (path.dirname(canonical) !== canonicalRoot) return { status: 'not_found' };
+      if (!(await isDirectory(canonical))) return { status: 'not_found' };
+
+      let entries: Dirent[];
+      try {
+        entries = await readdir(root, { withFileTypes: true });
+      } catch (error) {
+        warn(`could not read projects root ${root}: ${String(error)}`);
+        return { status: 'not_found' };
+      }
+
+      // The scan decides, not the id: a real directory and a link that names it
+      // are two entries for one canonical path, and deleting by id would have to
+      // guess which label the user meant (decision 87, D6).
+      const matches: Dirent[] = [];
+      for (const entry of entries) {
+        const candidate = await allowlist.canonicalizeInsideRoot(path.join(root, entry.name));
+        if (candidate === canonical) matches.push(entry);
+      }
+
+      if (matches.length !== 1) return { status: 'symlink' };
+      const [match] = matches;
+      // The one entry must be the directory itself, never a link to it. `rm` on
+      // a link would unlink the link and leave every file in place, which would
+      // make the delete a lie; following it would destroy a target the user did
+      // not name. Refusing is the only honest answer.
+      if (match === undefined || match.isSymbolicLink() || !match.isDirectory()) {
+        return { status: 'symlink' };
+      }
+
+      // The entry's own name off the scan, never a path rebuilt from the id.
+      // `rm` does not follow a link in the final segment, so even a swap between
+      // the scan and here cannot reach outside the root.
+      await rm(path.join(root, match.name), { recursive: true });
+      return { status: 'ok' };
     },
   };
 }

@@ -69,6 +69,23 @@ export interface TurnManager {
    */
   runningSession(projectId: string): string | undefined;
   /**
+   * Whether the project has a run in flight — a run whose `active` is set or
+   * whose `status` has left `idle`.
+   *
+   * It is deliberately not `runningSession(projectId) !== undefined`: a run that
+   * has started but not yet named a session has no id to report, and that is
+   * exactly the window a project delete must still refuse (decision 87, D3).
+   */
+  isRunning(projectId: string): boolean;
+  /**
+   * Drop the project's run entry entirely (decision 87, D9). The id is the
+   * canonical path, so deleting a project and creating it again yields the same
+   * id — and a surviving entry's `sessionId` would silently auto-resume a chat
+   * that belongs to a project that no longer exists. Called only after a
+   * successful delete; a live turn is refused before it.
+   */
+  forgetProject(projectId: string): void;
+  /**
    * Drop what the run has accumulated *for the next send to read*: the armed
    * resume target, the buffered turn's blocks, and the session id those blocks
    * belong to. What is left is a project with nothing to continue and nothing to
@@ -265,6 +282,18 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // nobody's to protect any more.
       const state = projects.get(projectId);
       return state?.active === undefined ? undefined : state.sessionId;
+    },
+
+    isRunning(projectId) {
+      // `status` covers the instant between `sendPrompt` marking the run
+      // running and the provider handing back its handle; `active` covers
+      // everything the finally has not reached yet. Either says "in flight".
+      const state = projects.get(projectId);
+      return state !== undefined && (state.active !== undefined || state.status !== 'idle');
+    },
+
+    forgetProject(projectId) {
+      projects.delete(projectId);
     },
 
     clearResume(projectId) {

@@ -143,7 +143,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
       api.register(async (gated) => {
         gated.addHook('onRequest', createAuthGate(options.auth.sessions));
 
-        registerProjectRoutes(gated, { projects: options.projects });
+        registerProjectRoutes(gated, {
+          projects: options.projects,
+          turns,
+          terminals,
+        });
         registerProfileRoutes(gated, { projects: options.projects, profiles: options.profiles });
         registerCommandRoutes(gated, { projects: options.projects });
         registerSessionRoutes(gated, {

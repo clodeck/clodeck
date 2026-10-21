@@ -1,7 +1,7 @@
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
@@ -27,6 +27,7 @@ import {
   type Sandbox,
 } from '../test-support.js';
 import { createFakeProvider, type FakeProvider, type FakeProviderOptions } from '../testing/fake-provider.js';
+import { createFakePtySpawner } from '../testing/fake-pty.js';
 
 /**
  * The `/ws` bus is the second agreed seam (spec-02 §Testing): a real socket on
@@ -1513,6 +1514,112 @@ describe('the /ws event bus', () => {
     });
   });
 
+  /**
+   * A delete is root-level state (ticket 89), but two things the directory does
+   * not own can refuse it. Both live in this process's managers, so they are
+   * pinned here through the real socket and the real route (decision 87, D3 and
+   * D9).
+   */
+  describe('deleting a project alongside live state', () => {
+    async function deleteProject(
+      app: FastifyInstance,
+      cookie: string,
+      id: string,
+    ): Promise<LightMyRequestResponse> {
+      return app.inject({
+        method: 'DELETE',
+        url: `/api/projects/${encodeURIComponent(id)}`,
+        headers: { cookie },
+      });
+    }
+
+    it('answers 409 turn_in_progress for a run that has started but named no session', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      // No messages: the run starts but the SDK names no session, which is
+      // exactly the window `runningSession` cannot see and the delete must.
+      const { app, provider, cookie } = await makeApp({ holdRuns: true });
+      const port = await listen(app);
+      const id = idFor(cwd);
+
+      const client = await connect(port, cookie, id);
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'go' } });
+      await provider.waitForQueryInput(1);
+
+      try {
+        const response = await deleteProject(app, cookie, id);
+
+        expect(response.statusCode).toBe(409);
+        expect((response.json() as { error: string }).error).toBe('turn_in_progress');
+        // Nothing was removed: the run's working tree is still there.
+        await expect(lstat(cwd)).resolves.toBeDefined();
+      } finally {
+        provider.releaseRuns();
+        client.close();
+      }
+    });
+
+    it('answers 409 terminal_attached while a shell is open, and leaves the directory', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const spawner = createFakePtySpawner();
+      const { app, cookie } = await makeApp({}, { spawner });
+      const port = await listen(app);
+      const id = idFor(cwd);
+
+      const terminal = await openTerminal(port, cookie, id);
+      await spawner.waitForSpawn(1);
+
+      try {
+        const response = await deleteProject(app, cookie, id);
+
+        expect(response.statusCode).toBe(409);
+        expect((response.json() as { error: string }).error).toBe('terminal_attached');
+        await expect(lstat(cwd)).resolves.toBeDefined();
+      } finally {
+        terminal.close();
+      }
+    });
+
+    it('forgets the run after a delete, so a re-created project starts a fresh chat', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({ messages: transcript(cwd) });
+      const port = await listen(app);
+      const id = idFor(cwd);
+
+      const client = await connect(port, cookie, id);
+      await client.next(); // the snapshot
+      client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'one' } });
+      await client.nextMatching(
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+      // The entry the delete has to forget does hold a session: a second send
+      // resumes it, which is the behavior a re-created project must not inherit.
+      client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'two' } });
+      await expect(provider.waitForQueryInput(2)).resolves.toMatchObject({ resume: SESSION_ID });
+      await client.nextMatching(
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+      client.close();
+
+      expect((await deleteProject(app, cookie, id)).statusCode).toBe(204);
+      await expect(lstat(cwd)).rejects.toMatchObject({ code: 'ENOENT' });
+
+      // Same directory, same canonical path, therefore the same id — the row
+      // the user just created must not secretly be the old chat (D9).
+      await mkdir(cwd);
+      const recreated = await connect(port, cookie, id);
+      await recreated.next(); // the fresh snapshot
+      recreated.send({ v: 1, id: 'c3', type: 'send_prompt', payload: { prompt: 'three' } });
+
+      const fresh = await provider.waitForQueryInput(3);
+      expect(fresh.resume).toBeUndefined();
+      expect(fresh.continueLatest).toBeUndefined();
+      recreated.close();
+    });
+  });
 });
 
 /** One scripted turn's messages, replayed by the fake provider on every `query()`. */
@@ -1731,5 +1838,21 @@ function connect(port: number, cookie: string, projectId: string | undefined): P
         },
       });
     });
+  });
+}
+
+/**
+ * A raw `/ws/terminal` socket, opened only so the terminal manager has a live
+ * shell for a project. Bytes are not the subject here; the delete is.
+ */
+function openTerminal(port: number, cookie: string, projectId: string): Promise<WebSocket> {
+  const url = `ws://127.0.0.1:${String(port)}/ws/terminal?projectId=${encodeURIComponent(projectId)}`;
+  const socket = new WebSocket(url, { headers: { cookie } });
+
+  return new Promise((resolve, reject) => {
+    socket.once('open', () => {
+      resolve(socket);
+    });
+    socket.once('error', reject);
   });
 }

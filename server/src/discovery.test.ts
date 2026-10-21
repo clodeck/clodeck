@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -173,5 +173,119 @@ describe('createProject', () => {
       discovery(path.join(sandbox.dir, 'not-there')).createProject('beta'),
     ).resolves.toEqual({ status: 'no_root' });
     await expect(discovery(fileRoot).createProject('beta')).resolves.toEqual({ status: 'no_root' });
+  });
+});
+
+/**
+ * `deleteProject` is the one destructive root-level operation (ticket 89), so it
+ * is pinned against real directories: what leaves the disk, and — more
+ * importantly — everything the scan refuses to remove. The rule is decision 87's
+ * D6: exactly one root entry canonicalizing to the id, and that entry a real
+ * directory.
+ */
+describe('deleteProject', () => {
+  let sandbox: Sandbox;
+  let root: string;
+
+  beforeEach(async () => {
+    sandbox = await createSandbox('clodeck-delete-');
+    root = sandbox.root;
+  });
+
+  afterEach(async () => {
+    await removeSandbox(sandbox);
+  });
+
+  function discovery(projectsRoot: string | null = root) {
+    return createProjectDiscovery(projectsRoot, { warn: () => undefined });
+  }
+
+  function idFor(candidate: string): string {
+    return Buffer.from(candidate, 'utf8').toString('base64url');
+  }
+
+  it('removes the directory recursively and leaves the root itself in place', async () => {
+    await mkdir(path.join(root, 'alpha', 'nested'), { recursive: true });
+    await writeFile(path.join(root, 'alpha', 'nested', 'notes.txt'), 'gone');
+    const canonical = await realpath(path.join(root, 'alpha'));
+
+    await expect(discovery().deleteProject(idFor(canonical))).resolves.toEqual({ status: 'ok' });
+
+    await expect(lstat(path.join(root, 'alpha'))).rejects.toMatchObject({ code: 'ENOENT' });
+    // The root is the allowlist, not a project: it is still there, empty.
+    await expect(lstat(root)).resolves.toBeDefined();
+    await expect(readdir(root)).resolves.toEqual([]);
+  });
+
+  it('refuses an ambiguous id and removes neither the link nor its target', async () => {
+    // The row the scan lists for `zulu` can be the link `alpha`, and the link is
+    // also a root entry — so one canonical path has two labels. Deleting by id
+    // would destroy the target while the label named the link (D6).
+    await mkdir(path.join(root, 'zulu'));
+    await writeFile(path.join(root, 'zulu', 'notes.txt'), 'keep me');
+    await symlink(path.join(root, 'zulu'), path.join(root, 'alpha'), linkType);
+    const canonical = await realpath(path.join(root, 'zulu'));
+
+    await expect(discovery().deleteProject(idFor(canonical))).resolves.toEqual({
+      status: 'symlink',
+    });
+
+    await expect(readFile(path.join(root, 'zulu', 'notes.txt'), 'utf8')).resolves.toBe('keep me');
+    expect((await lstat(path.join(root, 'alpha'))).isSymbolicLink()).toBe(true);
+  });
+
+  it('refuses the root itself, and nothing outside the root is touched', async () => {
+    const outside = path.join(sandbox.dir, 'outside');
+    await mkdir(outside);
+    await mkdir(path.join(root, 'alpha'));
+
+    await expect(discovery().deleteProject(idFor(await realpath(root)))).resolves.toEqual({
+      status: 'not_found',
+    });
+    await expect(discovery().deleteProject(idFor(await realpath(outside)))).resolves.toEqual({
+      status: 'not_found',
+    });
+
+    // The allowlist still holds on both sides of the boundary.
+    await expect(lstat(root)).resolves.toBeDefined();
+    await expect(lstat(path.join(root, 'alpha'))).resolves.toBeDefined();
+    await expect(lstat(outside)).resolves.toBeDefined();
+  });
+
+  it('refuses a nested directory: a project is an immediate child of the root', async () => {
+    await mkdir(path.join(root, 'alpha', 'nested'), { recursive: true });
+    const nested = await realpath(path.join(root, 'alpha', 'nested'));
+
+    await expect(discovery().deleteProject(idFor(nested))).resolves.toEqual({
+      status: 'not_found',
+    });
+    await expect(lstat(nested)).resolves.toBeDefined();
+  });
+
+  it('answers not_found for every id that does not resolve to a project directory', async () => {
+    await writeFile(path.join(root, 'notes.txt'), 'not a project');
+
+    for (const candidate of [
+      path.join(root, 'ghost'),
+      path.join(root, 'notes.txt'),
+      path.join(sandbox.dir, 'outside'),
+      '',
+    ]) {
+      await expect(
+        discovery().deleteProject(candidate === '' ? candidate : idFor(candidate)),
+      ).resolves.toEqual({ status: 'not_found' });
+    }
+
+    await expect(discovery().deleteProject('not!base64url')).resolves.toEqual({
+      status: 'not_found',
+    });
+    await expect(readFile(path.join(root, 'notes.txt'), 'utf8')).resolves.toBe('not a project');
+  });
+
+  it('answers not_found when no projects root is configured', async () => {
+    const id = idFor(await realpath(root));
+
+    await expect(discovery(null).deleteProject(id)).resolves.toEqual({ status: 'not_found' });
+    await expect(lstat(root)).resolves.toBeDefined();
   });
 });

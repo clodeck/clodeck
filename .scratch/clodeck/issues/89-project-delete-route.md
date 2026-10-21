@@ -19,20 +19,20 @@ pas hazf + sākhtan-e dobāre hamān id rā midahad, va entry-e kohne session id
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `DELETE /api/projects/:id` ru-ye gated scope: `204` bedoone body, va directory az disk rāfte ast.
-- [ ] Id-i ke az allowlist rad nemishavad → `404`; id-e khode root → `404`, va hich chiz birun-e root āsib
+- [x] `DELETE /api/projects/:id` ru-ye gated scope: `204` bedoone body, va directory az disk rāfte ast.
+- [x] Id-i ke az allowlist rad nemishavad → `404`; id-e khode root → `404`, va hich chiz birun-e root āsib
       nemibinad.
-- [ ] Run-e dar-hāl-e-ejrā → `409 turn_in_progress`, chiz-i hazf nemishavad — va in shāmel-e run-i-st ke
+- [x] Run-e dar-hāl-e-ejrā → `409 turn_in_progress`, chiz-i hazf nemishavad — va in shāmel-e run-i-st ke
       hanooz session nām-gozāri nakarde.
-- [ ] Terminal-e attached → `409 terminal_attached`, chiz-i hazf nemishavad.
-- [ ] Entry-e symlink yā id-e ambiguous → `400 symlink`, va na link va na target hazf nemishavad.
-- [ ] Hazf ru-ye discovery seam piyāde shode; project-scoped remove estefāde nashode.
-- [ ] Bad az hazf, run entry farāmush mishavad: hazf + sākhtan-e dobāre → awwalin send hich session id-e
+- [x] Terminal-e attached → `409 terminal_attached`, chiz-i hazf nemishavad.
+- [x] Entry-e symlink yā id-e ambiguous → `400 symlink`, va na link va na target hazf nemishavad.
+- [x] Hazf ru-ye discovery seam piyāde shode; project-scoped remove estefāde nashode.
+- [x] Bad az hazf, run entry farāmush mishavad: hazf + sākhtan-e dobāre → awwalin send hich session id-e
       resume-shode haml nemikonad.
-- [ ] Transcript-hā-ye SDK ke SDK zir-e `~/.claude/projects/<sanitized path>/` negah midārad dast-nakhorde
+- [x] Transcript-hā-ye SDK ke SDK zir-e `~/.claude/projects/<sanitized path>/` negah midārad dast-nakhorde
       mimānanad.
-- [ ] Test-hā: route suite (codes va chizi ke ru-ye disk ast), discovery suite (symlink/ambiguity, root),
+- [x] Test-hā: route suite (codes va chizi ke ru-ye disk ast), discovery suite (symlink/ambiguity, root),
       bus suite (409-hā va farāmushi-e run).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
