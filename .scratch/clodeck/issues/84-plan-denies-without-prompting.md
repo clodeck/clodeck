@@ -7,7 +7,7 @@ miminānad; va plan file-e SDK zir-e `~/.claude/plans/` hanuz neveshte mishavad.
 
 **Blocked by:** 82
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Agent Brief
 
@@ -31,16 +31,16 @@ nemikonad; model payām rā mibinad va edāme midahad. Bedoone `interrupt: true`
 - Hich `approval_request` barā-ye call-hā-ye deny-shode emit nashavad.
 
 **Acceptance criteria:**
-- [ ] Dar Plan, `Write` va `Edit` bedoone `approval_request` deny mishan.
-- [ ] Dar Plan, har Bash bedoone `approval_request` deny mishavad.
-- [ ] Read/Glob/Grep kār mikonand.
-- [ ] Model deny rā mibinad va turn bā `result`-e movafagh (na error/interrupt) tamoom mishavad.
-- [ ] `AskUserQuestion` dar Plan hanuz modal miporsad.
-- [ ] `ExitPlanMode` deny mishavad va session dar Plan miminānad; mode az chip avaz mishavad.
-- [ ] Plan file zir-e `~/.claude/plans/` neveshte mishavad.
-- [ ] Test-hā: unit barā-ye har estesnā; integration bā fake ke deny `approval_request` tolid nemikonad va
+- [x] Dar Plan, `Write` va `Edit` bedoone `approval_request` deny mishan.
+- [x] Dar Plan, har Bash bedoone `approval_request` deny mishavad.
+- [x] Read/Glob/Grep kār mikonand.
+- [x] Model deny rā mibinad va turn bā `result`-e movafagh (na error/interrupt) tamoom mishavad.
+- [x] `AskUserQuestion` dar Plan hanuz modal miporsad.
+- [x] `ExitPlanMode` deny mishavad va session dar Plan miminānad; mode az chip avaz mishavad.
+- [x] Plan file zir-e `~/.claude/plans/` neveshte mishavad.
+- [x] Test-hā: unit barā-ye har estesnā; integration bā fake ke deny `approval_request` tolid nemikonad va
       turn edāme midahad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Ask/Accept edits (83), Bypass (85).

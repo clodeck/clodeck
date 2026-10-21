@@ -17,6 +17,7 @@ import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createProviderProfiles } from '../profiles.js';
 import { BASH_APPROVAL_REASON } from '../sdk/bash-approval.js';
+import { PLAN_DENIAL_REASON, plansDirectory } from '../sdk/plan-denial.js';
 import {
   createSandbox,
   createTestApp,
@@ -1061,6 +1062,23 @@ describe('the /ws event bus', () => {
       });
     }
 
+    /**
+     * Reads frames until `predicate` matches and hands back everything it read.
+     * Unlike `nextMatching` this keeps the frames before the match, which is how
+     * a test says an event *never* arrived.
+     */
+    async function readUntil(
+      client: BusClient,
+      predicate: (event: ServerEvent) => boolean,
+    ): Promise<ServerEvent[]> {
+      const seen: ServerEvent[] = [];
+      for (;;) {
+        const event = await client.next();
+        seen.push(event);
+        if (predicate(event)) return seen;
+      }
+    }
+
     it('opens a connection in the deployment’s mode', async () => {
       await mkdir(path.join(root, 'alpha'));
       const cwd = await realpath(path.join(root, 'alpha'));
@@ -1353,6 +1371,144 @@ describe('the /ws event bus', () => {
       });
 
       await expect(tool).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+      provider.releaseRuns();
+    });
+
+    it('denies Plan’s tools without an approval request, and the turn carries on', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: transcript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'plan it', 'plan');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('plan');
+
+      // The PreToolUse gate denies straight away: nothing is parked, and the
+      // model gets the reason instead of a modal. `ls` is denied like `rm` —
+      // Plan does not run commands at all.
+      for (const [toolName, input] of [
+        ['Write', { file_path: 'a.ts', content: 'x' }],
+        ['Edit', { file_path: 'a.ts', old_string: 'a', new_string: 'b' }],
+        ['Bash', { command: 'ls' }],
+        ['ExitPlanMode', {}],
+      ] as const) {
+        await expect(provider.requestToolUse(toolName, input)).resolves.toMatchObject({
+          asked: false,
+          result: { behavior: 'deny', message: PLAN_DENIAL_REASON },
+        });
+      }
+
+      // Reads are free in Plan: the gate neither asks nor denies them.
+      for (const toolName of ['Read', 'Glob', 'Grep']) {
+        await expect(provider.requestToolUse(toolName, {})).resolves.toMatchObject({
+          asked: false,
+          result: { behavior: 'allow' },
+        });
+      }
+
+      // The denials did not take the turn down: it reaches its scripted success
+      // result, and no approval request was ever emitted.
+      provider.releaseRuns();
+      const frames = await readUntil(
+        client,
+        (event) => event.kind === 'stream_status' && event.payload.status === 'turn_ended',
+      );
+      expect(frames.some((event) => event.kind === 'approval_request')).toBe(false);
+      expect(
+        frames.some(
+          (event) =>
+            event.kind === 'sdk' && event.payload.type === 'result' && event.payload.subtype === 'success',
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps Plan’s clarifying question on the modal', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'plan it', 'plan');
+      await provider.waitForQueryInput(1);
+
+      // `AskUserQuestion` is the one tool Plan deliberately sends on: a plan
+      // needs the answer, so it still parks in the approval modal.
+      const tool = provider.requestToolUse('AskUserQuestion', { questions: [] });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      expect(request.payload).toMatchObject({ toolName: 'AskUserQuestion' });
+      // It is a question, not a denial, so no gate reason is attached.
+      expect(request.payload).not.toHaveProperty('decisionReason');
+
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'approval_response',
+        payload: { requestId: request.payload.requestId, behavior: 'allow' },
+      });
+
+      await expect(tool).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+      provider.releaseRuns();
+    });
+
+    it('lets the SDK write its own plan file, and leaves Plan only through the mode', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'plan it', 'plan');
+      await provider.waitForQueryInput(1);
+
+      // The plan the model is composing is written under the SDK's own plans
+      // directory; Plan must not deny its own record.
+      await expect(
+        provider.requestToolUse('Write', {
+          file_path: path.join(plansDirectory(), 'plan.md'),
+          content: '# the plan',
+        }),
+      ).resolves.toMatchObject({ asked: false, result: { behavior: 'allow' } });
+
+      // Denying ExitPlanMode leaves the session where it was.
+      await expect(provider.requestToolUse('ExitPlanMode', {})).resolves.toMatchObject({
+        asked: false,
+        result: { behavior: 'deny' },
+      });
+      const stillPlan = await connect(port, cookie, idFor(cwd));
+      await expect(stillPlan.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { permissionMode: 'plan' },
+      });
+
+      // The chip is the way out: a live switch moves the run's stored mode, and
+      // a reconnect reads it back.
+      client.send({ v: 1, id: 'c2', type: 'set_permission_mode', payload: { mode: 'acceptEdits' } });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('acceptEdits');
+
+      const afterChip = await connect(port, cookie, idFor(cwd));
+      await expect(afterChip.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { permissionMode: 'acceptEdits' },
+      });
+
       provider.releaseRuns();
     });
   });

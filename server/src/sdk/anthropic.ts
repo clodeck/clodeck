@@ -25,6 +25,7 @@ import type {
 
 import { BASH_APPROVAL_REASON, bashNeedsApproval } from './bash-approval.js';
 import { narrowToMirror } from './mirror.js';
+import { PLAN_DENIAL_REASON, planDeniesTools, planToolDecision } from './plan-denial.js';
 import type { ApprovalCallback, SdkProvider, SdkRun, SdkRunInput } from './provider.js';
 
 /**
@@ -113,8 +114,9 @@ function toSdkOptions(input: SdkRunInput, abortController: AbortController): Opt
   };
 
   // Ask and Accept edits pin every Bash call to the modal, before the project's
-  // allow rules are consulted (ticket 83). The other modes carry no hook.
-  const hooks = bashApprovalHooks(mode);
+  // allow rules are consulted (ticket 83); Plan denies its tools without a
+  // prompt (ticket 84). Bypass carries no hook.
+  const hooks = bashApprovalHooks(mode) ?? planDenialHooks(mode);
   if (hooks !== undefined) options.hooks = hooks;
 
   // Absent a provider, `env` stays unset and the subprocess inherits the
@@ -161,6 +163,48 @@ export function bashApprovalHooks(mode: PermissionMode): Options['hooks'] | unde
                 hookEventName: 'PreToolUse',
                 permissionDecision: 'ask',
                 permissionDecisionReason: BASH_APPROVAL_REASON,
+              },
+            };
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * The per-run gate Plan registers: `Write`, `Edit`, `Bash` and `ExitPlanMode`
+ * are denied with a reason the model reads, before `canUseTool` — so the client
+ * sees no approval request and the turn carries on. `AskUserQuestion` and the
+ * SDK's own plan file fall through: the first still reaches the modal, the
+ * second is how plan mode records its plan.
+ *
+ * The hook has no matcher because its exceptions are paths, not tool names — a
+ * matcher could let `AskUserQuestion` through by name, but it could not tell the
+ * plan file from a project edit.
+ *
+ * Exported so the decision is tested directly — the fake provider has no SDK
+ * hooks, and this is the one shape it cannot stand in for.
+ */
+export function planDenialHooks(mode: PermissionMode): Options['hooks'] | undefined {
+  if (!planDeniesTools(mode)) return undefined;
+
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+
+            if (planToolDecision(input.tool_name, input.tool_input, input.cwd) === 'pass') {
+              return { continue: true };
+            }
+
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: PLAN_DENIAL_REASON,
               },
             };
           },
