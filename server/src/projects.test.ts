@@ -1,19 +1,28 @@
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { Project } from '@clodeck/shared';
+import type { Project, SessionSummary } from '@clodeck/shared';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { AppOptions } from './app.js';
 import { createProjectDiscovery } from './discovery.js';
-import { createTestApp, createSandbox, login, removeSandbox, type Sandbox } from './test-support.js';
+import {
+  createTestApp,
+  createSandbox,
+  linkType,
+  login,
+  removeSandbox,
+  type Sandbox,
+} from './test-support.js';
+import { createFakeProvider } from './testing/fake-provider.js';
 
 /**
- * `POST /api/projects` (ticket 47) at the HTTP boundary: the real handler, the
+ * The projects REST surface at the HTTP boundary: the real handlers, the
  * installed gate, and a real temp projects root — `app.test.ts`'s shape, because
- * it is the same seam. The write itself is pinned on the discovery seam
- * (`discovery.test.ts`); what is pinned here is the route: its codes, its body,
- * and the session it needs.
+ * it is the same seam. The writes themselves are pinned on the discovery seam
+ * (`discovery.test.ts`); what is pinned here is the routes: their codes, their
+ * bodies, the state left on disk, and the session they need.
  */
 describe('the projects API', () => {
   let sandbox: Sandbox;
@@ -31,9 +40,13 @@ describe('the projects API', () => {
     await removeSandbox(sandbox);
   });
 
-  function makeApp(projectsRoot: string | null): FastifyInstance {
+  function makeApp(
+    projectsRoot: string | null,
+    overrides: Partial<AppOptions> = {},
+  ): FastifyInstance {
     const app = createTestApp({
       projects: createProjectDiscovery(projectsRoot, { warn: () => undefined }),
+      ...overrides,
     });
     apps.push(app);
     return app;
@@ -47,6 +60,20 @@ describe('the projects API', () => {
       headers: { cookie: await login(app) },
       payload,
     });
+  }
+
+  /** The delete, authenticated the same way. */
+  async function remove(app: FastifyInstance, id: string): Promise<LightMyRequestResponse> {
+    return app.inject({
+      method: 'DELETE',
+      url: `/api/projects/${encodeURIComponent(id)}`,
+      headers: { cookie: await login(app) },
+    });
+  }
+
+  /** The id the wire carries: base64url of the canonical directory. */
+  function idFor(candidate: string): string {
+    return Buffer.from(candidate, 'utf8').toString('base64url');
   }
 
   it('creates the directory and answers 201 with the created project', async () => {
@@ -128,5 +155,99 @@ describe('the projects API', () => {
     const response = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'beta' } });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  describe('deleting a project', () => {
+    it('removes the directory recursively and answers 204 with no body', async () => {
+      await mkdir(path.join(root, 'alpha', 'nested'), { recursive: true });
+      await writeFile(path.join(root, 'alpha', 'nested', 'notes.txt'), 'gone');
+      const canonical = await realpath(path.join(root, 'alpha'));
+      const app = makeApp(root);
+
+      const response = await remove(app, idFor(canonical));
+
+      expect(response.statusCode).toBe(204);
+      expect(response.body).toBe('');
+      await expect(lstat(path.join(root, 'alpha'))).rejects.toMatchObject({ code: 'ENOENT' });
+      // The list is the disk: the row is gone with the directory.
+      const listed = await app.inject({
+        method: 'GET',
+        url: '/api/projects',
+        headers: { cookie: await login(app) },
+      });
+      expect((listed.json() as { projects: Project[] }).projects).toEqual([]);
+    });
+
+    it('answers 404 for an id that does not resolve, the root included, and deletes nothing', async () => {
+      const outside = path.join(sandbox.dir, 'outside');
+      await mkdir(outside);
+      await mkdir(path.join(root, 'alpha'));
+      const app = makeApp(root);
+
+      for (const id of [
+        idFor(path.join(root, 'ghost')),
+        idFor(await realpath(outside)),
+        idFor(await realpath(root)),
+        'not!base64url',
+      ]) {
+        const response = await remove(app, id);
+        expect(response.statusCode, `id: ${id}`).toBe(404);
+        expect((response.json() as { error: string }).error).toBe('not found');
+      }
+
+      // The allowlist boundary holds on both sides, and the root is not a project.
+      await expect(lstat(path.join(root, 'alpha'))).resolves.toBeDefined();
+      await expect(lstat(outside)).resolves.toBeDefined();
+      await expect(lstat(root)).resolves.toBeDefined();
+    });
+
+    it('answers 400 symlink for an ambiguous id, removing neither the link nor the target', async () => {
+      // The scan lists `alpha` as the row for `zulu`'s id, and both entries name
+      // the same canonical path: the delete cannot know which label was meant
+      // (decision 87, D6).
+      await mkdir(path.join(root, 'zulu'));
+      await writeFile(path.join(root, 'zulu', 'notes.txt'), 'keep me');
+      await symlink(path.join(root, 'zulu'), path.join(root, 'alpha'), linkType);
+      const canonical = await realpath(path.join(root, 'zulu'));
+      const app = makeApp(root);
+
+      const response = await remove(app, idFor(canonical));
+
+      expect(response.statusCode).toBe(400);
+      expect((response.json() as { error: string }).error).toBe('symlink');
+      await expect(readFile(path.join(root, 'zulu', 'notes.txt'), 'utf8')).resolves.toBe('keep me');
+      expect((await lstat(path.join(root, 'alpha'))).isSymbolicLink()).toBe(true);
+    });
+
+    it('leaves the SDK transcripts alone: the provider is never asked to delete one', async () => {
+      // The transcripts live outside the project directory, and D2 leaves them
+      // there on purpose — deleting the directory must not reach through the
+      // provider seam.
+      const sessions: SessionSummary[] = [{ id: 's1', title: 'Older work' }];
+      const provider = createFakeProvider({ sessions });
+      const app = makeApp(root, { provider });
+      await mkdir(path.join(root, 'alpha'));
+      const canonical = await realpath(path.join(root, 'alpha'));
+
+      const response = await remove(app, idFor(canonical));
+
+      expect(response.statusCode).toBe(204);
+      expect(provider.deletedSessions).toEqual([]);
+      await expect(provider.listSessions(canonical)).resolves.toEqual(sessions);
+    });
+
+    it('answers 401 to a delete with no session', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const canonical = await realpath(path.join(root, 'alpha'));
+      const app = makeApp(root);
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/api/projects/${encodeURIComponent(idFor(canonical))}`,
+      });
+
+      expect(response.statusCode).toBe(401);
+      await expect(lstat(canonical)).resolves.toBeDefined();
+    });
   });
 });
