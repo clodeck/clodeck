@@ -16,6 +16,7 @@ import type {
 import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createProviderProfiles } from '../profiles.js';
+import { BASH_APPROVAL_REASON } from '../sdk/bash-approval.js';
 import {
   createSandbox,
   createTestApp,
@@ -1272,6 +1273,86 @@ describe('the /ws event bus', () => {
         behavior: 'allow',
       });
 
+      provider.releaseRuns();
+    });
+
+    it('parks a Bash call in Ask, and runs it on allow', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'tidy up');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('default');
+
+      // The run's own PreToolUse gate decides "ask", so a read-only command is
+      // parked like any other until the user answers.
+      const tool = provider.requestToolUse('Bash', { command: 'ls' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      expect(request.payload).toMatchObject({
+        toolName: 'Bash',
+        input: { command: 'ls' },
+        decisionReason: BASH_APPROVAL_REASON,
+      });
+
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'approval_response',
+        payload: { requestId: request.payload.requestId, behavior: 'allow' },
+      });
+
+      // `allow` is the tool running: the gate's promise settles with it.
+      await expect(tool).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+      provider.releaseRuns();
+    });
+
+    it('parks Bash in Accept edits while file tools run unprompted', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one', 'acceptEdits');
+      await provider.waitForQueryInput(1);
+
+      // Accept edits pre-approves the file tools, so only Bash reaches the gate.
+      await expect(
+        provider.requestToolUse('Write', { file_path: 'a.ts', content: 'x' }),
+      ).resolves.toMatchObject({ asked: false, result: { behavior: 'allow' } });
+      await expect(provider.requestToolUse('Read', { file_path: 'a.ts' })).resolves.toMatchObject({
+        asked: false,
+        result: { behavior: 'allow' },
+      });
+
+      const tool = provider.requestToolUse('Bash', { command: 'mkdir build' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'approval_response',
+        payload: { requestId: request.payload.requestId, behavior: 'allow' },
+      });
+
+      await expect(tool).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
       provider.releaseRuns();
     });
   });

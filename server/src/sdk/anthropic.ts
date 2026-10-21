@@ -15,6 +15,7 @@ import {
 import type {
   ApprovalResponsePayload,
   ContentBlock,
+  PermissionMode,
   ResolvedProvider,
   SDKMessage,
   SessionMessage,
@@ -22,6 +23,7 @@ import type {
   SlashCommand,
 } from '@clodeck/shared';
 
+import { BASH_APPROVAL_REASON, bashNeedsApproval } from './bash-approval.js';
 import { narrowToMirror } from './mirror.js';
 import type { ApprovalCallback, SdkProvider, SdkRun, SdkRunInput } from './provider.js';
 
@@ -98,6 +100,7 @@ function startRun(input: SdkRunInput): SdkRun {
 }
 
 function toSdkOptions(input: SdkRunInput, abortController: AbortController): Options {
+  const mode = input.permissionMode ?? 'default';
   const options: Options = {
     cwd: input.cwd,
     // Deltas for a live bubble; the complete `assistant` message still follows.
@@ -105,9 +108,14 @@ function toSdkOptions(input: SdkRunInput, abortController: AbortController): Opt
     // Read-only tools never prompt; anything else asks through `canUseTool`.
     allowedTools: ['Read', 'Glob', 'Grep'],
     settingSources: ['project'],
-    permissionMode: input.permissionMode ?? 'default',
+    permissionMode: mode,
     abortController,
   };
+
+  // Ask and Accept edits pin every Bash call to the modal, before the project's
+  // allow rules are consulted (ticket 83). The other modes carry no hook.
+  const hooks = bashApprovalHooks(mode);
+  if (hooks !== undefined) options.hooks = hooks;
 
   // Absent a provider, `env` stays unset and the subprocess inherits the
   // environment this process was started with — the default profile.
@@ -120,6 +128,46 @@ function toSdkOptions(input: SdkRunInput, abortController: AbortController): Opt
   if (input.canUseTool !== undefined) options.canUseTool = toSdkCanUseTool(input.canUseTool);
 
   return options;
+}
+
+/**
+ * The per-run `PreToolUse` gate: one hook that answers `ask` for Bash, with the
+ * reason the modal shows. The `matcher` keeps every other tool out of it, so
+ * Read/Glob/Grep stay pre-approved and AskUserQuestion keeps its own gate; the
+ * name check inside is the same promise made a second time, for a caller that
+ * hands the hook an event its matcher would not have.
+ *
+ * The decision is *ask*, not *allow*: a project's `allow` rule can no longer
+ * skip the prompt, while its `deny` rule still refuses before the prompt and its
+ * `ask` rule still asks.
+ *
+ * Exported so the decision is tested directly — the fake provider has no SDK
+ * hooks, and this is the one shape it cannot stand in for.
+ */
+export function bashApprovalHooks(mode: PermissionMode): Options['hooks'] | undefined {
+  if (!bashNeedsApproval(mode)) return undefined;
+
+  return {
+    PreToolUse: [
+      {
+        matcher: 'Bash',
+        hooks: [
+          async (input) => {
+            if (input.hook_event_name !== 'PreToolUse' || input.tool_name !== 'Bash') {
+              return { continue: true };
+            }
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'ask',
+                permissionDecisionReason: BASH_APPROVAL_REASON,
+              },
+            };
+          },
+        ],
+      },
+    ],
+  };
 }
 
 /**
@@ -288,6 +336,9 @@ export function toSdkCanUseTool(callback: ApprovalCallback): CanUseTool {
       title: options.title,
       displayName: options.displayName,
       description: options.description,
+      // The hook's own reason rides the same field the SDK uses for its own,
+      // so the modal shows one explanation however the gate opened.
+      ...(options.decisionReason !== undefined ? { decisionReason: options.decisionReason } : {}),
       suggestions: options.suggestions,
       defaultToNo: options.defaultToNo,
     });

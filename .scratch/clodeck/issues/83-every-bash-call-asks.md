@@ -7,7 +7,7 @@ Accept edits, Edit/Write ham āzād ast. Yek **allow** rule-e project nemitavān
 
 **Blocked by:** 82
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Agent Brief
 
@@ -31,15 +31,15 @@ mifarstad. Hook ghabl az deny/ask rules va mode ejrā mishavad, pas allow rule-e
 - `AskUserQuestion` dast-nakhorde mimānad (harzā be modal miresad).
 
 **Acceptance criteria:**
-- [ ] Dar Ask, `ls` va `git status` dar modal park mishan; allow → ejrā.
-- [ ] Dar Accept edits, `mkdir`/`touch`/`rm`/`mv`/`cp`/`sed` park mishan; `Write`/`Edit` nemishan.
-- [ ] Yek `allow` rule-e project ke hamoon Bash rā match mikonad, prompt rā skip nemikonad.
-- [ ] Yek `deny` rule-e project ghabl az prompt deny mikonad; `ask` rule hanuz miporsad.
-- [ ] Read/Glob/Grep dar har do mode hich prompt-i nadārand.
-- [ ] Dalil-e hook dar modal dide mishavad.
-- [ ] Test-hā: unit barā-ye decision-e hook; integration bā fake ke yek Bash dar Ask be
+- [x] Dar Ask, `ls` va `git status` dar modal park mishan; allow → ejrā.
+- [x] Dar Accept edits, `mkdir`/`touch`/`rm`/`mv`/`cp`/`sed` park mishan; `Write`/`Edit` nemishan.
+- [x] Yek `allow` rule-e project ke hamoon Bash rā match mikonad, prompt rā skip nemikonad.
+- [x] Yek `deny` rule-e project ghabl az prompt deny mikonad; `ask` rule hanuz miporsad.
+- [x] Read/Glob/Grep dar har do mode hich prompt-i nadārand.
+- [x] Dalil-e hook dar modal dide mishavad.
+- [x] Test-hā: unit barā-ye decision-e hook; integration bā fake ke yek Bash dar Ask be
       `approval_request` miresad va bā allow ejrā mishavad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Plan (84), Bypass (85).

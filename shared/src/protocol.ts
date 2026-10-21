@@ -42,6 +42,12 @@ export interface ApprovalRequestPayload {
   /** Short noun phrase for the buttons ("Read file"). */
   displayName?: string;
   description?: string;
+  /**
+   * Why this gate opened, when the SDK's own reason or clodeck's Bash hook
+   * supplies one. The modal shows it beside the command; a plain tool gate
+   * carries none.
+   */
+  decisionReason?: string;
   /** Ready-made "always allow" rules; echoed back unread by `approval_response`. */
   suggestions?: readonly unknown[];
   defaultToNo?: boolean;

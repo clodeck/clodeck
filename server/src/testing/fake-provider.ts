@@ -8,6 +8,7 @@ import type {
   SlashCommand,
 } from '@clodeck/shared';
 
+import { BASH_APPROVAL_REASON, bashNeedsApproval } from '../sdk/bash-approval.js';
 import type { SdkProvider, SdkRunInput } from '../sdk/provider.js';
 
 /**
@@ -70,6 +71,17 @@ export interface FakeProvider extends SdkProvider {
    * the bus and watch the run's promise settle.
    */
   requestApproval(request: ApprovalRequestPayload): Promise<ApprovalResponsePayload>;
+  /**
+   * The ticket-83 gate, driven from outside the run: a Bash call in Ask or
+   * Accept edits goes through `canUseTool` exactly as the real run's
+   * `PreToolUse` hook sends it. Every other tool is settled here as unprompted,
+   * which is what Accept edits does for the file tools — a gate the test itself
+   * wants to raise uses `requestApproval` instead.
+   *
+   * `asked` says which happened, so a test can tell "the user allowed it" from
+   * "the gate never opened".
+   */
+  requestToolUse(toolName: string, input: Record<string, unknown>): Promise<ToolRun>;
   /** Let every held run finish. A no-op when `holdRuns` was not set. */
   releaseRuns(): void;
   /** Every `deleteSession()` call, in order. */
@@ -80,6 +92,14 @@ export interface FakeProvider extends SdkProvider {
 export interface DeletedSession {
   sessionId: string;
   dir: string;
+}
+
+/** What a driven tool call settled on, and whether the run's gate had to ask. */
+export interface ToolRun {
+  /** True when the call went through `canUseTool`; false when it ran unprompted. */
+  readonly asked: boolean;
+  /** The gate's answer. `allow` means the tool runs. */
+  readonly result: ApprovalResponsePayload;
 }
 
 export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvider {
@@ -97,6 +117,9 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   // race for a waiter to close.
   const deletions: DeletedSession[] = [];
   const hold = createGate();
+  // Ids for the calls `requestToolUse` drives: the test reads the request's own
+  // id off the wire, so these only have to be unique within the process.
+  let toolSeq = 0;
 
   return {
     query(input) {
@@ -161,6 +184,38 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
         );
       }
       return callback(request);
+    },
+
+    async requestToolUse(toolName, input) {
+      const latest = inputs.all()[inputs.all().length - 1];
+      if (latest === undefined) {
+        throw new Error('the fake provider has no run to drive — call query() first');
+      }
+
+      const mode = latest.permissionMode ?? 'default';
+      if (toolName !== 'Bash' || !bashNeedsApproval(mode)) {
+        toolSeq += 1;
+        return {
+          asked: false,
+          result: { requestId: `fake-tool-${toolSeq}`, behavior: 'allow' },
+        };
+      }
+
+      const callback = latest.canUseTool;
+      if (callback === undefined) {
+        throw new Error('the fake provider has no canUseTool to drive — pass one to query()');
+      }
+
+      toolSeq += 1;
+      const id = toolSeq;
+      const result = await callback({
+        requestId: `fake-tool-${id}`,
+        toolUseID: `fake-tool-use-${id}`,
+        toolName,
+        input,
+        decisionReason: BASH_APPROVAL_REASON,
+      });
+      return { asked: true, result };
     },
 
     releaseRuns() {
