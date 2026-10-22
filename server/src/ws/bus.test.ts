@@ -1306,6 +1306,102 @@ describe('the /ws event bus', () => {
       provider.releaseRuns();
     });
 
+    it('applies a mid-turn switch to the calls after it: Ask → Bypass', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('default');
+
+      // In Ask the call parks, as the mode promises.
+      const before = provider.requestToolUse('Bash', { command: 'ls' });
+      const parked = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (parked.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${parked.kind}`);
+      }
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'approval_response',
+        payload: { requestId: parked.payload.requestId, behavior: 'allow' },
+      });
+      await expect(before).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+
+      // The switch lands mid-turn, and the gate the run was built with has to
+      // read it for the *next* call — not only for the next `query()` (ticket
+      // 92). Under the old closures this call still parked in the modal.
+      client.send({
+        v: 1,
+        id: 'c3',
+        type: 'set_permission_mode',
+        payload: { mode: 'bypassPermissions' },
+      });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('bypassPermissions');
+
+      await expect(
+        provider.requestToolUse('Bash', { command: 'rm -rf build' }),
+      ).resolves.toMatchObject({ asked: false, result: { behavior: 'allow' } });
+
+      provider.releaseRuns();
+    });
+
+    it('applies a mid-turn switch to the calls after it: Bypass → Ask', async () => {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await expect(client.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { bypass: { allowed: true } },
+      });
+      send(client, 'one', 'bypassPermissions');
+      await provider.waitForQueryInput(1);
+
+      // Bypass: the call runs without a modal.
+      await expect(provider.requestToolUse('Bash', { command: 'ls' })).resolves.toMatchObject({
+        asked: false,
+        result: { behavior: 'allow' },
+      });
+
+      // Back in Ask mid-turn, the very next call must park — the gate cannot
+      // have been left out of the run at `query()` time (ticket 92).
+      client.send({ v: 1, id: 'c2', type: 'set_permission_mode', payload: { mode: 'default' } });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('default');
+
+      const after = provider.requestToolUse('Bash', { command: 'ls' });
+      const parked = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (parked.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${parked.kind}`);
+      }
+      expect(parked.payload).toMatchObject({
+        toolName: 'Bash',
+        decisionReason: BASH_APPROVAL_REASON,
+      });
+
+      client.send({
+        v: 1,
+        id: 'c3',
+        type: 'approval_response',
+        payload: { requestId: parked.payload.requestId, behavior: 'allow' },
+      });
+      await expect(after).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+
+      provider.releaseRuns();
+    });
+
     it('parks a Bash call in Ask, and runs it on allow', async () => {
       await mkdir(path.join(root, 'alpha'));
       const cwd = await realpath(path.join(root, 'alpha'));

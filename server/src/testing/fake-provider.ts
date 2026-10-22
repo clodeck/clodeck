@@ -80,6 +80,10 @@ export interface FakeProvider extends SdkProvider {
    * which is what Accept edits does for the file tools — a gate the test itself
    * wants to raise uses `requestApproval` instead.
    *
+   * The mode is the one the run is in **now**: `setPermissionMode()` moves it,
+   * so a call made after a mid-turn switch meets the new mode in the same turn
+   * (ticket 92), just as the real hook reads the live mode per call.
+   *
    * `asked` says which happened, so a test can tell "the user allowed it" from
    * "the gate never opened".
    */
@@ -94,6 +98,13 @@ export interface FakeProvider extends SdkProvider {
 export interface DeletedSession {
   sessionId: string;
   dir: string;
+}
+
+/** One started run: the input it was called with, and the mode it is in now. */
+interface FakeRun {
+  readonly input: SdkRunInput;
+  /** Moved by `setPermissionMode()`, as the real run's gate tracks it. */
+  mode: PermissionMode;
 }
 
 /** What a driven tool call settled on, and whether the run's gate had to ask. */
@@ -122,10 +133,14 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   // Ids for the calls `requestToolUse` drives: the test reads the request's own
   // id off the wire, so these only have to be unique within the process.
   let toolSeq = 0;
+  /** Every run in call order, with the mode it is in *now*. */
+  const runs: FakeRun[] = [];
 
   return {
     query(input) {
       inputs.record(input);
+      const run: FakeRun = { input, mode: input.permissionMode ?? 'default' };
+      runs.push(run);
 
       return {
         messages: streamMessages(scripted, endingFor(options, hold)),
@@ -137,6 +152,10 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
           interrupts.record(undefined);
         },
         async setPermissionMode(mode) {
+          // The real provider's gate reads the run's live mode (ticket 92), so
+          // the fake has to move with the switch too, or the two disagree on
+          // what the next tool call in the same turn meets.
+          run.mode = mode;
           modes.record(mode);
         },
       };
@@ -189,12 +208,14 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
     },
 
     async requestToolUse(toolName, input) {
-      const latest = inputs.all()[inputs.all().length - 1];
+      const latest = runs[runs.length - 1];
       if (latest === undefined) {
         throw new Error('the fake provider has no run to drive — call query() first');
       }
 
-      const mode = latest.permissionMode ?? 'default';
+      // The mode the run is in *now*, not the one it started in: a switch made
+      // mid-turn applies to the next call in the same turn (ticket 92).
+      const mode = latest.mode;
       const planMode = planDeniesTools(mode);
       toolSeq += 1;
       const id = toolSeq;
@@ -207,7 +228,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
 
       // Plan's gate is a hook, not a prompt: the call is denied before the SDK
       // would reach `canUseTool`, so the client sees nothing.
-      if (planMode && planToolDecision(toolName, input, latest.cwd) === 'deny') {
+      if (planMode && planToolDecision(toolName, input, latest.input.cwd) === 'deny') {
         return {
           asked: false,
           result: { requestId: request.requestId, behavior: 'deny', message: PLAN_DENIAL_REASON },
@@ -227,7 +248,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
         return { asked: false, result: { requestId: request.requestId, behavior: 'allow' } };
       }
 
-      const callback = latest.canUseTool;
+      const callback = latest.input.canUseTool;
       if (callback === undefined) {
         throw new Error('the fake provider has no canUseTool to drive — pass one to query()');
       }

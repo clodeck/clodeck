@@ -857,11 +857,12 @@ that matters belongs in the server's environment**, which no browser is ever sho
 sits beside the provider picker — above the box you type in, not up in the chat header — and its label
 names the mode the session runs under. It **stays open after the first turn**, unlike a profile: a
 provider is a transport fact that would poison the conversation, while a mode is a filter for what
-comes next. **A mid-turn switch is not retroactive.** The SDK's own mode changes at once, but the hooks
-clodeck adds — the Bash prompt in Ask and Accept edits, Plan's denials — are fixed when the turn starts,
-so the turn can still surprise you: a Bash call may ask while Bypass is on, or prompt while Plan is. The
-next turn starts cleanly in the new mode. An approval already on your screen is answered under the mode
-that raised it.
+comes next. **A mid-turn switch bites the calls after it, in the same turn.** The SDK's own mode changes
+at once, and so does the gate clodeck adds — the Bash prompt in Ask and Accept edits, Plan's denials —
+because it reads the mode in force when each call arrives. Switching to Bypass frees the next command
+without a modal; switching back to Ask parks it; switching into Plan denies the next edit or command.
+The one thing a switch does not rewrite is what is already on your screen: an approval raised before it
+is answered under the mode that raised it. The next turn starts in the new mode too.
 
 | Mode on the picker | Wire value | Reads (`Read`, `Glob`, `Grep`) | `Edit` / `Write` | `Bash` |
 |---|---|---|---|---|

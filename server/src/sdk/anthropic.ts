@@ -86,7 +86,16 @@ function startRun(input: SdkRunInput): SdkRun {
   const abortController = new AbortController();
   forwardAbort(input.signal, abortController);
 
-  const query = sdkQuery({ prompt: input.prompt, options: toSdkOptions(input, abortController) });
+  // The mode this run is in *now*, not the one it started in. The SDK's own
+  // mode moves with a switch, and the gate below reads this at each tool
+  // request — so a switch bites the calls made after it in the same turn
+  // (ticket 92).
+  let mode = input.permissionMode ?? 'default';
+
+  const query = sdkQuery({
+    prompt: input.prompt,
+    options: toSdkOptions(input, abortController, () => mode),
+  });
 
   return {
     messages: mirrorMessages(query),
@@ -96,7 +105,10 @@ function startRun(input: SdkRunInput): SdkRun {
     async interrupt() {
       await query.interrupt();
     },
-    setPermissionMode: (mode) => query.setPermissionMode(mode),
+    async setPermissionMode(next) {
+      mode = next;
+      await query.setPermissionMode(next);
+    },
   };
 }
 
@@ -105,7 +117,12 @@ function startRun(input: SdkRunInput): SdkRun {
  * cannot stand in for — the mode's flag and the per-run gate — are tested
  * directly rather than by reading.
  */
-export function toSdkOptions(input: SdkRunInput, abortController: AbortController): Options {
+export function toSdkOptions(
+  input: SdkRunInput,
+  abortController: AbortController,
+  /** The mode in force at each call. Defaults to the one the run started in. */
+  activeMode: () => PermissionMode = () => input.permissionMode ?? 'default',
+): Options {
   const mode = input.permissionMode ?? 'default';
   const options: Options = {
     cwd: input.cwd,
@@ -124,13 +141,12 @@ export function toSdkOptions(input: SdkRunInput, abortController: AbortControlle
   // refuses Bypass itself if anything ever reached it with that mode.
   if (input.allowBypass === true) options.allowDangerouslySkipPermissions = true;
 
-  // Ask and Accept edits pin every Bash call to the modal, before the project's
-  // allow rules are consulted (ticket 83); Plan denies its tools without a
-  // prompt (ticket 84). Bypass carries no hook at all — that is the whole of
-  // its gate: with no hook in front of them, the project's own deny and ask
-  // rules still decide, exactly as the warning says.
-  const hooks = bashApprovalHooks(mode) ?? planDenialHooks(mode);
-  if (hooks !== undefined) options.hooks = hooks;
+  // Registered in every mode, including Bypass, because the SDK takes its hooks
+  // once at `query()` time and a mid-turn switch has to be able to reach them
+  // (ticket 92). The hook reads the live mode per call; in Bypass it answers
+  // `continue`, which is the same promise as carrying no hook — the project's
+  // own deny and ask rules still decide.
+  options.hooks = permissionHooks(activeMode);
 
   // Absent a provider, `env` stays unset and the subprocess inherits the
   // environment this process was started with — the default profile.
@@ -146,62 +162,29 @@ export function toSdkOptions(input: SdkRunInput, abortController: AbortControlle
 }
 
 /**
- * The per-run `PreToolUse` gate: one hook that answers `ask` for Bash, with the
- * reason the modal shows. The `matcher` keeps every other tool out of it, so
- * Read/Glob/Grep stay pre-approved and AskUserQuestion keeps its own gate; the
- * name check inside is the same promise made a second time, for a caller that
- * hands the hook an event its matcher would not have.
+ * The per-run `PreToolUse` gate — the only one clodeck adds. It answers from
+ * the mode **in force when each call arrives**, so a mid-turn switch reaches
+ * the calls made after it in the same turn (ticket 92): the SDK's own mode
+ * changes at once, and this getter moves with it.
  *
- * The decision is *ask*, not *allow*: a project's `allow` rule can no longer
- * skip the prompt, while its `deny` rule still refuses before the prompt and its
- * `ask` rule still asks.
+ * Ask and Accept edits answer `ask` for every Bash call, with the reason the
+ * modal shows — the decision is *ask*, not *allow*, so a project's `allow` rule
+ * cannot skip the prompt while its `deny` rule still refuses before it (ticket
+ * 83). Plan denies `Write`, `Edit`, `Bash` and `ExitPlanMode` with a reason the
+ * model reads, before `canUseTool`, so the client sees no approval request and
+ * the turn carries on (ticket 84). `AskUserQuestion` and the SDK's own plan
+ * file fall through: the first still reaches the modal, the second is how plan
+ * mode records its plan. Bypass answers `continue` for everything, which is how
+ * it keeps its promise — the project's own deny and ask rules decide.
  *
- * Exported so the decision is tested directly — the fake provider has no SDK
- * hooks, and this is the one shape it cannot stand in for.
- */
-export function bashApprovalHooks(mode: PermissionMode): Options['hooks'] | undefined {
-  if (!bashNeedsApproval(mode)) return undefined;
-
-  return {
-    PreToolUse: [
-      {
-        matcher: 'Bash',
-        hooks: [
-          async (input) => {
-            if (input.hook_event_name !== 'PreToolUse' || input.tool_name !== 'Bash') {
-              return { continue: true };
-            }
-            return {
-              hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'ask',
-                permissionDecisionReason: BASH_APPROVAL_REASON,
-              },
-            };
-          },
-        ],
-      },
-    ],
-  };
-}
-
-/**
- * The per-run gate Plan registers: `Write`, `Edit`, `Bash` and `ExitPlanMode`
- * are denied with a reason the model reads, before `canUseTool` — so the client
- * sees no approval request and the turn carries on. `AskUserQuestion` and the
- * SDK's own plan file fall through: the first still reaches the modal, the
- * second is how plan mode records its plan.
- *
- * The hook has no matcher because its exceptions are paths, not tool names — a
- * matcher could let `AskUserQuestion` through by name, but it could not tell the
- * plan file from a project edit.
+ * The hook has no matcher because Plan's exceptions are paths, not tool names —
+ * a matcher could let `AskUserQuestion` through by name, but it could not tell
+ * the plan file from a project edit.
  *
  * Exported so the decision is tested directly — the fake provider has no SDK
  * hooks, and this is the one shape it cannot stand in for.
  */
-export function planDenialHooks(mode: PermissionMode): Options['hooks'] | undefined {
-  if (!planDeniesTools(mode)) return undefined;
-
+export function permissionHooks(activeMode: () => PermissionMode): Options['hooks'] {
   return {
     PreToolUse: [
       {
@@ -209,17 +192,34 @@ export function planDenialHooks(mode: PermissionMode): Options['hooks'] | undefi
           async (input) => {
             if (input.hook_event_name !== 'PreToolUse') return { continue: true };
 
-            if (planToolDecision(input.tool_name, input.tool_input, input.cwd) === 'pass') {
-              return { continue: true };
+            const mode = activeMode();
+
+            // Plan comes first: in Plan a Bash call is denied, not parked, so
+            // the Bash gate below must not see it.
+            if (planDeniesTools(mode)) {
+              if (planToolDecision(input.tool_name, input.tool_input, input.cwd) === 'pass') {
+                return { continue: true };
+              }
+              return {
+                hookSpecificOutput: {
+                  hookEventName: 'PreToolUse',
+                  permissionDecision: 'deny',
+                  permissionDecisionReason: PLAN_DENIAL_REASON,
+                },
+              };
             }
 
-            return {
-              hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
-                permissionDecisionReason: PLAN_DENIAL_REASON,
-              },
-            };
+            if (input.tool_name === 'Bash' && bashNeedsApproval(mode)) {
+              return {
+                hookSpecificOutput: {
+                  hookEventName: 'PreToolUse',
+                  permissionDecision: 'ask',
+                  permissionDecisionReason: BASH_APPROVAL_REASON,
+                },
+              };
+            }
+
+            return { continue: true };
           },
         ],
       },
