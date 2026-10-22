@@ -12,10 +12,9 @@ import type { ApprovalRequestPayload, PermissionMode } from '@clodeck/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  bashApprovalHooks,
   normalizeSessionInfo,
   normalizeSessionMessage,
-  planDenialHooks,
+  permissionHooks,
   providerEnv,
   toSdkCanUseTool,
   toSdkOptions,
@@ -245,21 +244,33 @@ describe('toSdkCanUseTool', () => {
   });
 });
 
-describe('bashApprovalHooks', () => {
-  function hookFor(mode: PermissionMode) {
-    return bashApprovalHooks(mode)?.PreToolUse?.[0]?.hooks[0];
+/**
+ * One gate, whose answer is the mode in force *when the call arrives* (ticket
+ * 92). The hook is registered once, at `query()` time, because the SDK has no
+ * way to add one later — so a mid-turn switch has to reach it through the
+ * getter, not through a decision frozen at registration.
+ */
+describe('permissionHooks', () => {
+  /** A run's gate and the mode it reads, movable between calls like a live switch. */
+  function gate(initial: PermissionMode) {
+    let mode = initial;
+    const hook = permissionHooks(() => mode)?.PreToolUse?.[0]?.hooks[0];
+
+    return {
+      decide(toolName: string, toolInput: unknown = {}) {
+        return hook?.(event(toolName, toolInput), 't1', {
+          signal: new AbortController().signal,
+        });
+      },
+      switchTo(next: PermissionMode) {
+        mode = next;
+      },
+    };
   }
 
-  it('answers ask for every Bash call in Ask and Accept edits, with its reason', async () => {
+  it('asks for every Bash call in Ask and Accept edits, with its reason', async () => {
     for (const mode of ['default', 'acceptEdits'] as const) {
-      // The matcher is what keeps the hook to Bash in the first place; the name
-      // check inside is the same promise made for a caller that skips it.
-      expect(bashApprovalHooks(mode)?.PreToolUse?.[0]?.matcher).toBe('Bash');
-
-      const hook = hookFor(mode);
-      const result = await hook?.(event('Bash'), 't1', { signal: new AbortController().signal });
-
-      expect(result).toEqual({
+      await expect(gate(mode).decide('Bash', { command: 'ls' })).resolves.toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'ask',
@@ -269,51 +280,24 @@ describe('bashApprovalHooks', () => {
     }
   });
 
-  it('is not registered in Plan or Bypass', () => {
-    // Plan denies Bash without a prompt (ticket 84); Bypass never asks (85).
-    expect(bashApprovalHooks('plan')).toBeUndefined();
-    expect(bashApprovalHooks('bypassPermissions')).toBeUndefined();
-  });
-
-  it('leaves every other tool to the project’s rules', async () => {
-    const hook = hookFor('default');
-
-    // Read/Glob/Grep are pre-approved, Write/Edit are Accept-edits' business,
+  it('leaves every other tool to the project’s rules in Ask and Accept edits', async () => {
+    // Read/Glob/Grep are pre-approved, Write/Edit are Accept edits' business,
     // and AskUserQuestion keeps its own gate — none of them is Bash's prompt.
-    for (const toolName of ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskUserQuestion']) {
-      await expect(
-        hook?.(event(toolName), 't1', { signal: new AbortController().signal }),
-      ).resolves.toEqual({ continue: true });
-    }
-  });
-});
-
-describe('planDenialHooks', () => {
-  function hookFor(mode: PermissionMode) {
-    return planDenialHooks(mode)?.PreToolUse?.[0]?.hooks[0];
-  }
-
-  function decide(toolName: string, toolInput: unknown = {}) {
-    return hookFor('plan')?.(event(toolName, toolInput), 't1', {
-      signal: new AbortController().signal,
-    });
-  }
-
-  it('is registered in Plan alone', () => {
-    expect(planDenialHooks('plan')).toBeDefined();
-    for (const mode of ['default', 'acceptEdits', 'bypassPermissions', 'dontAsk', 'auto'] as const) {
-      expect(planDenialHooks(mode)).toBeUndefined();
+    for (const mode of ['default', 'acceptEdits'] as const) {
+      for (const toolName of ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskUserQuestion']) {
+        await expect(gate(mode).decide(toolName)).resolves.toEqual({ continue: true });
+      }
     }
   });
 
-  it('denies edits, commands and ExitPlanMode with a reason the model reads', async () => {
+  it('denies Plan’s tools with a reason the model reads', async () => {
     for (const [toolName, toolInput] of [
       ['Write', { file_path: '/projects/a/a.ts', content: 'x' }],
       ['Edit', { file_path: '/projects/a/a.ts', old_string: 'a', new_string: 'b' }],
       ['Bash', { command: 'ls' }],
       ['ExitPlanMode', {}],
     ] as const) {
-      await expect(decide(toolName, toolInput)).resolves.toEqual({
+      await expect(gate('plan').decide(toolName, toolInput)).resolves.toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
@@ -323,14 +307,77 @@ describe('planDenialHooks', () => {
     }
   });
 
-  it('falls through for the clarifying question, the reads, and the plan file', async () => {
+  it('falls through in Plan for the clarifying question, the reads, and the plan file', async () => {
     for (const toolName of ['AskUserQuestion', 'Read', 'Glob', 'Grep']) {
-      await expect(decide(toolName)).resolves.toEqual({ continue: true });
+      await expect(gate('plan').decide(toolName)).resolves.toEqual({ continue: true });
     }
 
     await expect(
-      decide('Write', { file_path: path.join(plansDirectory(), 'plan.md'), content: '# plan' }),
+      gate('plan').decide('Write', {
+        file_path: path.join(plansDirectory(), 'plan.md'),
+        content: '# plan',
+      }),
     ).resolves.toEqual({ continue: true });
+  });
+
+  it('adds no decision of its own in Bypass', async () => {
+    // Bypass's promise is "the project's own rules, nothing in front of them".
+    // The hook is still installed — a mid-turn switch out of Bypass needs it —
+    // so the promise is that it answers `continue` for every tool.
+    for (const toolName of ['Read', 'Write', 'Edit', 'Bash', 'ExitPlanMode', 'AskUserQuestion']) {
+      await expect(gate('bypassPermissions').decide(toolName, { command: 'ls' })).resolves.toEqual({
+        continue: true,
+      });
+    }
+  });
+
+  it('reads the mode at each call, so a mid-turn switch bites the same turn', async () => {
+    // The gate is built once and driven many times, exactly as one run meets
+    // many tool requests after a switch.
+    const run = gate('default');
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'ask' },
+    });
+
+    // Ask → Bypass: the next call is free.
+    run.switchTo('bypassPermissions');
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toEqual({ continue: true });
+
+    // Bypass → Plan: the next calls are denied, with no prompt.
+    run.switchTo('plan');
+    await expect(run.decide('Write', { file_path: '/projects/a/a.ts' })).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'deny' },
+    });
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'deny' },
+    });
+
+    // Plan → Bypass: edits and commands are free again.
+    run.switchTo('bypassPermissions');
+    await expect(run.decide('Write', { file_path: '/projects/a/a.ts' })).resolves.toEqual({
+      continue: true,
+    });
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toEqual({ continue: true });
+
+    // Plan → Ask: edits are free again, Bash asks again — and ExitPlanMode's
+    // denial went with the plan, not with the run.
+    run.switchTo('default');
+    await expect(run.decide('ExitPlanMode')).resolves.toEqual({ continue: true });
+    await expect(run.decide('Write', { file_path: '/projects/a/a.ts' })).resolves.toEqual({
+      continue: true,
+    });
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'ask' },
+    });
+
+    // Ask → Accept edits: they differ for files, not for Bash.
+    run.switchTo('acceptEdits');
+    await expect(run.decide('Edit', { file_path: '/projects/a/a.ts' })).resolves.toEqual({
+      continue: true,
+    });
+    await expect(run.decide('Bash', { command: 'ls' })).resolves.toMatchObject({
+      hookSpecificOutput: { permissionDecision: 'ask' },
+    });
   });
 });
 
@@ -407,27 +454,35 @@ describe('the Bypass flag', () => {
 });
 
 /**
- * Bypass carries no `PreToolUse` hook and no injected permission layer (ticket
- * 85). That absence *is* the gate's promise: with nothing in front of them, the
- * project's own deny and ask rules still decide, exactly as the warning says —
- * an `ask` rule still prompts, a `deny` rule still denies. Every hook clodeck
- * added, or a `permissions.ask` layer it injected, would run before those rules
- * and could only narrow them.
+ * Bypass adds no decision and no injected permission layer (ticket 85). Since
+ * ticket 92 it does carry the run's one `PreToolUse` hook — a run may leave
+ * Bypass mid-turn, and the SDK takes its hooks only at `query()` time — but in
+ * Bypass that hook answers `continue` for every tool. That is the same promise
+ * as no hook at all: the project's own deny and ask rules still decide, exactly
+ * as the warning says — an `ask` rule still prompts, a `deny` rule still
+ * denies. A hook that decided anything, or a `permissions.ask` layer clodeck
+ * injected, would run before those rules and could only narrow them.
  *
  * The survival itself is the SDK's to prove, not the fake's: it is measured in
  * ticket 81 §"The measurements the contract rests on". What is pinned here is
- * the half clodeck owns — that it adds nothing to Bypass.
+ * the half clodeck owns — that it decides nothing in Bypass.
  */
 describe('what Bypass adds', () => {
-  it('registers neither gate, and injects no settings layer the project’s rules would meet first', () => {
-    expect(bashApprovalHooks('bypassPermissions')).toBeUndefined();
-    expect(planDenialHooks('bypassPermissions')).toBeUndefined();
-
+  it('installs a gate that decides nothing, and no settings layer the project’s rules would meet first', async () => {
     const bypass = toSdkOptions(
       { cwd: '/projects/a', prompt: 'hi', permissionMode: 'bypassPermissions', allowBypass: true },
       new AbortController(),
     );
-    expect(bypass.hooks).toBeUndefined();
+
+    const hook = bypass.hooks?.PreToolUse?.[0]?.hooks[0];
+    for (const toolName of ['Bash', 'Write', 'Edit', 'ExitPlanMode', 'AskUserQuestion']) {
+      await expect(
+        hook?.(event(toolName, { command: 'ls' }), 't1', {
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({ continue: true });
+    }
+
     // `settingSources: ['project']` is the only settings channel; an overlay
     // here could only add rules, and Bypass adds none.
     expect(bypass.settings).toBeUndefined();

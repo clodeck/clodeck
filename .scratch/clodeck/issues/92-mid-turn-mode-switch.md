@@ -9,7 +9,7 @@ mikonad.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## The bug
 
@@ -59,22 +59,22 @@ README ham bāyad bargardad.
 
 ## Acceptance criteria
 
-- [ ] Ask → Bypass mid-turn: Bash-e ba'd az switch bedoone modal ejrā mishavad (project deny/ask hanuz
+- [x] Ask → Bypass mid-turn: Bash-e ba'd az switch bedoone modal ejrā mishavad (project deny/ask hanuz
       barāy-e and).
-- [ ] Bypass → Ask mid-turn: Bash-e ba'd az switch dar modal park mishavad.
-- [ ] Plan → Ask: Edit/Write āzād, Bash miporsad.
-- [ ] Plan → Bypass: Edit/Write va Bash āzād.
-- [ ] Ask / Accept edits / Bypass → Plan: Edit/Write va Bash bedoone `approval_request` deny mishan.
-- [ ] Ask → Accept edits: Edit/Write lahze-i āzād mishavad; Ask ⇄ Accept edits barāy-e Bash yek raftār
+- [x] Bypass → Ask mid-turn: Bash-e ba'd az switch dar modal park mishavad.
+- [x] Plan → Ask: Edit/Write āzād, Bash miporsad.
+- [x] Plan → Bypass: Edit/Write va Bash āzād.
+- [x] Ask / Accept edits / Bypass → Plan: Edit/Write va Bash bedoone `approval_request` deny mishan.
+- [x] Ask → Accept edits: Edit/Write lahze-i āzād mishavad; Ask ⇄ Accept edits barāy-e Bash yek raftār
       dārand.
-- [ ] `ExitPlanMode` deny-e khod rā bā mode-e jāri ham-rāh mikonad; `AskUserQuestion` hanuz be modal
+- [x] `ExitPlanMode` deny-e khod rā bā mode-e jāri ham-rāh mikonad; `AskUserQuestion` hanuz be modal
       miresad.
-- [ ] Approval-e park-shode zīr-e mode-e khodash javāb migirad.
-- [ ] Test-hā: unit barāy-e decision-e hook dar har mode; integration bā fake barāy-e hadāghal
+- [x] Approval-e park-shode zīr-e mode-e khodash javāb migirad.
+- [x] Test-hā: unit barāy-e decision-e hook dar har mode; integration bā fake barāy-e hadāghal
       Ask → Bypass va Bypass → Ask dar hamān turn.
-- [ ] `README.md` §Permission modes: paragraph-e "A mid-turn switch is not retroactive" bā va'de-ye
+- [x] `README.md` §Permission modes: paragraph-e "A mid-turn switch is not retroactive" bā va'de-ye
       decision 7 jāygozin mishavad.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 
