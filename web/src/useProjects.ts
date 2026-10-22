@@ -25,6 +25,14 @@ export interface ProjectsQuery {
    * still whatever it was.
    */
   create: (name: string) => Promise<Project>;
+  /**
+   * Delete one project directory for good, and answer it (ticket 90).
+   *
+   * A refusal **rejects** for the same reason `create` does: the one caller is
+   * a dialog that stays open and shows the sentence, and a failed delete says
+   * nothing about the list, which is still whatever it was.
+   */
+  remove: (id: string) => Promise<void>;
 }
 
 /**
@@ -61,6 +69,7 @@ export function useProjects(): ProjectsQuery {
     state,
     reload: useCallback(() => setAttempt((count) => count + 1), []),
     create: useCallback(createProject, []),
+    remove: useCallback(deleteProject, []),
   };
 }
 
@@ -122,6 +131,53 @@ async function createProject(name: string): Promise<Project> {
   const body: unknown = await response.json();
   if (!isProjectEnvelope(body)) throw new Error('unexpected response shape');
   return body.project;
+}
+
+/**
+ * `DELETE /api/projects/:id` — remove the directory, recursively (ticket 90).
+ * The success is a `204` with no body, so nothing is read back; the reloaded
+ * list is what says the row is gone.
+ */
+async function deleteProject(id: string): Promise<void> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(await deleteFailure(response));
+}
+
+/**
+ * The route's refusals, each as one sentence the delete dialog can show
+ * (ticket 90). It answers with a code word — `turn_in_progress`,
+ * `terminal_attached`, `symlink` — because the refusal is about what still
+ * holds the directory, not about the request; the word alone is not a
+ * sentence, so it is translated here, at the one seam that reads it. Anything
+ * else keeps the status line and the server's own word, as every other REST
+ * refusal in the app does.
+ */
+async function deleteFailure(response: Response): Promise<string> {
+  const status = `${String(response.status)} ${response.statusText}`.trim();
+  let code: string | null = null;
+  try {
+    const body: unknown = await response.json();
+    if (typeof body === 'object' && body !== null) {
+      const error = (body as { error?: unknown }).error;
+      if (typeof error === 'string') code = error;
+    }
+  } catch {
+    // A non-JSON body falls back to the status line.
+  }
+
+  switch (code) {
+    case 'turn_in_progress':
+      return 'A turn is running in this project. Wait for it to finish, then try again.';
+    case 'terminal_attached':
+      return 'A terminal is attached to this project. Close it, then try again.';
+    case 'symlink':
+      return 'This project is reached through a symlink or an ambiguous entry, so it cannot be deleted.';
+    default:
+      return code === null ? status : `${status}: ${code}`;
+  }
 }
 
 /**
