@@ -1,0 +1,40 @@
+name: Verify
+description: >-
+  The one list of checks the deployable tree must pass — CI on main and every PR
+  to master, and the verify job that runs before deploy.yml touches production.
+  Keeping it here is what makes "the merge commit passed CI" and "the deployed
+  commit was verified" the same list rather than two that can drift. (The
+  nightly e2e workflow deliberately does not run it; it drives a browser, not
+  the tree.)
+
+runs:
+  using: composite
+  steps:
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        # Keyed on package-lock.json, which is the only file `npm ci` trusts.
+        cache: npm
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Ticket tracker
+      shell: bash
+      # The same rule the pre-commit hook runs: a resolved ticket with an open
+      # checklist item is not resolved.
+      run: node scripts/tickets.mjs check
+
+    - name: Typecheck
+      shell: bash
+      run: npm run typecheck
+
+    - name: Test
+      shell: bash
+      run: npm test
+
+    - name: Build
+      shell: bash
+      run: npm run build
