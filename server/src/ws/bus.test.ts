@@ -1527,9 +1527,9 @@ describe('the /ws event bus', () => {
 
   /**
    * Bypass and its gates (ticket 85): the deployment's `CLODECK_ALLOW_BYPASS`,
-   * the project's own `.claude/settings.json`, and the run's skip-permissions
-   * capability. The two refusals are the server's, not the chip's — a client
-   * that ignored the snapshot is refused too, with the same sentence.
+   * the project's own `.claude/settings.json`, and the run's Bypass flag. The
+   * two refusals are the server's, not the chip's — a client that ignored the
+   * snapshot is refused too, with the same sentence.
    */
   describe('Bypass and its gates', () => {
     /** A project directory, with a settings file when the test needs one. */
@@ -1565,7 +1565,7 @@ describe('the /ws event bus', () => {
       });
     });
 
-    it('runs the query with the skip-permissions capability, and a plain Bash unasked', async () => {
+    it('runs the query with the Bypass flag, and a plain Bash unasked', async () => {
       const cwd = await projectWith('alpha');
       const { app, provider, cookie } = await makeApp({
         messages: partialTranscript(cwd),

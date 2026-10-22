@@ -26,6 +26,14 @@ export const BYPASS_OFF_BY_SERVER =
 export const BYPASS_OFF_BY_PROJECT =
   'This project disables Bypass in .claude/settings.json (permissions.disableBypassPermissionsMode).';
 
+/** The two facts the gates are read from, named so a call site says which is which. */
+export interface BypassGates {
+  /** The deployment's `CLODECK_ALLOW_BYPASS`. */
+  allowBypass: boolean;
+  /** The project's own `permissions.disableBypassPermissionsMode: "disable"`. */
+  projectDisabled: boolean;
+}
+
 /**
  * The gates combined into the one answer a surface can render.
  *
@@ -34,11 +42,8 @@ export const BYPASS_OFF_BY_PROJECT =
  * has switched Bypass off has said it should never run, whatever a project
  * happens to declare.
  */
-export function bypassAvailability(
-  allowBypass: boolean,
-  projectDisabled: boolean,
-): BypassAvailability {
-  if (!allowBypass) return { allowed: false, reason: BYPASS_OFF_BY_SERVER };
-  if (projectDisabled) return { allowed: false, reason: BYPASS_OFF_BY_PROJECT };
+export function bypassAvailability(gates: BypassGates): BypassAvailability {
+  if (!gates.allowBypass) return { allowed: false, reason: BYPASS_OFF_BY_SERVER };
+  if (gates.projectDisabled) return { allowed: false, reason: BYPASS_OFF_BY_PROJECT };
   return { allowed: true };
 }

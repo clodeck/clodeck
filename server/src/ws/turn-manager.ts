@@ -56,7 +56,7 @@ export interface TurnManager {
    * Record what the gates allow **Bypass** to do here, as the bus just read them
    * (ticket 85). The run stores it for two reasons: a snapshot has to state it,
    * and every `query()` has to know whether it may carry the SDK's
-   * skip-permissions capability at all.
+   * Bypass flag at all.
    */
   setBypassAvailability(projectId: string, availability: BypassAvailability): void;
   /** Interrupt the active run. False when the project has no active turn. */
@@ -194,7 +194,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // already in Bypass keeps it, and a project that has since switched
       // Bypass off must not start another one in it. Nothing runs when the
       // answer is no, and the reason is the whole of the message.
-      if (!bypassPermitted(state, mode)) return;
+      if (!admitMode(state, mode)) return;
       state.permissionMode = mode;
 
       // Recorded as the run starts, and only now: a send the busy check above
@@ -230,7 +230,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
           // not only on the first send — or the turn after a switch would fall
           // back to the SDK's default.
           permissionMode: mode,
-          // The SDK reads its skip-permissions capability once, at start, and a
+          // The SDK reads its Bypass flag once, at start, and a
           // mid-turn switch to Bypass has to be possible — so a run the gates
           // allow carries it from the beginning, in every mode it starts in.
           allowBypass: state.bypass.allowed,
@@ -279,11 +279,12 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
 
     async setPermissionMode(projectId, mode) {
       const state = run(projectId);
-      // The gate comes first: a refused switch must not reach the SDK, and a
-      // project that disables Bypass must not be able to take it through a
-      // running turn either.
-      if (!bypassPermitted(state, mode)) return 'refused';
+      // There is nothing to switch without a run, and that answer has not
+      // changed: an idle `set_permission_mode` is still `no_active_turn`.
       if (state.active === undefined) return 'no-active-turn';
+      // A refused switch must not reach the SDK either: a project that disables
+      // Bypass must not be able to take it through a running turn.
+      if (!admitMode(state, mode)) return 'refused';
 
       await state.active.setPermissionMode(mode);
       // The live switch and the session's memory are one act: the next turn is
@@ -508,15 +509,16 @@ function resumeInput(target: ResumePayload | undefined): {
 }
 
 /**
- * Whether this run may start (or switch to) `mode`, under the gates the bus last
- * read. Only Bypass is gated; every other mode is the worker's own business.
+ * Decides whether this run may start (or switch to) `mode`, under the gates the
+ * bus last read — and, when it may not, tells the client why. Only Bypass is
+ * gated; every other mode is the worker's own business.
  *
- * When the answer is no the client is told why — the same sentence the snapshot
- * carries — and the caller stops without starting or switching anything. There
- * is deliberately no fallback to a quieter mode: a turn that silently ran under
- * a policy nobody chose would be worse than one that did not run (ticket 85).
+ * It is named as the act rather than as the question because the refusal is one
+ * half of it: a `false` is never silent. There is deliberately no fallback to a
+ * quieter mode — a turn that silently ran under a policy nobody chose would be
+ * worse than one that did not run (ticket 85).
  */
-function bypassPermitted(state: ProjectRun, mode: PermissionMode): boolean {
+function admitMode(state: ProjectRun, mode: PermissionMode): boolean {
   if (mode !== 'bypassPermissions' || state.bypass.allowed) return true;
 
   broadcast(state, {
@@ -642,7 +644,7 @@ interface ProjectRun {
   /**
    * Whether Bypass may be chosen here, as the bus last read the two gates. The
    * run keeps it rather than the bus because three places need one answer: the
-   * snapshot, every `query()`'s skip-permissions flag, and the refusal itself.
+   * snapshot, every `query()`'s Bypass flag, and the refusal itself.
    */
   bypass: BypassAvailability;
   readonly blocks: SDKMessage[];

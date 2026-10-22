@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 
-import { PROTOCOL_VERSION, type BypassAvailability, type ServerEvent } from '@clodeck/shared';
+import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 
 import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
 import { bypassAvailability } from '../bypass.js';
@@ -99,10 +99,12 @@ async function openConnection(
 
   // The gates are read before the snapshot, because the snapshot is the one
   // place a fresh client learns what Bypass may do here — and why not.
-  options.turns.setBypassAvailability(
-    project.id,
-    await bypassFor(project.path, options.allowBypass),
-  );
+  await recordBypass({
+    projectId: project.id,
+    cwd: project.path,
+    turns: options.turns,
+    allowBypass: options.allowBypass,
+  });
   emit(options.turns.snapshot(project.id));
 
   // Subscribed only after the snapshot, so no live event can precede it.
@@ -149,11 +151,12 @@ async function dispatchFrame(
         const profile = context.options.profiles.resolve(intent.payload.profile);
         // One read of the project's file serves both of its facts — the pin that
         // narrows the profile, and the Bypass switch that narrows the mode.
-        const settings = await settingsFor(context.cwd);
-        context.options.turns.setBypassAvailability(
-          context.projectId,
-          bypassAvailability(context.options.allowBypass, settings.bypassDisabled),
-        );
+        const settings = await recordBypass({
+          projectId: context.projectId,
+          cwd: context.cwd,
+          turns: context.options.turns,
+          allowBypass: context.options.allowBypass,
+        });
         context.options.turns.sendPrompt(
           context.projectId,
           context.cwd,
@@ -173,11 +176,12 @@ async function dispatchFrame(
         // Re-read before a switch, for the same reason a send does: the file is
         // the user's, and a project that has just disabled Bypass must refuse
         // it through a running turn too.
-        const settings = await settingsFor(context.cwd);
-        context.options.turns.setBypassAvailability(
-          context.projectId,
-          bypassAvailability(context.options.allowBypass, settings.bypassDisabled),
-        );
+        await recordBypass({
+          projectId: context.projectId,
+          cwd: context.cwd,
+          turns: context.options.turns,
+          allowBypass: context.options.allowBypass,
+        });
         const change = await context.options.turns.setPermissionMode(context.projectId, intent.mode);
         if (change === 'no-active-turn') emitNoActiveTurn(context);
         // `refused` already reached the client with its reason.
@@ -217,23 +221,36 @@ async function dispatchFrame(
 }
 
 /**
- * What the project's own `.claude/settings.json` says right now: the provider it
- * pins (ADR 0002) and whether it forbids Bypass (ticket 85), from one read.
+ * What the project's own `.claude/settings.json` says right now, with the
+ * Bypass answer it implies recorded on the run: the provider it pins (ADR 0002)
+ * and whether it forbids Bypass (ticket 85), from one read.
  *
  * Read per control message rather than cached, through the project's own
  * `ScopedFs`: the file is the user's, they can edit it in the drawer, and a turn
  * that starts after such an edit has to honour it — a cached answer would be a
  * rule applied to a project as it used to be. The profile *name* is resolved
  * before this is called, so a stale one is refused without touching a disk.
+ *
+ * Three callers, one sentence: a connection's snapshot, the send that may start
+ * a turn, and the switch that may move one. Two of them need the settings back;
+ * the connection needs only the record, which is why the record is the side
+ * effect and the settings the return.
  */
-async function settingsFor(cwd: string): Promise<ProjectSettings> {
-  return readProjectSettings(createScopedFs(cwd));
-}
-
-/** The two gates that decide Bypass in one project, as the run and the snapshot want them. */
-async function bypassFor(cwd: string, allowBypass: boolean): Promise<BypassAvailability> {
-  const settings = await settingsFor(cwd);
-  return bypassAvailability(allowBypass, settings.bypassDisabled);
+async function recordBypass(context: {
+  projectId: string;
+  cwd: string;
+  turns: TurnManager;
+  allowBypass: boolean;
+}): Promise<ProjectSettings> {
+  const settings = await readProjectSettings(createScopedFs(context.cwd));
+  context.turns.setBypassAvailability(
+    context.projectId,
+    bypassAvailability({
+      allowBypass: context.allowBypass,
+      projectDisabled: settings.bypassDisabled,
+    }),
+  );
+  return settings;
 }
 
 function emitNoActiveTurn(context: { projectId: string; emit: EmitDraft }): void {

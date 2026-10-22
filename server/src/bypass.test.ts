@@ -9,18 +9,18 @@ import { BYPASS_OFF_BY_PROJECT, BYPASS_OFF_BY_SERVER, bypassAvailability } from 
  */
 describe('bypassAvailability', () => {
   it('allows the mode when neither gate refuses it', () => {
-    expect(bypassAvailability(true, false)).toEqual({ allowed: true });
+    expect(bypassAvailability({ allowBypass: true, projectDisabled: false })).toEqual({ allowed: true });
   });
 
   it('refuses it when the deployment switched it off, and names that gate', () => {
-    expect(bypassAvailability(false, false)).toEqual({
+    expect(bypassAvailability({ allowBypass: false, projectDisabled: false })).toEqual({
       allowed: false,
       reason: BYPASS_OFF_BY_SERVER,
     });
   });
 
   it('refuses it when the project’s own settings do', () => {
-    expect(bypassAvailability(true, true)).toEqual({
+    expect(bypassAvailability({ allowBypass: true, projectDisabled: true })).toEqual({
       allowed: false,
       reason: BYPASS_OFF_BY_PROJECT,
     });
@@ -28,7 +28,7 @@ describe('bypassAvailability', () => {
 
   it('names the deployment when both say no', () => {
     // The half the user cannot change from the drawer is the one worth naming.
-    expect(bypassAvailability(false, true)).toEqual({
+    expect(bypassAvailability({ allowBypass: false, projectDisabled: true })).toEqual({
       allowed: false,
       reason: BYPASS_OFF_BY_SERVER,
     });

@@ -21,10 +21,8 @@ afterEach(() => {
 });
 
 const ALLOWED: BypassAvailability = { allowed: true };
-const REFUSED: BypassAvailability = {
-  allowed: false,
-  reason: 'Bypass is off on this server: CLODECK_ALLOW_BYPASS is off.',
-};
+const REFUSAL = 'Bypass is off on this server: CLODECK_ALLOW_BYPASS is off.';
+const REFUSED: BypassAvailability = { allowed: false, reason: REFUSAL };
 
 function renderPicker(
   mode: PermissionMode = 'default',
@@ -107,7 +105,7 @@ describe('the permission mode picker', () => {
     // dead, and the reason is the visible half of the gate.
     const option = screen.getByRole('option', { name: 'Bypass' });
     expect(option).toHaveProperty('disabled', true);
-    expect(screen.getByText(REFUSED.reason as string)).toBeTruthy();
+    expect(screen.getByText(REFUSAL)).toBeTruthy();
 
     fireEvent.click(option);
     expect(onChoose).not.toHaveBeenCalled();
