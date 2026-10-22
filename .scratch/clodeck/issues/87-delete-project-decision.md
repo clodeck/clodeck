@@ -9,8 +9,8 @@ decisions in one place, first, so the build argues with none of them.
 **Blocked by:** none
 
 **Status:** resolved — the user chose every item below on 2026-10-21, in a grilling session; the docs
-moves land in this ticket's branch. `/to-spec` then writes `spec-10-project-delete.md` and `/to-tickets`
-splits the build.
+moves landed in this ticket's branch. `/to-spec` then wrote `spec-10-project-delete.md` (`2c6763f`) and
+`/to-tickets` split the build into 88–91, all four merged. Nothing here is still owed.
 
 ## The problem
 
@@ -166,4 +166,8 @@ reload + toast + selection clear; the dialog holds on error.
       brought in by this decision.
 - [x] `.scratch/clodeck/handoff.md` — report 5's row and section "B. Delete a project" move from *open* /
       *decide the semantics first* to *decided, build pending*, pointing here.
-- [ ] `spec.md` / `spec-10-project-delete.md` — `/to-spec`, not this ticket.
+- [x] `.scratch/clodeck/spec-10-project-delete.md` — landed on its own commit (`2c6763f`), not this
+      ticket's branch, as the `/to-spec` step: stories, implementation decisions, testing decisions,
+      out-of-scope. It is its own file, like `spec-02`…`spec-09` — `spec.md` is the scaffold slice, not
+      an index. Tickets 88–91 were split from it and all four are merged (`cceb677`, `2346ddf`,
+      `adc546c`, `154544e`), so nothing here is still owed.
