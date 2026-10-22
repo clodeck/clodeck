@@ -42,6 +42,8 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
   - [When the origin is not declared](#when-the-origin-is-not-declared)
 - [Configuration](#configuration)
 - [Provider profiles](#provider-profiles)
+- [Permission modes](#permission-modes)
+  - [Bypass](#bypass)
 - [Commands](#commands)
 - [Troubleshooting](#troubleshooting)
 - [Security](#security)
@@ -54,7 +56,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 | Surface | What it does |
 |---|---|
 | **Projects** | The sidebar lists the immediate child directories of `PROJECTS_ROOT`. Select one and its chat takes the stage. `New project` creates one for real — a `mkdir` under the root, nothing else. A row's `⋯` menu holds `Delete…`, which removes the directory for real — recursively, with no trash and no undo — after you type its name ([Deleting a project](#deleting-a-project)). |
-| **Chat** | One Agent SDK session per project: streamed turns, tool cards, an approval modal when the agent asks, session history you can resume — and a profile picker beside the composer for the provider each session runs on. |
+| **Chat** | One Agent SDK session per project: streamed turns, tool cards, an approval modal when the agent asks, session history you can resume — and two pickers beside the composer: the provider each session runs on, and the permission mode it runs under. |
 | **Terminal** | A real shell whose working directory is the selected project's folder — a pty (node-pty) streamed as raw bytes into xterm.js. |
 | **Files** | The project's tree, expanding in place: preview (markdown rendered, code with a numbered gutter and syntax colouring), edit and save, create, rename, delete, upload, download, and drag a file onto a folder to move it. |
 | **Auth** | One password, an `HttpOnly` session cookie, and every route and socket behind it. |
@@ -750,6 +752,8 @@ Read by the **server** in every case; the client bakes in nothing but relative U
 | `WEB_ROOT` | — | The built client's directory. Set → the server serves the SPA at `/`, auth-exempt, with an `index.html` fallback for deep links. Unset → the server walks up from its working directory to the repo root and serves `web/dist` if it has been built, logging the directory it picked or the reason it picked none. No build anywhere → no client is served, which is what the Vite dev loop wants. |
 | `CLODECK_TRUSTED_PROXIES` | — | The proxies in front of this deployment, as a comma-separated list of addresses, CIDR ranges and the keywords `loopback` / `linklocal` / `uniquelocal` — `172.16.0.0/12` for the compose Caddy, `127.0.0.1/8` for a proxy on the same host. It is the address the **login lockout** keys on: without it, every login behind a proxy arrives from the proxy itself, so five failures — anyone's — lock out the one user there is. Unset or blank → nothing is trusted, which is what the direct and tunnelled routes want; a forged `X-Forwarded-For` is ignored by a peer outside the list either way, so only a client *inside* it can rotate the bucket. A value that is not a list of addresses is a startup warning rather than a failure: the server trusts nothing and says so. |
 | `CLODECK_PROVIDER_<NAME>_BASE_URL`, `_AUTH_TOKEN`, `_MODEL` | — | One provider profile, named `<NAME>`: any subset of the endpoint, the credential and the model, with the rest inherited from this server's own `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL`. Read once, at boot. See [Provider profiles](#provider-profiles). |
+| `CLODECK_PERMISSION_MODE` | `default` | The permission mode a session starts in, and the one `New chat` returns to: `default` (Ask), `acceptEdits` (Accept edits), `plan` (Plan) or `bypassPermissions` (Bypass). Anything else **stops the boot** with the accepted list, as does `bypassPermissions` when `CLODECK_ALLOW_BYPASS` is off — a misconfigured mode would otherwise run every turn under a policy nobody chose. Read once, at boot. See [Permission modes](#permission-modes). |
+| `CLODECK_ALLOW_BYPASS` | `on` | Whether **Bypass** may be chosen at all, in any session of this deployment. `on`/`off`, `true`/`false`, `yes`/`no` and `1`/`0` are read the way a shell writes them; **anything else is a warning and Bypass stays off**, because a gate's failure mode is to stay shut. Off, the server refuses Bypass with a reason and the picker says why. See [Bypass](#bypass). |
 | `ANTHROPIC_API_KEY` | — | The default profile's credential, read by the Agent SDK from the server's environment. A profile's credential reaches its run the same way, as `ANTHROPIC_AUTH_TOKEN`. clodeck never stores, persists or invents one — it reads what you exported and hands it to the run. Only the real provider needs it — `npm run dev:fake` needs none. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the Agent SDK keeps its transcripts — the thing session history and resume are read from. The Docker image sets `/home/node/.claude` and mounts a volume there. |
 
@@ -846,6 +850,78 @@ is not an object, means *no pin* with a line in the server's log. Neither is eve
 to the project, so a key hand-written into a project's settings is a key the agent it pays for can open.
 That is accepted rather than engineered around, and it is why the profiles above exist: **a credential
 that matters belongs in the server's environment**, which no browser is ever shown a part of.
+
+## Permission modes
+
+**A session chooses what the agent may do without asking, and the composer is where.** The mode picker
+sits beside the provider picker — above the box you type in, not up in the chat header — and its label
+names the mode the session runs under. It **stays open after the first turn**, unlike a profile: a
+provider is a transport fact that would poison the conversation, while a mode is a filter for what
+comes next. **A mid-turn switch is not retroactive.** The SDK's own mode changes at once, but the hooks
+clodeck adds — the Bash prompt in Ask and Accept edits, Plan's denials — are fixed when the turn starts,
+so the turn can still surprise you: a Bash call may ask while Bypass is on, or prompt while Plan is. The
+next turn starts cleanly in the new mode. An approval already on your screen is answered under the mode
+that raised it.
+
+| Mode on the picker | Wire value | Reads (`Read`, `Glob`, `Grep`) | `Edit` / `Write` | `Bash` |
+|---|---|---|---|---|
+| **Ask** | `default` | free | prompt | **prompt — every call, `ls` and `git status` included** |
+| **Accept edits** | `acceptEdits` | free | free | **prompt — every call, `mkdir`, `rm` and `sed` included** |
+| **Plan** | `plan` | free | **denied, no prompt** | **denied, no prompt** |
+| **Bypass** | `bypassPermissions` | free | free | free |
+
+*free* runs the call without asking; *prompt* parks it in the approval modal until you answer; *denied*
+answers the agent without showing you anything, and the turn carries on — the model reads the refusal
+and keeps working rather than the session stopping.
+
+**This is clodeck's contract, not a forwarding of the SDK's four names, and it is deliberately
+stricter in three places** — the ones that surprise. **Ask** asks before a *read-only* shell command
+rather than trusting the command line. **Accept edits** asks before `rm`, `mkdir` and `sed` rather than
+calling them edits. **Plan** refuses edits and shell commands instead of parking them in the modal,
+because nothing executes while a plan is being written and leaving Plan is a mode change, not an
+approval — the plan's own exit is refused with the rest, so the session stays in Plan until you pick
+another mode. A plan may still ask you a clarifying question, and the SDK's own plan file is written
+without asking; neither is a project edit. The SDK's other two modes, `auto` and `dontAsk`, are not
+offered: the wire refuses them, because one classifies calls where you cannot see the classifier and
+the other denies silently, which in a browser is indistinguishable from a hang. The reasoning, and the
+alternatives that were rejected, are in
+[`docs/adr/0003-permission-modes-are-a-contract-not-an-sdk-passthrough.md`](docs/adr/0003-permission-modes-are-a-contract-not-an-sdk-passthrough.md).
+
+**A project's `.claude/settings.json` can tighten, never loosen.** Its `deny` and `ask` rules always
+apply — in Bypass too — while its `allow` rules are neutralised for these four modes, so a project file
+cannot auto-approve a call the picker says will ask. That rule is what makes the table above a promise
+rather than a summary.
+
+**The mode is session state, not a stored preference.** It starts at `CLODECK_PERMISSION_MODE` — Ask
+when the variable says nothing — a `New chat` goes back to that value, a reconnect restores the run's
+mode, and switching to another project and back keeps that project's run. Nothing is ever written to
+disk: no project file, no registry, no session metadata, so a restart starts over at the same default.
+
+### Bypass
+
+**Bypass** has gates of its own, because *every tool runs without asking* is worth a deliberate click:
+
+- **`CLODECK_ALLOW_BYPASS`** — the deployment's gate, **on** unless the operator switches it off. Off,
+  the server refuses Bypass on a send and on a mid-turn switch, and the picker's row names the reason.
+  A deployment that also sets `CLODECK_PERMISSION_MODE=bypassPermissions` stops at boot instead of
+  running in a mode its own gate refuses.
+- **The project's own settings** — `permissions.disableBypassPermissionsMode: "disable"` in
+  `.claude/settings.json` refuses Bypass in that project, outranking every session in it.
+- **Running as root or under sudo, outside a sandbox** — the SDK refuses Bypass outright; clodeck lets
+  that refusal fail the turn out loud rather than fall back to a quieter mode.
+
+The deployment's and the project's gates are also what switch the SDK's own
+`allowDangerouslySkipPermissions` on for a run: the capability exists exactly where they allow it, and
+is set from the start, which is what keeps a mid-turn switch possible.
+
+Choosing it asks first, **every time** — there is no "remember this" — and a persistent badge stays
+beside the composer while it is active. The confirmation, the badge's tooltip and this page all carry
+the same sentence:
+
+> Every tool runs without asking. A project's own deny/ask rules in `.claude/settings.json` will still apply.
+
+A gate you cannot see is not a gate, so a refused Bypass is still *named* in the list, with the
+server's sentence under it, rather than removed.
 
 ## Commands
 
@@ -1043,6 +1119,10 @@ oversight in this one.
 - **The terminal is a real shell**, running as whatever user started the server — the same privileges,
   no sandbox. Run Clodeck as a dedicated unprivileged user ([Linux server](#linux-server) shows the
   account), or use the [Docker](#docker) image, which already runs as `node`.
+- **The agent's reach is the session's permission mode**, and it is enforced by the server rather than
+  by hiding a button: the wire refuses a mode outside the four, the gate check refuses Bypass when the
+  deployment or the project says so, and a project's own deny and ask rules apply in every mode —
+  Bypass included ([Permission modes](#permission-modes)).
 
 **Secrets.** The compose deployment keeps the password in a mounted file rather than an environment
 variable, so it stays out of `docker inspect`. A provider's credential is read from the server's own

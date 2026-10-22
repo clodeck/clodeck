@@ -6,7 +6,7 @@ roshan/khāmoosh konad.
 
 **Blocked by:** 85
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Agent Brief
 
@@ -28,12 +28,24 @@ roshan/khāmoosh konad.
   `acceptEdits` filesystem commands āzād, Plan prompts).
 
 **Acceptance criteria:**
-- [ ] README yek bakhsh-e permission-modes bā jadval-e chāhār mode dārad.
-- [ ] `CLODECK_PERMISSION_MODE` va `CLODECK_ALLOW_BYPASS` bā default va maghādir-e mojtāz mostanad shode-and.
-- [ ] Warning-e Bypass jomle-ye project rules rā dārad.
-- [ ] Hich jomle-i dar README raftār-e SDK-native rā be onvān-e raftār-e clodeck neshoon nemidahad.
-- [ ] `npm run typecheck` and `npm test` pass (docs-only; suite sabz mimānad).
+- [x] README yek bakhsh-e permission-modes bā jadval-e chāhār mode dārad.
+- [x] `CLODECK_PERMISSION_MODE` va `CLODECK_ALLOW_BYPASS` bā default va maghādir-e mojtāz mostanad shode-and.
+- [x] Warning-e Bypass jomle-ye project rules rā dārad.
+- [x] Hich jomle-i dar README raftār-e SDK-native rā be onvān-e raftār-e clodeck neshoon nemidahad.
+- [x] `npm run typecheck` and `npm test` pass (docs-only; suite sabz mimānad).
 
 **Out of scope:**
 - `AGENTS.md`, `GLOSSARY.md`, ADR — dar ticket 81 land shodan.
 - `spec-09-permission-modes.md` — `/to-spec`.
+
+## What landed
+
+- `README.md` — a **Permission modes** section: the four-mode table, the three deliberate deltas, the
+  tighten-never-loosen rule, session-state behaviour, and a **Bypass** subsection with its gates, its
+  confirm/badge and the warning sentence verbatim; two rows in **Configuration**
+  (`CLODECK_PERMISSION_MODE`, `CLODECK_ALLOW_BYPASS`) with defaults and accepted values; a Contents
+  entry, the `What you get` Chat row, and a **Security** bullet for the mode being server-enforced.
+- The mid-turn paragraph documents what shipped, not what decision 7 promised: the SDK's mode moves at
+  once, but clodeck's `PreToolUse` hooks are fixed when the turn starts, so a switch bites on the next
+  turn.
+- README.finglish.md left as is — its header says `README.md` is the source of truth.
