@@ -1,10 +1,13 @@
 #!/bin/sh
 #
-# The repo's only automatic check. There is no CI, so without this nothing runs
-# `typecheck`, the suite or the tracker's own consistency check between a commit
-# and someone noticing — which is exactly how a test file once sat in the working
-# tree with `npm run typecheck` failing for a whole session, and how five tickets
-# reached `main` reading `resolved` with every checklist box still open.
+# The fastest check: CI runs the same checks — plus a build — on a push to
+# `main` and on every PR to `master`, but that is minutes later and after the
+# mistake is in history.
+# Without this, nothing runs `typecheck`, the suite or the tracker's own
+# consistency check between a commit and someone noticing — which is exactly how
+# a test file once sat in the working tree with `npm run typecheck` failing for a
+# whole session, and how five tickets reached `main` reading `resolved` with
+# every checklist box still open.
 #
 # Wired by `core.hooksPath`, which the root `prepare` script sets on every
 # `npm install` (see the README's Commands table). Bypass a single commit with

@@ -1,0 +1,37 @@
+name: CI
+
+# The integration check: every push to `main`, and every pull request that would
+# move production. `master` takes no direct pushes, so its only PR base is
+# `main` — and this is the required `check` that protection points at.
+#
+# `workflow_dispatch` is here for a person who wants the list re-run without an
+# empty commit; it verifies whatever ref it was dispatched on.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# A newer push to the same ref makes the older run's answer worthless, so it is
+# cancelled rather than left to finish and report on a commit nobody is looking
+# at. `cancel-in-progress` is safe on a check: it never touches production.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Verify
+        uses: ./.github/actions/verify

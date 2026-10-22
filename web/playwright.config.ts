@@ -23,11 +23,15 @@ import { directOrigin } from './e2e/direct-origin';
  * address not existing, because a spec that quietly stood aside whenever the
  * server was missing would never catch the bug it is here for.
  *
- * `channel: 'chrome'` is load-bearing, not a preference. `npx playwright install
- * chromium` fails on this network ("Failed to download Chrome for Testing"), so
- * the harness drives the browser already installed on the machine instead. Do
- * not "restore" the default download: it does not resolve here, and the failure
- * is at install time, far away from this file.
+ * Locally, `channel: 'chrome'` is load-bearing, not a preference. `npx playwright
+ * install chromium` fails on this network ("Failed to download Chrome for
+ * Testing"), so the harness drives the browser already installed on the machine
+ * instead. Do not "restore" the default download: it does not resolve here, and
+ * the failure is at install time, far away from this file. **In CI the opposite
+ * holds**: GitHub's runner has no Chrome, installs Playwright's Chromium
+ * (`.github/workflows/e2e.yml`), and asks for it by leaving `channel` off —
+ * `CI` is the switch, so the two environments each drive the browser they
+ * actually have.
  *
  * The specs log in with `UI_PASSWORD` from the environment, which the server
  * under test must have been started with.
@@ -39,6 +43,9 @@ const DIRECT_SPEC = '**/direct-route.spec.ts';
 /** Resolved once, here and in the spec, by the same function. Null → that project skips. */
 const directBaseURL = directOrigin();
 
+/** GitHub Actions sets `CI`; the laptop does not. */
+const inCi = (process.env.CI ?? '') !== '';
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
@@ -47,7 +54,8 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    channel: 'chrome',
+    // CI installed Playwright's Chromium; a laptop drives its own Chrome.
+    ...(inCi ? {} : { channel: 'chrome' }),
     headless: true,
     screenshot: 'only-on-failure',
   },

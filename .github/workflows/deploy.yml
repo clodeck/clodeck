@@ -1,0 +1,117 @@
+name: Deploy
+
+# Production moves only like this: a PR from `main` merged into `master` (a merge
+# commit), which fires this workflow. `workflow_dispatch` is the deliberate
+# force-deploy: the same verify list, then the same SSH command, without waiting
+# for a new merge.
+#
+# Two jobs, in order. `verify` is the composite action CI runs, on `master`
+# itself — the commit the server will deploy — so a green deploy cannot be a
+# list that drifted from the one `main` passed. `deploy` only starts if it is
+# green.
+#
+# The server's rollback resets its own checkout to the previous commit; it does
+# not rewrite GitHub's `master`. Reverting a bad publish on GitHub is a manual PR.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Never cancel a deploy in progress: a half-applied release is worse than a
+# queued one. A second trigger waits for the first to finish.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      # The exact commit this job checked, handed to deploy so the server cannot
+      # pull a newer `master` that nobody verified.
+      commit: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Check out master
+        uses: actions/checkout@v4
+        with:
+          # On a push this is the pushed merge commit; on dispatch it is the tip
+          # of production, which is still what the server will deploy.
+          ref: master
+
+      - name: Pin the commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify
+        uses: ./.github/actions/verify
+
+  deploy:
+    name: deploy
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check the deploy settings
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not set (repository variable). See README → Publishing and CI/CD."
+              missing=1
+            fi
+          done
+          for name in DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not set (repository secret). See README → Publishing and CI/CD."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install the deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          # A pinned host key, not `ssh-keyscan` at run time: the pin is the
+          # point of the secret (compare it with the server's own host key once).
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          VERIFIED_COMMIT: ${{ needs.verify.outputs.commit }}
+        run: |
+          if ! [[ "$VERIFIED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::verify did not report a full commit SHA ('$VERIFIED_COMMIT')."
+            exit 1
+          fi
+
+          # The key in `authorized_keys` is bound to a forced command
+          # (`/usr/local/bin/clodeck-deploy`), so this argument is data, not a
+          # command: the script accepts exactly `deploy <sha>`, resets the
+          # checkout to that verified commit, builds, restarts, waits for
+          # /healthz, and rolls back on failure.
+          ssh -i "$HOME/.ssh/deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "$DEPLOY_USER@$DEPLOY_HOST" deploy "$VERIFIED_COMMIT"

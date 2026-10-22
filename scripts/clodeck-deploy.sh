@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# The production deploy, as the server runs it.
+#
+# This file is the repo's **reference copy**; the copy that does the work is
+# root-owned at `/usr/local/bin/clodeck-deploy`. `authorized_keys` binds the
+# deploy key to that path as a forced command, so an SSH session with the key
+# cannot run anything else — no shell, no second command. The only argument it
+# accepts is `deploy <40-hex-sha>`, which is how the workflow pins the commit it
+# verified; a bare `deploy` (or no command at all) falls back to `origin/master`.
+# Install it with the runbook in the README's "Publishing and CI/CD" section;
+# the two copies must be updated together.
+#
+# What one deploy is:
+#
+#   1. fetch `origin`, reset the checkout to the named commit — or to
+#      `origin/master` when none was named;
+#   2. `npm ci` only when `package-lock.json` actually moved (or when this is a
+#      fresh checkout with no `node_modules`);
+#   3. `npm run build`;
+#   4. `sudo systemctl restart clodeck`;
+#   5. poll `/healthz` for up to 60 seconds.
+#
+# If build, restart or health fails, it resets to the commit that was live
+# before, rebuilds, restarts and exits non-zero. The rollback is local: GitHub's
+# `master` still points at the bad merge commit, and undoing that is a manual
+# revert PR — deliberately, so the two histories cannot disagree silently.
+#
+# It runs as `clodeck`, not root. The one privileged step is the restart, and
+# `/etc/sudoers.d/clodeck-deploy` allows exactly that command. There is no idle
+# gate: a restart drops live sessions, and that is accepted (see ticket 93).
+#
+# `npm` must be on the PATH sshd gives a non-interactive session (the distro
+# package or NodeSource install is; an nvm install usually is not).
+
+set -euo pipefail
+
+DEPLOY_DIR="/home/clodeck/clodeck"
+BRANCH="master"
+SERVICE="clodeck"
+HEALTH_URL="http://127.0.0.1:3001/healthz"
+HEALTH_TIMEOUT=60
+SYSTEMCTL="/usr/bin/systemctl"
+
+# Under a forced command SSH still sets this. It is parsed, never executed: the
+# key holder is trusted to deploy, not to choose what the deploy does.
+REMOTE_COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+EXPECTED_COMMIT=""
+
+case "$REMOTE_COMMAND" in
+  "" | deploy)
+    ;;
+  deploy\ *)
+    candidate="${REMOTE_COMMAND#deploy }"
+    if [[ "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
+      EXPECTED_COMMIT="$candidate"
+    else
+      printf '[clodeck-deploy] refusing deploy argument: %s\n' "$candidate" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    printf '[clodeck-deploy] refusing unexpected remote command: %s\n' "$REMOTE_COMMAND" >&2
+    exit 1
+    ;;
+esac
+
+log() {
+  printf '[clodeck-deploy] %s\n' "$*"
+}
+
+die() {
+  log "$*" >&2
+  exit 1
+}
+
+# Install dependencies only when the lockfile moved between two commits — or
+# when there is no `node_modules` at all, which is what a fresh checkout looks
+# like. A plain reset that touches no dependency should not spend a minute
+# reinstalling the world.
+install_deps() {
+  local from="$1" to="$2"
+
+  if [[ ! -d node_modules ]] || ! git diff --quiet "$from" "$to" -- package-lock.json; then
+    log "package-lock.json moved (or node_modules is missing): npm ci"
+    npm ci
+  else
+    log "package-lock.json unchanged: keeping node_modules"
+  fi
+}
+
+# Restart, then wait for the app's own liveness answer. `/healthz` is
+# unauthenticated on purpose (server/src/app.ts), so this needs no cookie.
+restart_and_wait() {
+  log "restarting $SERVICE"
+  if ! sudo -n "$SYSTEMCTL" restart "$SERVICE"; then
+    log "systemctl restart $SERVICE failed"
+    return 1
+  fi
+
+  local deadline=$((SECONDS + HEALTH_TIMEOUT))
+  while ((SECONDS < deadline)); do
+    if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
+      log "healthy: $HEALTH_URL"
+      return 0
+    fi
+    sleep 2
+  done
+
+  log "$HEALTH_URL did not answer within ${HEALTH_TIMEOUT}s"
+  return 1
+}
+
+# Build and bring the service up for one commit. `npm run build` covers all
+# three workspaces and the shared package they import through.
+build_and_restart() {
+  npm run build && restart_and_wait
+}
+
+command -v git >/dev/null 2>&1 || die "git is not on PATH"
+command -v npm >/dev/null 2>&1 || die "npm is not on PATH"
+command -v curl >/dev/null 2>&1 || die "curl is not on PATH"
+
+log "deploy requested${EXPECTED_COMMIT:+ for ${EXPECTED_COMMIT:0:12}}"
+cd "$DEPLOY_DIR" || die "cannot enter $DEPLOY_DIR"
+git rev-parse --git-dir >/dev/null 2>&1 || die "$DEPLOY_DIR is not a git checkout"
+
+previous="$(git rev-parse --verify HEAD)" || die "cannot read the current commit; refusing to deploy"
+log "current commit: ${previous:0:12}"
+
+log "fetching origin"
+git fetch --prune origin || die "git fetch failed"
+
+if [[ -n "$EXPECTED_COMMIT" ]]; then
+  log "resetting to verified commit ${EXPECTED_COMMIT:0:12}"
+  git cat-file -e "${EXPECTED_COMMIT}^{commit}" 2>/dev/null \
+    || die "verified commit ${EXPECTED_COMMIT} is not in this checkout"
+  git reset --hard "$EXPECTED_COMMIT" || die "git reset --hard ${EXPECTED_COMMIT} failed"
+else
+  log "no commit named: resetting to origin/$BRANCH"
+  git reset --hard "origin/$BRANCH" || die "git reset --hard origin/$BRANCH failed"
+fi
+
+target="$(git rev-parse --verify HEAD)" || die "cannot read the deployed commit"
+if [[ -n "$EXPECTED_COMMIT" && "$target" != "$EXPECTED_COMMIT" ]]; then
+  die "HEAD is ${target:0:12}, not the verified ${EXPECTED_COMMIT:0:12}; refusing to deploy"
+fi
+
+if [[ "$target" == "$previous" ]]; then
+  log "already at ${target:0:12}; rebuilding and restarting anyway (force deploy)"
+else
+  log "deploying ${target:0:12} (was ${previous:0:12})"
+fi
+
+if install_deps "$previous" "$target" && build_and_restart; then
+  log "deployed ${target:0:12}"
+  exit 0
+fi
+
+# Roll back locally. Every step below is best-effort and logged: the point is to
+# leave the previous commit built and running, not to stop at the first error
+# and leave production half-up.
+log "DEPLOY FAILED — rolling back to ${previous:0:12}"
+git reset --hard "$previous" || die "rollback reset failed; production needs a human"
+# Unconditional, unlike the forward path: a failed forward `npm ci` can leave
+# `node_modules` half-written, and the rollback's job is a tree that builds.
+npm ci || log "rollback: npm ci failed"
+npm run build || log "rollback: build failed"
+restart_and_wait || log "rollback: restart or health check failed"
+die "deploy of ${target:0:12} failed; rolled back to ${previous:0:12}"

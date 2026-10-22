@@ -1,0 +1,95 @@
+name: E2E
+
+# The browser layer, nightly and on demand — deliberately not on every pull
+# request. It is slow, it drives the fake provider against a real Vite server,
+# and it is not a required check: a red nightly run is a signal to read, not a
+# gate that blocks `main` or a publish to `master`.
+#
+# `dev-pair` only. The `direct-route` project needs a non-loopback origin and a
+# real credential (see web/playwright.config.ts), neither of which this job has.
+
+on:
+  schedule:
+    # 02:17 UTC: off the hour on purpose, so this does not join the pile of jobs
+    # every repository schedules at :00.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # In CI the config drives Playwright's own Chromium; locally it drives the
+      # installed Chrome, because the download fails on the author's network.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Make a projects root
+        run: |
+          root="$RUNNER_TEMP/projects"
+          mkdir -p "$root/demo" "$root/hello"
+          printf '# demo\n\nA fixture project for the end-to-end suite.\n' > "$root/demo/README.md"
+          printf '# hello\n\nA second fixture project, so the switcher has somewhere to go.\n' > "$root/hello/README.md"
+
+      - name: Start the app with the fake provider
+        env:
+          UI_PASSWORD: dev
+          PROJECTS_ROOT: ${{ runner.temp }}/projects
+        run: |
+          # `dev:fake` is the whole loop — the server on the fake Agent SDK, the
+          # Vite dev server in front of it. One background process; its output is
+          # kept for the failure log below.
+          npm run dev:fake > "$RUNNER_TEMP/dev.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/dev.pid"
+
+          timeout 120 bash -c \
+            'until curl -fsS http://localhost:5173 >/dev/null 2>&1; do sleep 1; done' \
+            || { echo "the dev pair did not come up"; tail -n 100 "$RUNNER_TEMP/dev.log"; exit 1; }
+
+      - name: Playwright
+        env:
+          UI_PASSWORD: dev
+        run: npm run e2e -- --project=dev-pair
+
+      - name: Stop the app and show its log
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/dev.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/dev.pid")" 2>/dev/null || true
+          fi
+          # `concurrently -k` should take its children down with it; anything it
+          # left behind holds the ports for the next run.
+          pkill -f 'tsx watch' 2>/dev/null || true
+          pkill -f 'vite' 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/dev.log" ]; then
+            echo "── dev:fake output ──"
+            tail -n 100 "$RUNNER_TEMP/dev.log"
+          fi
+
+      - name: Keep the failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          # The list reporter writes no HTML report; this is where
+          # `screenshot: 'only-on-failure'` leaves its files.
+          path: web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

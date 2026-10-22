@@ -49,6 +49,12 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 - [Security](#security)
 - [Architecture](#architecture)
 - [Development](#development)
+- [Publishing and CI/CD](#publishing-and-cicd)
+  - [The branch model](#the-branch-model)
+  - [The checks](#the-checks)
+  - [Deploying to production](#deploying-to-production)
+  - [One-time setup](#one-time-setup)
+  - [Rollback](#rollback)
 - [Docs](#docs)
 
 ## What you get
@@ -943,6 +949,7 @@ Every command runs from the repo root.
 | `npm test` | Builds `shared`, then runs the whole Vitest suite across all packages. |
 | `npm run typecheck` | Type-checks every package (`tsc` with `noEmit` — nothing is written). |
 | `npm run e2e` | Runs the Playwright suite in `web/e2e/` against an app that is already up — a dev loop, plus a built one for its `direct-route` project (see [Development](#development)). |
+| `npm run pr` | **The publish step:** from `main`, pushes it and opens (or prints) the `main → master` pull request whose merge deploys production. Needs an authenticated `gh`; says what to install or sign in when it has none. See [The branch model](#the-branch-model). |
 | `npm run sandcastle` | Drains the ticket queue under `.scratch/clodeck/issues/` — one pass per ticket, each on its own branch in its own container, implement then review. It never merges and never pushes, so the branches wait for you. See [`.sandcastle/README.md`](.sandcastle/README.md). |
 
 `dev`, `test`, `build` and `typecheck` all build `shared` first, because `server` and `web` resolve it
@@ -1149,13 +1156,14 @@ before a socket exists.
 
 ## Development
 
-- **The pre-commit hook is the only automatic check this repo has** (there is no CI). `npm install`
-  wires it — `.githooks/pre-commit`, through `core.hooksPath` — and it runs `node
-  scripts/tickets.mjs check`, `npm run typecheck` and `npm test`, so a red tree is never committed.
-  The first of the three is the tracker's own rule: a ticket that reads `resolved` while its
-  checklist still has an unticked `- [ ]` fails the commit, so the status line and the boxes cannot
-  drift apart. `git commit --no-verify` skips all three once. If the hook never seems to fire,
-  `git config core.hooksPath` should answer `.githooks`; `npm run prepare` sets it.
+- **The pre-commit hook is the fastest check, not the only one.** `npm install` wires it —
+  `.githooks/pre-commit`, through `core.hooksPath` — and it runs `node scripts/tickets.mjs check`,
+  `npm run typecheck` and `npm test`, so a red tree is never committed. The first of the three is
+  the tracker's own rule: a ticket that reads `resolved` while its checklist still has an unticked
+  `- [ ]` fails the commit, so the status line and the boxes cannot drift apart. `git commit
+  --no-verify` skips all three once. If the hook never seems to fire, `git config core.hooksPath`
+  should answer `.githooks`; `npm run prepare` sets it. CI runs the same list — plus `npm run build`
+  — on every push to `main` and every PR to `master` (see [The checks](#the-checks)).
 - **Two traps are load-bearing, and both are commented where they live** so the next person does not
   "fix" them back:
   - `npm run dev` passes `--raw` to `concurrently` on purpose. Without it, `concurrently`'s
@@ -1164,7 +1172,8 @@ before a socket exists.
     SDK, so it keeps the prefixes.
   - The Playwright config drives the machine's **installed Chrome** (`channel: 'chrome'`), because
     `npx playwright install chromium` fails on this network with `Failed to download Chrome for
-    Testing`.
+    Testing`. In CI the same config leaves `channel` off and drives the Chromium the nightly job
+    installs; `CI` is the switch.
 - **End-to-end tests need a running app and a browser**, which is why they are not part of `npm test`:
 
   ```sh
@@ -1180,6 +1189,157 @@ before a socket exists.
 
 - **One commit per coherent change, never on `main`** — this repo's conventions, including the branch
   naming and the local issue tracker, are in [`AGENTS.md`](AGENTS.md).
+
+## Publishing and CI/CD
+
+### The branch model
+
+Two long-lived branches, and only one of them is written by a person's push or an agent's merge:
+
+- **`main` is integration.** Work happens on a short branch (`clodeck/<ticket>-<slug>`), which is
+  merged locally with `git switch main && git merge --no-ff <branch>` and then pushed. `main` has no
+  strict protection: it is where a change is *known to pass* the checks.
+- **`master` is production.** It moves only by a pull request **from `main`**, merged as a **merge
+  commit**; branch protection allows no direct push. The merge is the deploy trigger — not a tag, not
+  a release, not a button. Require-up-to-date may stay **off**, because `master` is only ever one
+  merge commit ahead of `main`, so a stale base is not a real risk.
+- **`npm run pr` is the publish step.** From `main` it runs `git push origin main` and
+  `gh pr create --base master --head main --fill`. If a pull request from `main` is already open it
+  prints that URL instead of opening a second one, and without `gh` (or without a signed-in account)
+  it stops with the commands that fix it.
+
+Agents never push, never merge into `master`, and never force-push anything. Their branch is the
+deliverable; publishing production is a person's deliberate act (AGENTS.md).
+
+### The checks
+
+One composite action, `.github/actions/verify/action.yml`, is the single list both workflows run:
+
+```
+npm ci → node scripts/tickets.mjs check → npm run typecheck → npm test → npm run build
+```
+
+- **`.github/workflows/ci.yml`** — on every push to `main`, every pull request targeting `master`, and
+  `workflow_dispatch`. Ubuntu, Node 22, `npm ci` with the npm cache. Concurrency cancels a superseded
+  run on the same ref. Its job is named `check`, and that is the required status check `master`'s
+  protection points at.
+- **`.github/workflows/deploy.yml`** — on a push to `master` and `workflow_dispatch` (a deliberate
+  force-deploy). The `verify` job runs the same composite action on `master` itself, and only then
+  does the `deploy` job SSH to the server. Concurrency is `deploy-production` with
+  `cancel-in-progress: false`: a running deploy is never cancelled, a queued one waits.
+- **`.github/workflows/e2e.yml`** — nightly (`02:17 UTC`) and on demand. It is **not** a required
+  check and does not run on pull requests: it starts `npm run dev:fake` against a temporary
+  `PROJECTS_ROOT` holding `demo` and `hello`, installs Chromium, runs
+  `npm run e2e -- --project=dev-pair`, and keeps the failure screenshots. A red run is a signal, not
+  a gate.
+
+Playwright itself is the same suite in both places. Locally it drives the machine's installed Chrome;
+under CI (`CI` set) it drives the Chromium the workflow installs (`web/playwright.config.ts`).
+
+### Deploying to production
+
+The `deploy` job holds a deploy key and runs **one SSH command**. The server's `authorized_keys` binds
+that key to a forced command — `/usr/local/bin/clodeck-deploy` — so the session cannot run a shell or
+a second command. The only argument it accepts is `deploy <40-hex-sha>`: the SHA the `verify` job
+checked, passed through so the server cannot pull a newer `master` that nobody verified. A bare
+`deploy` (or no command) falls back to `origin/master`, which is what a manual run uses. That installed
+script is the root-owned copy of [`scripts/clodeck-deploy.sh`](scripts/clodeck-deploy.sh), which is
+this repo's reference copy; update the two together.
+
+One deploy:
+
+1. `git fetch --prune origin`, then `git reset --hard <the verified SHA>` — or `origin/master` when
+   no SHA was named — in `/home/clodeck/clodeck`;
+2. `npm ci` **only** when `package-lock.json` moved between the live and new commits (or when
+   `node_modules` is missing);
+3. `npm run build` (shared → server → web);
+4. `sudo /usr/bin/systemctl restart clodeck`;
+5. poll `http://127.0.0.1:3001/healthz` for up to 60 seconds.
+
+If the build, the restart or the health check fails, it resets to the commit that was live before,
+runs `npm ci` (unconditionally — a half-finished install must not survive into the rollback),
+rebuilds, restarts, and exits non-zero. There is **no idle gate**: a restart drops live sessions,
+which is accepted (ticket 93).
+
+### One-time setup
+
+The runbook below is the one ticket 93 carries; it assumes the publish machine is Windows and the
+server is Linux. Run it once, in order.
+
+**1. `gh` on the publish machine.**
+
+```powershell
+winget install --id GitHub.cli
+gh auth login
+```
+
+**2. Create `master` from `main`, and protect it.**
+
+```sh
+git push origin main:master
+```
+
+GitHub UI → Settings → Branches → pattern `master`: require a pull request (0 approvals), required
+status check **`check`**, **Require branches to be up to date off**, force-push and deletion off,
+allow administrators to bypass on, and **Automatically delete head branches off** (the head is
+`main`, which must survive).
+
+**3. Deploy key.** On the publish machine:
+
+```powershell
+ssh-keygen -t ed25519 -f "$HOME/.ssh/clodeck_deploy" -C "clodeck deploy"   # Enter, Enter
+Get-Content "$HOME/.ssh/clodeck_deploy.pub"
+```
+
+**4. The server.** Install the script *before* the key — otherwise the forced command does not
+exist yet. As a sudo-capable user:
+
+```sh
+sudo install -o root -g root -m 755 \
+  /home/clodeck/clodeck/scripts/clodeck-deploy.sh /usr/local/bin/clodeck-deploy
+
+sudo -u clodeck mkdir -p /home/clodeck/.ssh
+sudo chmod 700 /home/clodeck/.ssh
+echo 'command="/usr/local/bin/clodeck-deploy",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA…' \
+  | sudo tee -a /home/clodeck/.ssh/authorized_keys
+sudo chown clodeck:clodeck /home/clodeck/.ssh/authorized_keys
+sudo chmod 600 /home/clodeck/.ssh/authorized_keys
+
+echo 'clodeck ALL=(root) NOPASSWD: /usr/bin/systemctl restart clodeck' \
+  | sudo tee /etc/sudoers.d/clodeck-deploy
+sudo chmod 440 /etc/sudoers.d/clodeck-deploy
+sudo visudo -cf /etc/sudoers.d/clodeck-deploy
+
+sudo -u clodeck git -C /home/clodeck/clodeck fetch origin
+sudo -u clodeck git -C /home/clodeck/clodeck switch master
+sudo -u clodeck git -C /home/clodeck/clodeck status -sb     # ## master...origin/master
+```
+
+The server checkout must be able to `git fetch` without a terminal — a credential helper or a
+read-only deploy key — because the workflow has no TTY. It must also find `npm` on the PATH sshd
+gives a non-interactive session: a distro package or NodeSource install is visible there, while an
+`nvm` install usually is not, and the deploy stops with `npm is not on PATH` rather than build with a
+different Node.
+
+**5. GitHub secrets and variables.** In the repository:
+
+```powershell
+Get-Content -Raw "$HOME/.ssh/clodeck_deploy" | gh secret set DEPLOY_SSH_KEY
+ssh-keyscan -H <host> | gh secret set DEPLOY_KNOWN_HOSTS
+gh variable set DEPLOY_HOST --body "<address>"
+gh variable set DEPLOY_USER --body "clodeck"
+```
+
+`DEPLOY_KNOWN_HOSTS` is a **pin**, not a convenience: compare its fingerprint with
+`/etc/ssh/ssh_host_ed25519_key.pub` on the server before storing it. The deploy job pins it on every
+connection (`StrictHostKeyChecking=yes`).
+
+### Rollback
+
+An automatic rollback is local to the server: it restores the previously running commit and leaves
+GitHub's `master` on the bad merge commit, so the two never disagree silently. To undo the publish
+itself, open a revert PR against `master` on GitHub; merging that is another deploy, of the reverted
+tree.
 
 ## Docs
 
