@@ -3,13 +3,14 @@
 # The production deploy, as the server runs it.
 #
 # This file is the repo's **reference copy**; the copy that does the work is
-# root-owned at `/usr/local/bin/clodeck-deploy`. `authorized_keys` binds the
-# deploy key to that path as a forced command, so an SSH session with the key
-# cannot run anything else — no shell, no second command. The only argument it
-# accepts is `deploy <40-hex-sha>`, which is how the workflow pins the commit it
-# verified; a bare `deploy` (or no command at all) falls back to `origin/master`.
-# Install it with the runbook in the README's "Publishing and CI/CD" section;
-# the two copies must be updated together.
+# root-owned at `/usr/local/bin/clodeck-deploy`. The only request it accepts is
+# `deploy <40-hex-sha>` — the commit the workflow verified — and a bare `deploy`
+# (or no request at all) falls back to `origin/master`. The self-hosted runner
+# passes that request as an argument; over SSH the same text arrives as
+# `SSH_ORIGINAL_COMMAND` through `authorized_keys`, where the key is bound to
+# this script as a forced command and cannot run anything else. Install it with
+# the runbook in the README's "Publishing and CI/CD" section; the two copies
+# must be updated together.
 #
 # What one deploy is:
 #
@@ -42,9 +43,14 @@ HEALTH_URL="http://127.0.0.1:3001/healthz"
 HEALTH_TIMEOUT=60
 SYSTEMCTL="/usr/bin/systemctl"
 
-# Under a forced command SSH still sets this. It is parsed, never executed: the
-# key holder is trusted to deploy, not to choose what the deploy does.
+# Two ways in, one contract. Over SSH the forced command arrives in
+# SSH_ORIGINAL_COMMAND; the self-hosted runner calls this script directly, so
+# the same text arrives as arguments. Either way it is parsed, never executed:
+# the caller is trusted to deploy, not to choose what the deploy does.
 REMOTE_COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+if [ -z "$REMOTE_COMMAND" ] && [ "$#" -gt 0 ]; then
+  REMOTE_COMMAND="$*"
+fi
 EXPECTED_COMMIT=""
 
 case "$REMOTE_COMMAND" in
