@@ -32,10 +32,12 @@ export type PermissionMode =
   | 'auto';
 
 /**
- * The modes clodeck offers today, as the wire names them: the narrower contract
- * the product keeps, not the SDK's six-value union (ADR 0003). `auto` and
- * `dontAsk` are refused for good; `bypassPermissions` joins this list when
- * ticket 85 lands its gates.
+ * The modes clodeck offers, as the wire names them: the narrower contract the
+ * product keeps, not the SDK's six-value union (ADR 0003). `auto` and `dontAsk`
+ * are refused for good. `bypassPermissions` is a mode the wire carries, but it
+ * is **gated at runtime**: `CLODECK_ALLOW_BYPASS` and a project's own
+ * `disableBypassPermissionsMode` can each refuse it, and the snapshot says which
+ * before a chip offers it (ticket 85).
  *
  * One list, because three consumers must agree: the wire validator, the boot
  * default, and the client's snapshot parser. A mode this list does not name is
@@ -45,6 +47,7 @@ export const SELECTABLE_PERMISSION_MODES = [
   'default',
   'acceptEdits',
   'plan',
+  'bypassPermissions',
 ] as const satisfies readonly PermissionMode[];
 
 export type SelectablePermissionMode = (typeof SELECTABLE_PERMISSION_MODES)[number];
@@ -52,6 +55,23 @@ export type SelectablePermissionMode = (typeof SELECTABLE_PERMISSION_MODES)[numb
 /** True when `value` is one of the modes clodeck offers today. */
 export function isSelectablePermissionMode(value: unknown): value is SelectablePermissionMode {
   return SELECTABLE_PERMISSION_MODES.some((mode) => mode === value);
+}
+
+/**
+ * Whether **Bypass** may be chosen in this project, and why not when it may not
+ * (ticket 85). Two gates decide it, and both are the server's: the deployment's
+ * `CLODECK_ALLOW_BYPASS`, and the project's own
+ * `permissions.disableBypassPermissionsMode: "disable"`.
+ *
+ * A surface that cannot see the gates cannot explain them, so the snapshot
+ * carries both the answer and its reason — a chip that simply went missing
+ * would leave the user guessing whether Bypass exists at all. `reason` is
+ * present exactly when `allowed` is false.
+ */
+export interface BypassAvailability {
+  allowed: boolean;
+  /** One sentence for the surface, when Bypass is refused. */
+  reason?: string;
 }
 
 /** The authoritative turn state the SDK reports (research 01 §2). */

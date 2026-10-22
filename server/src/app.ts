@@ -85,6 +85,14 @@ export interface AppOptions {
    */
   permissionMode: PermissionMode;
   /**
+   * Whether **Bypass** may be chosen at all — `CLODECK_ALLOW_BYPASS`, read at
+   * boot (ticket 85). Configuration, like `permissionMode`: the deployment's
+   * gate, which a project's own settings can tighten but never open. The bus
+   * combines it with each project's file and the run refuses the mode when the
+   * two say no.
+   */
+  allowBypass: boolean;
+  /**
    * Where a line about a run goes — the profile and model a turn actually used,
    * which is the only record of a choice that is otherwise client state
    * (spec-08 §"Testing"). Defaults to the console, so `main.ts` says nothing
@@ -167,6 +175,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     projects: options.projects,
     turns,
     profiles: options.profiles,
+    allowBypass: options.allowBypass,
     auth: options.auth,
   });
   // The raw-byte sibling of `/ws`, on the same instance — no second server.

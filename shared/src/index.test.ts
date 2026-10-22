@@ -73,6 +73,7 @@ describe('@clodeck/shared', () => {
         payload: {
           state: 'running',
           permissionMode: 'default',
+          bypass: { allowed: true },
           blocks: [],
           pendingApprovals: [],
           lastSeq: 2,

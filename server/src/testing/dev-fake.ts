@@ -118,6 +118,9 @@ const app = buildApp({
   // The same mode the real server would start sessions in, so the loop can
   // exercise a non-Ask default by exporting the variable.
   permissionMode: config.permissionMode,
+  // And the same Bypass gate, so the loop can exercise a project's own refusal
+  // without a second code path (ticket 85).
+  allowBypass: config.allowBypass,
 });
 
 // The same loopback default as `main.ts`: the fake must not be reachable from

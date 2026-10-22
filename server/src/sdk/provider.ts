@@ -42,6 +42,17 @@ export interface SdkRunInput {
   /** Defaults to `'default'` at the real provider (gated tools ask through `canUseTool`). */
   permissionMode?: PermissionMode;
   /**
+   * Whether this run may take **Bypass** at all, asked of the two gates that
+   * decide it — `CLODECK_ALLOW_BYPASS` and the project's own settings (ticket
+   * 85). Absent means no.
+   *
+   * It is a capability of every run rather than a mode: the SDK wants
+   * `allowDangerouslySkipPermissions` at `query()` time, and a mid-turn switch
+   * to Bypass has to be possible, so the flag is set up front and the refusal
+   * happens in clodeck instead.
+   */
+  allowBypass?: boolean;
+  /**
    * The provider this run executes on, already resolved. Absent means the
    * server's own environment — the reserved **default** profile, and the only
    * behaviour there was before a run could choose one.

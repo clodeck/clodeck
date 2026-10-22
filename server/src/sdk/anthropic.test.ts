@@ -18,6 +18,7 @@ import {
   planDenialHooks,
   providerEnv,
   toSdkCanUseTool,
+  toSdkOptions,
 } from './anthropic.js';
 import { BASH_APPROVAL_REASON } from './bash-approval.js';
 import { PLAN_DENIAL_REASON, plansDirectory } from './plan-denial.js';
@@ -371,5 +372,65 @@ describe('providerEnv', () => {
     const env = providerEnv({ baseUrl: 'https://gateway.example', authToken: 'a-token' });
 
     expect(env?.['ANTHROPIC_MODEL']).toBe('the-ambient-model');
+  });
+});
+
+/**
+ * The one run-level option Bypass needs (ticket 85). The capability is a
+ * property of the run, not of the mode: the SDK reads it once at `query()`
+ * time, and a mid-turn switch has to be possible, so a run the gates allow
+ * carries it whatever mode it starts in. A run they refuse does not carry it at
+ * all — the SDK's own refusal is then the second lock on the same door.
+ */
+describe('the Bypass flag', () => {
+  function options(allowBypass?: boolean): ReturnType<typeof toSdkOptions> {
+    return toSdkOptions(
+      { cwd: '/projects/a', prompt: 'hi', permissionMode: 'default', allowBypass },
+      new AbortController(),
+    );
+  }
+
+  it('is set on a run the gates allow, in every mode it starts in', () => {
+    expect(options(true).allowDangerouslySkipPermissions).toBe(true);
+    // Not only when the run starts in Bypass: the switch may come mid-turn.
+    const inPlan = toSdkOptions(
+      { cwd: '/projects/a', prompt: 'hi', permissionMode: 'plan', allowBypass: true },
+      new AbortController(),
+    );
+    expect(inPlan.allowDangerouslySkipPermissions).toBe(true);
+  });
+
+  it('is absent on a run the gates refuse — including when the input says nothing', () => {
+    expect(options(false).allowDangerouslySkipPermissions).toBeUndefined();
+    expect(options().allowDangerouslySkipPermissions).toBeUndefined();
+  });
+});
+
+/**
+ * Bypass carries no `PreToolUse` hook and no injected permission layer (ticket
+ * 85). That absence *is* the gate's promise: with nothing in front of them, the
+ * project's own deny and ask rules still decide, exactly as the warning says —
+ * an `ask` rule still prompts, a `deny` rule still denies. Every hook clodeck
+ * added, or a `permissions.ask` layer it injected, would run before those rules
+ * and could only narrow them.
+ *
+ * The survival itself is the SDK's to prove, not the fake's: it is measured in
+ * ticket 81 §"The measurements the contract rests on". What is pinned here is
+ * the half clodeck owns — that it adds nothing to Bypass.
+ */
+describe('what Bypass adds', () => {
+  it('registers neither gate, and injects no settings layer the project’s rules would meet first', () => {
+    expect(bashApprovalHooks('bypassPermissions')).toBeUndefined();
+    expect(planDenialHooks('bypassPermissions')).toBeUndefined();
+
+    const bypass = toSdkOptions(
+      { cwd: '/projects/a', prompt: 'hi', permissionMode: 'bypassPermissions', allowBypass: true },
+      new AbortController(),
+    );
+    expect(bypass.hooks).toBeUndefined();
+    // `settingSources: ['project']` is the only settings channel; an overlay
+    // here could only add rules, and Bypass adds none.
+    expect(bypass.settings).toBeUndefined();
+    expect(bypass.settingSources).toEqual(['project']);
   });
 });

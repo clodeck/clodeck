@@ -4,10 +4,11 @@ import type { WebSocket } from 'ws';
 import { PROTOCOL_VERSION, type ServerEvent } from '@clodeck/shared';
 
 import { installWebSocketGuards, type AuthOptions } from '../auth/transport.js';
+import { bypassAvailability } from '../bypass.js';
 import type { ProjectDiscovery } from '../discovery.js';
 import { createScopedFs } from '../files/scoped-fs.js';
-import { applyPin, UnknownProfileError, type ProviderProfiles, type RunProfile } from '../profiles.js';
-import { readProjectPin } from '../project-pin.js';
+import { applyPin, UnknownProfileError, type ProviderProfiles } from '../profiles.js';
+import { readProjectSettings, type ProjectSettings } from '../project-pin.js';
 import { parseClientMessage } from './client-message.js';
 import type { EmitDraft, EventDraft } from './events.js';
 import { WS_OPEN, textOf } from './frames.js';
@@ -37,6 +38,13 @@ export function registerWsBus(
      * (`profiles.ts`'s `applyPin`).
      */
     profiles: ProviderProfiles;
+    /**
+     * The deployment's Bypass gate, `CLODECK_ALLOW_BYPASS` (ticket 85). Each
+     * project's own settings are read beside it, per connection and per control
+     * message, and the two together decide what the snapshot offers and what a
+     * turn may run under.
+     */
+    allowBypass: boolean;
     auth: AuthOptions;
   },
 ): void {
@@ -56,7 +64,12 @@ export function registerWsBus(
 async function openConnection(
   socket: WebSocket,
   request: FastifyRequest,
-  options: { projects: ProjectDiscovery; turns: TurnManager; profiles: ProviderProfiles },
+  options: {
+    projects: ProjectDiscovery;
+    turns: TurnManager;
+    profiles: ProviderProfiles;
+    allowBypass: boolean;
+  },
 ): Promise<void> {
   const emit = createEmitter(socket);
 
@@ -84,6 +97,14 @@ async function openConnection(
     return;
   }
 
+  // The gates are read before the snapshot, because the snapshot is the one
+  // place a fresh client learns what Bypass may do here — and why not.
+  await recordBypass({
+    projectId: project.id,
+    cwd: project.path,
+    turns: options.turns,
+    allowBypass: options.allowBypass,
+  });
   emit(options.turns.snapshot(project.id));
 
   // Subscribed only after the snapshot, so no live event can precede it.
@@ -91,7 +112,14 @@ async function openConnection(
 
   const cwd = project.path;
   handle = (raw) => {
-    drain = drain.then(() => dispatchFrame(raw, { projectId: project.id, cwd, options, emit }));
+    drain = drain.then(() =>
+      dispatchFrame(raw, {
+        projectId: project.id,
+        cwd,
+        options: { turns: options.turns, profiles: options.profiles, allowBypass: options.allowBypass },
+        emit,
+      }),
+    );
   };
 
   for (const raw of buffered.splice(0)) handle(raw);
@@ -102,7 +130,7 @@ async function dispatchFrame(
   context: {
     projectId: string;
     cwd: string;
-    options: { turns: TurnManager; profiles: ProviderProfiles };
+    options: { turns: TurnManager; profiles: ProviderProfiles; allowBypass: boolean };
     emit: EmitDraft;
   },
 ): Promise<void> {
@@ -116,29 +144,49 @@ async function dispatchFrame(
 
   try {
     switch (intent.type) {
-      case 'send_prompt':
+      case 'send_prompt': {
         // The name is resolved here, before anything starts: an unknown one
         // throws, the run is never created, and the client is told which name it
         // asked for — never quietly given the default.
+        const profile = context.options.profiles.resolve(intent.payload.profile);
+        // One read of the project's file serves both of its facts — the pin that
+        // narrows the profile, and the Bypass switch that narrows the mode.
+        const settings = await recordBypass({
+          projectId: context.projectId,
+          cwd: context.cwd,
+          turns: context.options.turns,
+          allowBypass: context.options.allowBypass,
+        });
         context.options.turns.sendPrompt(
           context.projectId,
           context.cwd,
           intent.payload.prompt,
-          await profileForRun(context.options.profiles, context.cwd, intent.payload.profile),
+          applyPin(profile, settings.pin),
           // The send's own choice, or undefined to let the run keep its stored
           // mode. It travels with the prompt so an idle choice needs no second
           // frame and cannot race the turn it belongs to.
           intent.payload.permissionMode,
         );
         break;
+      }
       case 'interrupt':
         if (!(await context.options.turns.interrupt(context.projectId))) emitNoActiveTurn(context);
         break;
-      case 'set_permission_mode':
-        if (!(await context.options.turns.setPermissionMode(context.projectId, intent.mode))) {
-          emitNoActiveTurn(context);
-        }
+      case 'set_permission_mode': {
+        // Re-read before a switch, for the same reason a send does: the file is
+        // the user's, and a project that has just disabled Bypass must refuse
+        // it through a running turn too.
+        await recordBypass({
+          projectId: context.projectId,
+          cwd: context.cwd,
+          turns: context.options.turns,
+          allowBypass: context.options.allowBypass,
+        });
+        const change = await context.options.turns.setPermissionMode(context.projectId, intent.mode);
+        if (change === 'no-active-turn') emitNoActiveTurn(context);
+        // `refused` already reached the client with its reason.
         break;
+      }
       case 'approval_response':
         if (!context.options.turns.resolveApproval(context.projectId, intent.response)) {
           context.emit(
@@ -173,23 +221,36 @@ async function dispatchFrame(
 }
 
 /**
- * The profile a `send_prompt` will run on: the name resolved against the boot-time
- * list, then narrowed by whatever the project pins in its own
- * `.claude/settings.json` (ADR 0002).
+ * What the project's own `.claude/settings.json` says right now, with the
+ * Bypass answer it implies recorded on the run: the provider it pins (ADR 0002)
+ * and whether it forbids Bypass (ticket 85), from one read.
  *
- * The pin is read here, per send, through the project's own `ScopedFs`: the file
- * is the user's, they can edit it in the drawer, and a turn that starts after such
- * an edit has to honour it — a cached answer would be a rule applied to a project
- * as it used to be. The name is resolved first, so a stale one is refused without
- * touching a disk.
+ * Read per control message rather than cached, through the project's own
+ * `ScopedFs`: the file is the user's, they can edit it in the drawer, and a turn
+ * that starts after such an edit has to honour it — a cached answer would be a
+ * rule applied to a project as it used to be. The profile *name* is resolved
+ * before this is called, so a stale one is refused without touching a disk.
+ *
+ * Three callers, one sentence: a connection's snapshot, the send that may start
+ * a turn, and the switch that may move one. Two of them need the settings back;
+ * the connection needs only the record, which is why the record is the side
+ * effect and the settings the return.
  */
-async function profileForRun(
-  profiles: ProviderProfiles,
-  cwd: string,
-  name: string | undefined,
-): Promise<RunProfile> {
-  const profile = profiles.resolve(name);
-  return applyPin(profile, await readProjectPin(createScopedFs(cwd)));
+async function recordBypass(context: {
+  projectId: string;
+  cwd: string;
+  turns: TurnManager;
+  allowBypass: boolean;
+}): Promise<ProjectSettings> {
+  const settings = await readProjectSettings(createScopedFs(context.cwd));
+  context.turns.setBypassAvailability(
+    context.projectId,
+    bypassAvailability({
+      allowBypass: context.allowBypass,
+      projectDisabled: settings.bypassDisabled,
+    }),
+  );
+  return settings;
 }
 
 function emitNoActiveTurn(context: { projectId: string; emit: EmitDraft }): void {

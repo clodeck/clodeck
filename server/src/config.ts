@@ -14,6 +14,13 @@ export interface ServerConfig {
   /** The projects root, or null when nothing is configured (an empty list, never an error). */
   projectsRoot: string | null;
   /**
+   * Whether **Bypass** may be chosen at all, read once at boot from
+   * `CLODECK_ALLOW_BYPASS` and **on** when the variable says nothing (ticket
+   * 85). It is the deployment's gate; a project's own settings can refuse
+   * Bypass too, but never grant it where this says no.
+   */
+  allowBypass: boolean;
+  /**
    * The single account's password, or null when nothing is configured. Null is
    * a *valid* state and a loud one: the server boots fail-closed, so every
    * gated route and socket answers 401 (spec-05 §"Config + main wiring").
@@ -101,9 +108,13 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   const warn = options.warn ?? warnToConsole;
   const cwd = options.cwd ?? process.cwd();
   const configPath = options.configPath ?? path.join(cwd, CONFIG_FILE_NAME);
+  // Read before the mode: a deployment that bans Bypass and asks for it as its
+  // default is a contradiction, and the mode reader says so.
+  const allowBypass = allowBypassFromEnv(env, warn);
 
   return {
     projectsRoot: projectsRoot(env, configPath, warn),
+    allowBypass,
     uiPassword: uiPassword(env, warn),
     webRoot: webRoot(env, cwd, warn),
     publicOrigin: publicOrigin(env),
@@ -115,27 +126,70 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     // The one value here that is refused rather than warned about: a mode the
     // contract does not offer is a promise the UI cannot keep, so the process
     // stops at boot instead of running every turn in a mode nobody chose.
-    permissionMode: permissionModeFromEnv(env),
+    permissionMode: permissionModeFromEnv(env, allowBypass),
   };
 }
 
 /**
  * `CLODECK_PERMISSION_MODE`, or Ask when it is unset or blank. A value outside
- * {@link SELECTABLE_PERMISSION_MODES} throws: this is the one misconfiguration
- * whose symptom would be a session quietly running under a policy the operator
- * did not pick, so it is stopped at the door rather than reported and ignored.
+ * {@link SELECTABLE_PERMISSION_MODES} throws, and so does Bypass on a
+ * deployment that has switched it off: this is the one misconfiguration whose
+ * symptom would be a session quietly running under a policy the operator did
+ * not pick, so it is stopped at the door rather than reported and ignored.
  */
-export function permissionModeFromEnv(env: NodeJS.ProcessEnv): PermissionMode {
+export function permissionModeFromEnv(
+  env: NodeJS.ProcessEnv,
+  allowBypass: boolean,
+): PermissionMode {
   const declared = envValue(env, 'CLODECK_PERMISSION_MODE');
   if (declared === null) return 'default';
-  if (isSelectablePermissionMode(declared)) return declared;
+  if (isSelectablePermissionMode(declared)) {
+    if (declared === 'bypassPermissions' && !allowBypass) {
+      throw new Error(
+        'CLODECK_PERMISSION_MODE is "bypassPermissions", but CLODECK_ALLOW_BYPASS is off — ' +
+          `use one of ${SELECTABLE_PERMISSION_MODES.filter((mode) => mode !== 'bypassPermissions').join(', ')}`,
+      );
+    }
+    return declared;
+  }
 
-  const unavailable =
-    declared === 'bypassPermissions' ? ' — Bypass is not available yet (ticket 85)' : '';
   throw new Error(
-    `CLODECK_PERMISSION_MODE is "${declared}"; use one of ` +
-      `${SELECTABLE_PERMISSION_MODES.join(', ')}${unavailable}`,
+    `CLODECK_PERMISSION_MODE is "${declared}"; use one of ${SELECTABLE_PERMISSION_MODES.join(', ')}`,
   );
+}
+
+/**
+ * `CLODECK_ALLOW_BYPASS`, default **on**: a single-user server keeps the option
+ * unless its operator says otherwise, and a deployment that never sets the
+ * variable sees no change (ticket 85, decision 10).
+ *
+ * The words are read the way a shell writes them (`on/off`, `true/false`,
+ * `yes/no`, `1/0`), and anything else switches Bypass **off** with a warning:
+ * a security gate's failure mode is to stay shut, and a typo that silently
+ * opened the widest mode in the product would be the worst kind of bug.
+ */
+export function allowBypassFromEnv(env: NodeJS.ProcessEnv, warn: Warn = warnToConsole): boolean {
+  const declared = envValue(env, 'CLODECK_ALLOW_BYPASS');
+  if (declared === null) return true;
+
+  switch (declared.toLowerCase()) {
+    case 'on':
+    case 'true':
+    case 'yes':
+    case '1':
+      return true;
+    case 'off':
+    case 'false':
+    case 'no':
+    case '0':
+      return false;
+    default:
+      warn(
+        `CLODECK_ALLOW_BYPASS is "${declared}", which is not a yes or a no; ` +
+          'Bypass stays off — set it to on or off',
+      );
+      return false;
+  }
 }
 
 /**

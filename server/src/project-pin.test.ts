@@ -4,7 +4,15 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createScopedFs } from './files/scoped-fs.js';
-import { isPinned, NO_PIN, readPin, readProjectPin, type ProjectPin } from './project-pin.js';
+import {
+  isPinned,
+  NO_PIN,
+  readPin,
+  readProjectPin,
+  readProjectSettings,
+  readSettings,
+  type ProjectPin,
+} from './project-pin.js';
 import { createSandbox, linkType, removeSandbox, type Sandbox } from './test-support.js';
 
 /**
@@ -96,6 +104,48 @@ describe('the keys a settings file declares', () => {
   });
 });
 
+/**
+ * The other fact the same file carries since ticket 85: whether the project
+ * forbids **Bypass**. Only the SDK's own one-value switch counts, so this half
+ * can never read a refusal the SDK would not honour.
+ */
+describe('the Bypass switch a settings file declares', () => {
+  it('reads the SDK’s one value as a refusal', () => {
+    expect(readSettings({ permissions: { disableBypassPermissionsMode: 'disable' } })).toEqual({
+      pin: NO_PIN,
+      bypassDisabled: true,
+    });
+  });
+
+  it('reads everything else as no refusal', () => {
+    // Absent, a file about other things, a value the SDK would not honour, and a
+    // `permissions` that is not an object: none of them disables anything.
+    for (const settings of [
+      {},
+      { env: { ANTHROPIC_MODEL: 'm' } },
+      { permissions: {} },
+      { permissions: { disableBypassPermissionsMode: 'allow' } },
+      { permissions: 'disable' },
+      { permissions: ['disable'] },
+      42,
+    ]) {
+      expect(readSettings(settings).bypassDisabled).toBe(false);
+    }
+  });
+
+  it('reads both facts from one document, without either disturbing the other', () => {
+    const settings = readSettings({
+      env: { ANTHROPIC_BASE_URL: 'https://vendor.example/anthropic' },
+      permissions: { disableBypassPermissionsMode: 'disable' },
+    });
+
+    expect(settings).toEqual({
+      pin: { baseUrl: 'https://vendor.example/anthropic' },
+      bypassDisabled: true,
+    });
+  });
+});
+
 describe('the pin a project reads off its own disk', () => {
   let sandbox: Sandbox;
   let root: string;
@@ -155,6 +205,34 @@ describe('the pin a project reads off its own disk', () => {
     expect(pin).toEqual(NO_PIN);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('.claude/settings.json');
+  });
+
+  it('reads the Bypass switch off the same file, in the same read', async () => {
+    const directory = await project(
+      'no-bypass',
+      JSON.stringify({
+        env: { ANTHROPIC_AUTH_TOKEN: 'a-credential' },
+        permissions: { disableBypassPermissionsMode: 'disable' },
+      }),
+    );
+
+    // One document, both facts — the bus needs them together before every turn
+    // (ticket 85).
+    const settings = await readProjectSettings(createScopedFs(directory));
+
+    expect(settings).toEqual({
+      pin: { authToken: 'a-credential' },
+      bypassDisabled: true,
+    });
+  });
+
+  it('reads a project with no settings file as disabling nothing', async () => {
+    const directory = await project('plain-bypass');
+
+    expect(await readProjectSettings(createScopedFs(directory))).toEqual({
+      pin: NO_PIN,
+      bypassDisabled: false,
+    });
   });
 
   it('reads a `.claude` that points outside the project as pinning nothing', async () => {

@@ -36,10 +36,11 @@ function snapshot(
   state: 'idle' | 'running',
   permissionMode: PermissionMode,
   sessionId?: string,
+  bypass = { allowed: true },
 ): unknown {
   return frame(
     'snapshot',
-    { state, permissionMode, blocks: [], pendingApprovals: [], lastSeq: 0 },
+    { state, permissionMode, bypass, blocks: [], pendingApprovals: [], lastSeq: 0 },
     sessionId,
   );
 }
@@ -69,18 +70,22 @@ afterEach(() => {
 });
 
 /** Open the panel's socket and hand it a snapshot of the run. */
-function openWith(state: 'idle' | 'running', permissionMode: PermissionMode): void {
+function openWith(
+  state: 'idle' | 'running',
+  permissionMode: PermissionMode,
+  bypass?: { allowed: boolean; reason?: string },
+): void {
   act(() => {
     latestSocket().open();
   });
   act(() => {
-    latestSocket().deliver(snapshot(state, permissionMode));
+    latestSocket().deliver(snapshot(state, permissionMode, undefined, bypass));
   });
 }
 
 /** Pick `label` from the mode chip, the way a user does. */
 function choose(label: string): void {
-  fireEvent.click(screen.getByRole('button', { name: /^(Ask|Accept edits|Plan|bypassPermissions)$/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^(Ask|Accept edits|Plan|Bypass)$/ }));
   fireEvent.click(screen.getByRole('option', { name: label }));
 }
 
@@ -147,5 +152,80 @@ describe('the mode a turn is sent on', () => {
       latestSocket().deliver(snapshot('idle', 'default'));
     });
     expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
+  });
+});
+
+/**
+ * Bypass in the composer (ticket 85): the confirmation is the client's half of
+ * the gate, and the badge is the other — a warning that cannot be dismissed is
+ * what "while Bypass is active" means.
+ */
+describe('Bypass in the composer', () => {
+  it('switches a running turn only after the confirmation', () => {
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
+    openWith('running', 'default');
+
+    choose('Bypass');
+    // The dialog is up and nothing has been sent: choosing Bypass is two clicks.
+    expect(latestSocket().sent).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on Bypass' }));
+
+    expect(latestSocket().lastSent()).toMatchObject({
+      type: 'set_permission_mode',
+      payload: { mode: 'bypassPermissions' },
+    });
+  });
+
+  it('keeps the badge up while Bypass is active, and takes it down on a switch', () => {
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
+    openWith('idle', 'default');
+
+    expect(screen.queryByText(/every tool runs without asking/i)).toBeNull();
+
+    choose('Bypass');
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on Bypass' }));
+    expect(screen.getByText(/Bypass — every tool runs without asking/i)).toBeTruthy();
+
+    // The next mode change is what ends the warning: nothing else dismisses it.
+    choose('Plan');
+    expect(screen.queryByText(/every tool runs without asking/i)).toBeNull();
+  });
+
+  it('does not offer Bypass when the snapshot’s gates refuse it', () => {
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
+    openWith('idle', 'default', { allowed: false, reason: 'CLODECK_ALLOW_BYPASS is off.' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    const option = screen.getByRole('option', { name: 'Bypass' });
+    expect(option).toHaveProperty('disabled', true);
+    expect(screen.getByText('CLODECK_ALLOW_BYPASS is off.')).toBeTruthy();
+  });
+
+  it('shows the SDK’s own words when a Bypass turn is refused', () => {
+    render(<ToastProvider><ChatPanel project={project} /></ToastProvider>);
+    openWith('running', 'bypassPermissions');
+
+    // The root/sudo refusal is the SDK's, and it fails the turn rather than
+    // falling back to a quieter mode: the reason is the one thing the user needs,
+    // so the subtype alone is not enough (ticket 85).
+    act(() => {
+      latestSocket().deliver(
+        frame('sdk', {
+          type: 'result',
+          subtype: 'error_during_execution',
+          session_id: 'S1',
+          is_error: true,
+          errors: ['Cannot use bypass permissions mode when running as root'],
+          num_turns: 1,
+          stop_reason: null,
+          modelUsage: {},
+          total_cost_usd: 0,
+          duration_ms: 5,
+        }),
+      );
+    });
+
+    expect(screen.getByText(/Turn failed \(error_during_execution\)/)).toBeTruthy();
+    expect(screen.getByText(/running as root/)).toBeTruthy();
   });
 });
