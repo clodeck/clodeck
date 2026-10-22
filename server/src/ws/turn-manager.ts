@@ -4,6 +4,7 @@ import {
   PROTOCOL_VERSION,
   type ApprovalRequestPayload,
   type ApprovalResponsePayload,
+  type BypassAvailability,
   type PermissionMode,
   type ProtocolVersion,
   type ResolvedProvider,
@@ -51,10 +52,21 @@ export interface TurnManager {
     profile: RunProfile,
     permissionMode?: PermissionMode,
   ): void;
+  /**
+   * Record what the gates allow **Bypass** to do here, as the bus just read them
+   * (ticket 85). The run stores it for two reasons: a snapshot has to state it,
+   * and every `query()` has to know whether it may carry the SDK's
+   * skip-permissions capability at all.
+   */
+  setBypassAvailability(projectId: string, availability: BypassAvailability): void;
   /** Interrupt the active run. False when the project has no active turn. */
   interrupt(projectId: string): Promise<boolean>;
-  /** Change the active run's permission mode. False when there is no active turn. */
-  setPermissionMode(projectId: string, mode: PermissionMode): Promise<boolean>;
+  /**
+   * Change the active run's permission mode. `no-active-turn` is the ordinary
+   * refusal — there is no run to switch — while `refused` means the gates
+   * turned Bypass down and the client has already been told why.
+   */
+  setPermissionMode(projectId: string, mode: PermissionMode): Promise<ModeChange>;
   /** Resolve a parked approval. False when no pending request matches the id. */
   resolveApproval(projectId: string, response: ApprovalResponsePayload): boolean;
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
@@ -103,6 +115,9 @@ export interface TurnManager {
   clearResume(projectId: string): void;
 }
 
+/** What came of a mid-turn mode switch (ticket 85's gate is the third case). */
+export type ModeChange = 'changed' | 'no-active-turn' | 'refused';
+
 export interface TurnManagerOptions {
   /** Where each run's profile and model are recorded. Defaults to the console. */
   log?: Log;
@@ -128,6 +143,9 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       id: projectId,
       status: 'idle',
       permissionMode: defaultPermissionMode,
+      // Until the bus has read the gates, Bypass is not offered: the safe
+      // answer is the one that cannot run every tool without asking.
+      bypass: { allowed: false },
       blocks: [],
       pending: new Map(),
       subscribers: new Set(),
@@ -171,6 +189,12 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // boot default — which the run was born with. Recording it before the
       // query is what makes the *next* turn start where this one ran.
       const mode = permissionMode ?? state.permissionMode;
+      // The gates are checked against the mode that would *actually* run, which
+      // is why they are read here and not only at the send's payload: a run
+      // already in Bypass keeps it, and a project that has since switched
+      // Bypass off must not start another one in it. Nothing runs when the
+      // answer is no, and the reason is the whole of the message.
+      if (!bypassPermitted(state, mode)) return;
       state.permissionMode = mode;
 
       // Recorded as the run starts, and only now: a send the busy check above
@@ -206,6 +230,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
           // not only on the first send — or the turn after a switch would fall
           // back to the SDK's default.
           permissionMode: mode,
+          // The SDK reads its skip-permissions capability once, at start, and a
+          // mid-turn switch to Bypass has to be possible — so a run the gates
+          // allow carries it from the beginning, in every mode it starts in.
+          allowBypass: state.bypass.allowed,
           // The keys the run carries, not the name: an operator renaming or
           // removing a profile mid-turn cannot move it, and a project's pin has
           // already had its say (`applyPin`). `null` sends no keys at all, so
@@ -245,16 +273,24 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       return true;
     },
 
+    setBypassAvailability(projectId, availability) {
+      run(projectId).bypass = availability;
+    },
+
     async setPermissionMode(projectId, mode) {
       const state = run(projectId);
-      if (state.active === undefined) return false;
+      // The gate comes first: a refused switch must not reach the SDK, and a
+      // project that disables Bypass must not be able to take it through a
+      // running turn either.
+      if (!bypassPermitted(state, mode)) return 'refused';
+      if (state.active === undefined) return 'no-active-turn';
 
       await state.active.setPermissionMode(mode);
       // The live switch and the session's memory are one act: the next turn is
       // a fresh `query()` that reads this value, and a switch that only reached
       // the running one would be forgotten at the turn boundary.
       state.permissionMode = mode;
-      return true;
+      return 'changed';
     },
 
     resolveApproval(projectId, response) {
@@ -353,6 +389,9 @@ function snapshotOf(state: ProjectRun): EventDraft {
       // The effective mode, never a blank: a reconnecting client shows it, and
       // a session that has chosen nothing starts where the server said it would.
       permissionMode: state.permissionMode,
+      // Whether Bypass may be offered here, and why not when it may not: a gate
+      // the surface cannot see is a chip that goes missing with no explanation.
+      bypass: state.bypass,
       // Copies: a snapshot is a point in time, and the run keeps appending.
       blocks: [...state.blocks],
       pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
@@ -468,6 +507,29 @@ function resumeInput(target: ResumePayload | undefined): {
   };
 }
 
+/**
+ * Whether this run may start (or switch to) `mode`, under the gates the bus last
+ * read. Only Bypass is gated; every other mode is the worker's own business.
+ *
+ * When the answer is no the client is told why — the same sentence the snapshot
+ * carries — and the caller stops without starting or switching anything. There
+ * is deliberately no fallback to a quieter mode: a turn that silently ran under
+ * a policy nobody chose would be worse than one that did not run (ticket 85).
+ */
+function bypassPermitted(state: ProjectRun, mode: PermissionMode): boolean {
+  if (mode !== 'bypassPermissions' || state.bypass.allowed) return true;
+
+  broadcast(state, {
+    ...envelope(state),
+    kind: 'error',
+    payload: {
+      code: 'bypass_unavailable',
+      message: state.bypass.reason ?? 'Bypass is not available in this project.',
+    },
+  });
+  return false;
+}
+
 /** Emits `approval_request` and parks the run until `resolveApproval` answers it. */
 function park(state: ProjectRun, request: ApprovalRequestPayload): Promise<ApprovalResponsePayload> {
   state.status = 'requires_action';
@@ -509,14 +571,18 @@ async function pump(state: ProjectRun, active: SdkRun, log: Log): Promise<void> 
         });
       }
     }
-  } catch {
+  } catch (error) {
     // The SDK throws after an error result too; once the result landed the turn
     // is already closed, so only a throw before one is a real failure.
     if (!ended) {
       broadcast(state, {
         ...envelope(state),
         kind: 'error',
-        payload: { code: 'internal', message: 'the turn failed' },
+        // The SDK's own words when it gave any — a Bypass refused for running
+        // as root says exactly that, and the user needs the sentence, not just
+        // the fact that something failed (ticket 85). There is no fallback to a
+        // quieter mode: the turn ends, and the mode stays what it was.
+        payload: { code: 'internal', message: failureMessage(error) },
       });
     }
   } finally {
@@ -526,6 +592,12 @@ async function pump(state: ProjectRun, active: SdkRun, log: Log): Promise<void> 
     // A turn that ended can no longer act on an approval it never got answered.
     state.pending.clear();
   }
+}
+
+/** A thrown run's message, with the generic line kept for an error that carries none. */
+function failureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message.trim() : '';
+  return detail === '' ? 'the turn failed' : `the turn failed: ${detail}`;
 }
 
 function broadcast(state: ProjectRun, draft: EventDraft): void {
@@ -567,6 +639,12 @@ interface ProjectRun {
    * the default by a New chat — never written anywhere else.
    */
   permissionMode: PermissionMode;
+  /**
+   * Whether Bypass may be chosen here, as the bus last read the two gates. The
+   * run keeps it rather than the bus because three places need one answer: the
+   * snapshot, every `query()`'s skip-permissions flag, and the refusal itself.
+   */
+  bypass: BypassAvailability;
   readonly blocks: SDKMessage[];
   readonly pending: Map<string, PendingApproval>;
   readonly subscribers: Set<EmitDraft>;

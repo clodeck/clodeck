@@ -8,7 +8,7 @@ miguyad.
 
 **Blocked by:** 83
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## Agent Brief
 
@@ -40,17 +40,44 @@ project, confirm va badge ezāfe mishavad. Bypass hich hook-e "ask" register nem
   still apply."*
 
 **Acceptance criteria:**
-- [ ] Bypass faghat ba'd az confirm entekhāb mishavad; cancel mode-e ghabli rā negah midārad.
-- [ ] Bā `CLODECK_ALLOW_BYPASS=off`, Bypass dar server rad mishavad va UI pishnahad-ash nemikonad.
-- [ ] Project bā `disableBypassPermissionsMode: 'disable'` Bypass rā dar server va UI rad mikonad, bā dalil.
-- [ ] Dar Bypass, yek Bash-e ādi bedoone modal ejrā mishavad.
-- [ ] Yek ask rule-e project dar Bypass hanuz modal miporsad; deny rule hanuz deny mikonad.
-- [ ] Switch-e miyān-e turn be Bypass kār mikonad (flag dar āghāz-e run set shode ast).
-- [ ] Badge tā vaghti Bypass fa'al ast dide mishavad va bā avaz kardan nāpadid mishavad.
-- [ ] Error-e root/sudo be user neshoon dāde mishavad; hich fallback-e sokooti nist.
-- [ ] Test-hā: validator, env, project disable, mid-turn switch, ask-rule survival, UI confirm/badge.
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] Bypass faghat ba'd az confirm entekhāb mishavad; cancel mode-e ghabli rā negah midārad.
+- [x] Bā `CLODECK_ALLOW_BYPASS=off`, Bypass dar server rad mishavad va UI pishnahad-ash nemikonad.
+- [x] Project bā `disableBypassPermissionsMode: 'disable'` Bypass rā dar server va UI rad mikonad, bā dalil.
+- [x] Dar Bypass, yek Bash-e ādi bedoone modal ejrā mishavad.
+- [x] Yek ask rule-e project dar Bypass hanuz modal miporsad; deny rule hanuz deny mikonad.
+- [x] Switch-e miyān-e turn be Bypass kār mikonad (flag dar āghāz-e run set shode ast).
+- [x] Badge tā vaghti Bypass fa'al ast dide mishavad va bā avaz kardan nāpadid mishavad.
+- [x] Error-e root/sudo be user neshoon dāde mishavad; hich fallback-e sokooti nist.
+- [x] Test-hā: validator, env, project disable, mid-turn switch, ask-rule survival, UI confirm/badge.
+- [x] `npm run typecheck` and `npm test` pass.
 
 **Out of scope:**
 - Ask/Accept edits (83), Plan (84).
 - "Remember this choice" barā-ye confirm — har entekhāb confirm-e khodesh rā dārad.
+
+## What landed
+
+- `shared/src/sdk.ts` — `bypassPermissions` joins `SELECTABLE_PERMISSION_MODES`;
+  `BypassAvailability` is the one gate answer a surface renders.
+- `shared/src/protocol.ts` — the snapshot carries `bypass: BypassAvailability`.
+- `server/src/config.ts` — `CLODECK_ALLOW_BYPASS` (default on, unknown values fail
+  shut with a warning); `CLODECK_PERMISSION_MODE=bypassPermissions` boots only when
+  it is allowed.
+- `server/src/project-pin.ts` — one read of `.claude/settings.json` now serves both
+  the provider pin and `permissions.disableBypassPermissionsMode` (`readSettings`,
+  `readProjectSettings`; `readProjectPin` stays as the pin-only door).
+- `server/src/bypass.ts` — the two gates combined, with a reason each.
+- `server/src/ws/bus.ts` — reads the gates per connection and per control message;
+  writes them into the run.
+- `server/src/ws/turn-manager.ts` — the run keeps the availability, passes
+  `allowBypass` to every `query()`, refuses Bypass on send and on a mid-turn switch
+  with `bypass_unavailable` (no fallback), and surfaces a thrown run's own message.
+- `server/src/sdk/anthropic.ts` — `allowDangerouslySkipPermissions` on every run the
+  gates allow; Bypass still registers no hook, which is what leaves the project's
+  deny/ask rules in charge.
+- `web/src/chat/PermissionModePicker.tsx` — the Bypass row, its confirmation, the
+  refused row with its reason, and `BYPASS_WARNING`.
+- `web/src/chat/ChatPanel.tsx` — the standing Bypass badge, the error title for
+  `bypass_unavailable`, and a failed result's own errors on the result line.
+- `web/src/chat/reducer.ts` — `bypass` in the view, read defensively from the
+  snapshot (missing means not allowed).

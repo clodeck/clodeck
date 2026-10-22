@@ -41,6 +41,10 @@ const app = buildApp({
   // The mode a session starts in — the deployment's default, overridable per
   // session and reset by a New chat (ticket 82).
   permissionMode: config.permissionMode,
+  // Whether Bypass may be chosen at all — on unless `CLODECK_ALLOW_BYPASS` says
+  // otherwise, and still overridable downwards by each project's settings
+  // (ticket 85).
+  allowBypass: config.allowBypass,
 });
 
 // Loopback by default. It is defense in depth now, not the boundary: the gate

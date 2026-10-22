@@ -13,7 +13,7 @@ import { useToast } from '../toast/ToastProvider';
 import { ChatColumn } from './ChatColumn';
 import { Composer } from './Composer';
 import { EntryView, StreamingBubble, formatInput } from './EntryView';
-import { PermissionModePicker } from './PermissionModePicker';
+import { BYPASS_WARNING, PermissionModePicker } from './PermissionModePicker';
 import { browserStorage, readRememberedProfile, rememberProfile } from './providerMemory';
 import { ProviderPicker } from './ProviderPicker';
 import { TURN_RUNNING } from './reasons';
@@ -289,7 +289,15 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
                 onChoose={chooseProfile}
                 onReload={profiles.reload}
               />
-              <PermissionModePicker mode={view.permissionMode} onChoose={setPermissionMode} />
+              <PermissionModePicker
+                mode={view.permissionMode}
+                bypass={view.bypass}
+                onChoose={setPermissionMode}
+              />
+              {/* The persistent half of Bypass's gate (ticket 85): while the run
+                  is in it, the line beside the composer says so, in the error
+                  colour, until the mode changes. */}
+              {view.permissionMode === 'bypassPermissions' && <BypassBadge />}
             </div>
             <Composer
               onSend={(prompt) => {
@@ -379,6 +387,23 @@ function ResumeBanner({ target, sessionTitle }: { target: ResumePayload; session
   );
 }
 
+/**
+ * The standing mark of Bypass: the chip already names the mode, and this says
+ * what the name costs, for as long as the run stays in it. It is not a toast —
+ * a warning that disappears has stopped warning.
+ */
+function BypassBadge(): ReactElement {
+  return (
+    <span
+      role="status"
+      title={BYPASS_WARNING}
+      className="rounded border border-err/40 bg-err/10 px-2 py-1 text-[11px] font-semibold text-err"
+    >
+      Bypass — every tool runs without asking
+    </span>
+  );
+}
+
 function EmptyChat(): ReactElement {
   return (
     <div className="flex h-full items-center justify-center">
@@ -414,21 +439,30 @@ function LiveIndicators({ view }: { view: ChatView }): ReactElement | null {
 function ResultLine({ result, onResume }: { result: TurnResult; onResume: (() => void) | null }): ReactElement {
   const usage = tokenTotals(result.modelUsage);
   return (
-    <div className={`flex items-center gap-3 text-[11px] ${result.isError ? 'text-err' : 'text-ink-dim'}`}>
-      <p title={usage.title}>
-        {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'}
-        {/* Cumulative for the session, so it is labelled as the session's. */}
-        {usage.text !== null && ` · session ${usage.text}`}
-        {result.stopReason !== null && ` · ${result.stopReason}`}
-      </p>
-      {onResume !== null && (
-        <button
-          type="button"
-          onClick={onResume}
-          className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
-        >
-          Resume
-        </button>
+    <div className={`flex flex-col gap-1 text-[11px] ${result.isError ? 'text-err' : 'text-ink-dim'}`}>
+      <div className="flex items-center gap-3">
+        <p title={usage.title}>
+          {result.isError ? `Turn failed (${result.subtype})` : 'Turn complete'}
+          {/* Cumulative for the session, so it is labelled as the session's. */}
+          {usage.text !== null && ` · session ${usage.text}`}
+          {result.stopReason !== null && ` · ${result.stopReason}`}
+        </p>
+        {onResume !== null && (
+          <button
+            type="button"
+            onClick={onResume}
+            className="shrink-0 rounded border border-line px-2 py-1 text-[11px] text-ink hover:bg-white/5"
+          >
+            Resume
+          </button>
+        )}
+      </div>
+      {/* The SDK's own words on a failed turn: a Bypass refused for running as
+          root, a provider that refused the model — the reason the turn could not
+          run is the one thing the user needs, and the subtype alone does not
+          carry it (ticket 85). */}
+      {result.isError && result.errors.length > 0 && (
+        <p className="font-mono break-words text-err">{result.errors.join(' · ')}</p>
       )}
     </div>
   );
@@ -517,6 +551,10 @@ function errorTitle(code: string): string {
       return 'The message was rejected';
     case 'no_active_turn':
       return 'No turn is running';
+    case 'bypass_unavailable':
+      // The gates said no — the same sentence the mode menu showed. The turn
+      // did not start, and nothing ran in a quieter mode instead.
+      return 'Bypass is not available';
     default:
       return 'Something went wrong';
   }

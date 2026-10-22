@@ -1,6 +1,7 @@
 import {
   isSelectablePermissionMode,
   type ApprovalRequestPayload,
+  type BypassAvailability,
   type ContentBlock,
   type PermissionMode,
   type ResumePayload,
@@ -108,6 +109,12 @@ export interface ChatView {
    * what the next turn will run under, not what the last one did.
    */
   permissionMode: PermissionMode;
+  /**
+   * Whether Bypass may be chosen here, and why not when it may not — the
+   * server's own word, out of the snapshot (ticket 85). The chip offers Bypass
+   * only while this says it may, and shows the reason when it says no.
+   */
+  bypass: BypassAvailability;
   entries: readonly ChatEntry[];
   /** Text accumulated from `stream_event` deltas, not yet reconciled by a block. */
   streamingText: string;
@@ -158,6 +165,9 @@ export function emptyView(): ChatView {
     // The wire's first snapshot replaces this with the server's own default;
     // until then Ask is the only mode with no choice behind it.
     permissionMode: 'default',
+    // And until the snapshot says otherwise, Bypass is not offered: the safe
+    // answer is the one that cannot run every tool without asking.
+    bypass: { allowed: false },
     entries: [],
     streamingText: '',
     streamingTool: null,
@@ -225,6 +235,7 @@ function fromSnapshot(payload: SnapshotPayload): ChatView {
       // emitter's snapshot must land on Ask, not on an undefined mode no label
       // can render.
       permissionModeOf(payload.permissionMode),
+      bypassOf(payload.bypass),
     ),
     // The run's list, kept outside the blocks because it never travelled as one.
     // It goes in *before* the blocks, so a `commands_changed` the run pushed
@@ -250,8 +261,9 @@ function runState(
   state: SessionState,
   pendingApprovals: readonly ApprovalRequestPayload[],
   permissionMode: PermissionMode,
+  bypass: BypassAvailability,
 ): ChatView {
-  return { ...emptyView(), state, permissionMode, pendingApprovals: [...pendingApprovals] };
+  return { ...emptyView(), state, permissionMode, bypass, pendingApprovals: [...pendingApprovals] };
 }
 
 function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' | 'interrupted'): ChatView {
@@ -299,7 +311,7 @@ export function applySdkMessage(view: ChatView, message: SDKMessage): ChatView {
       // out of the frame here: `new_conversation_id` reaches this view on the
       // envelope, the way every other session id does (ticket 74). The mode
       // stays: this is the same session moving on, not a New chat.
-      return runState(view.state, view.pendingApprovals, view.permissionMode);
+      return runState(view.state, view.pendingApprovals, view.permissionMode, view.bypass);
     case 'result':
       return applyResult(view, message);
     default:
@@ -693,12 +705,26 @@ function asSessionState(value: unknown): SessionState | null {
 
 /**
  * The modes a snapshot can name today. The shared union carries the SDK's six,
- * but the contract offers three until Bypass's gates land (ADR 0003); anything
- * else — including a missing field from an older emitter — lands on Ask, which
- * is the mode a server with nothing declared would have run.
+ * but the contract offers four (ADR 0003); anything else — including a missing
+ * field from an older emitter — lands on Ask, which is the mode a server with
+ * nothing declared would have run.
  */
 function permissionModeOf(value: unknown): PermissionMode {
   return isSelectablePermissionMode(value) ? value : 'default';
+}
+
+/**
+ * The Bypass gates off a snapshot. A missing or malformed field means **not
+ * allowed**: an older emitter did not know the field, and a client that offered
+ * Bypass on a server that never heard of the gates would be offering a mode the
+ * server would refuse.
+ */
+function bypassOf(value: unknown): BypassAvailability {
+  if (typeof value !== 'object' || value === null) return { allowed: false };
+
+  const field = value as { allowed?: unknown; reason?: unknown };
+  const reason = str(field.reason);
+  return { allowed: field.allowed === true, ...(reason === null ? {} : { reason }) };
 }
 
 function str(value: unknown): string | null {

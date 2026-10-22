@@ -100,7 +100,12 @@ function startRun(input: SdkRunInput): SdkRun {
   };
 }
 
-function toSdkOptions(input: SdkRunInput, abortController: AbortController): Options {
+/**
+ * The SDK's own options for one run. Exported so the two translations the fake
+ * cannot stand in for — the mode's flag and the per-run gate — are tested
+ * directly rather than by reading.
+ */
+export function toSdkOptions(input: SdkRunInput, abortController: AbortController): Options {
   const mode = input.permissionMode ?? 'default';
   const options: Options = {
     cwd: input.cwd,
@@ -113,9 +118,17 @@ function toSdkOptions(input: SdkRunInput, abortController: AbortController): Opt
     abortController,
   };
 
+  // The capability, not the mode (ticket 85): a run that may take Bypass says so
+  // from the start, because a mid-turn switch has to be possible and the SDK
+  // reads this once. A run the gates refused starts without it, so the SDK
+  // refuses Bypass itself if anything ever reached it with that mode.
+  if (input.allowBypass === true) options.allowDangerouslySkipPermissions = true;
+
   // Ask and Accept edits pin every Bash call to the modal, before the project's
   // allow rules are consulted (ticket 83); Plan denies its tools without a
-  // prompt (ticket 84). Bypass carries no hook.
+  // prompt (ticket 84). Bypass carries no hook at all — that is the whole of
+  // its gate: with no hook in front of them, the project's own deny and ask
+  // rules still decide, exactly as the warning says.
   const hooks = bashApprovalHooks(mode) ?? planDenialHooks(mode);
   if (hooks !== undefined) options.hooks = hooks;
 

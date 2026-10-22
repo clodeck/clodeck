@@ -69,6 +69,9 @@ export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInsta
     // This ticket's default: the suite that is about a deployment default says
     // so by overriding it, and every other suite runs in Ask.
     permissionMode: 'default',
+    // The server's own default, so a suite that is about the Bypass gates opts
+    // out by overriding it (ticket 85) and every other suite can choose Bypass.
+    allowBypass: true,
     ...overrides,
   });
 }

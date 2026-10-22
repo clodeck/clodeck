@@ -1,5 +1,5 @@
 import type { SlashCommand } from './commands.js';
-import type { PermissionMode, SDKMessage, SessionState } from './sdk.js';
+import type { BypassAvailability, PermissionMode, SDKMessage, SessionState } from './sdk.js';
 
 /**
  * The wire protocol between the server and the browser: one JSON envelope
@@ -62,6 +62,14 @@ export interface SnapshotPayload {
    * one fact a reconnecting client needs to show the effective mode again.
    */
   permissionMode: PermissionMode;
+  /**
+   * Whether Bypass may be chosen here, and why not when it may not (ticket 85).
+   * Always present, and read from the two gates that can refuse it: this
+   * server's `CLODECK_ALLOW_BYPASS` and the project's own settings. It rides the
+   * snapshot because it is a property of the run's project, not of the
+   * connection — a client that reconnects learns the current answer again.
+   */
+  bypass: BypassAvailability;
   /** Complete messages only — buffered deltas are collapsed, never replayed. */
   blocks: readonly SDKMessage[];
   pendingApprovals: readonly ApprovalRequestPayload[];

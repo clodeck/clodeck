@@ -16,6 +16,7 @@ import type {
 import type { AppOptions } from '../app.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createProviderProfiles } from '../profiles.js';
+import { BYPASS_OFF_BY_PROJECT, BYPASS_OFF_BY_SERVER } from '../bypass.js';
 import { BASH_APPROVAL_REASON } from '../sdk/bash-approval.js';
 import { PLAN_DENIAL_REASON, plansDirectory } from '../sdk/plan-denial.js';
 import {
@@ -121,6 +122,9 @@ describe('the /ws event bus', () => {
     expect(event.payload).toEqual({
       state: 'idle',
       permissionMode: 'default',
+      // The suite's app allows Bypass, which is the server's own default: the
+      // snapshot states it — and the reason when it does not (ticket 85).
+      bypass: { allowed: true },
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -578,6 +582,7 @@ describe('the /ws event bus', () => {
     expect(cleared.payload).toEqual({
       state: 'idle',
       permissionMode: 'default',
+      bypass: { allowed: true },
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -631,6 +636,7 @@ describe('the /ws event bus', () => {
     expect(cleared[0].payload).toEqual({
       state: 'running',
       permissionMode: 'default',
+      bypass: { allowed: true },
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -692,7 +698,11 @@ describe('the /ws event bus', () => {
     client.send({ v: 1, id: 'c1', type: 'send_prompt', payload: { prompt: 'hello' } });
 
     const error = await client.nextMatching((event) => event.kind === 'error');
-    expect(error).toMatchObject({ payload: { code: 'internal' } });
+    // The thrown message rides along: a run the SDK refused says why, and the
+    // banner is where a user reads it (ticket 85's root/sudo case).
+    expect(error).toMatchObject({
+      payload: { code: 'internal', message: 'the turn failed: scripted failure' },
+    });
 
     // The failed turn released the project: another send starts a fresh turn.
     client.send({ v: 1, id: 'c2', type: 'send_prompt', payload: { prompt: 'again' } });
@@ -1239,8 +1249,9 @@ describe('the /ws event bus', () => {
       const client = await connect(port, cookie, idFor(cwd));
       await client.next(); // the snapshot
 
-      // `auto` and `dontAsk` are refused for good; Bypass waits for ticket 85.
-      for (const mode of ['auto', 'dontAsk', 'bypassPermissions'] as const) {
+      // `auto` and `dontAsk` are refused for good; Bypass is a mode the wire
+      // carries and the gates decide, so it is not this test's refusal.
+      for (const mode of ['auto', 'dontAsk'] as const) {
         client.send({
           v: 1,
           id: `send-${mode}`,
@@ -1509,6 +1520,171 @@ describe('the /ws event bus', () => {
         kind: 'snapshot',
         payload: { permissionMode: 'acceptEdits' },
       });
+
+      provider.releaseRuns();
+    });
+  });
+
+  /**
+   * Bypass and its gates (ticket 85): the deployment's `CLODECK_ALLOW_BYPASS`,
+   * the project's own `.claude/settings.json`, and the run's skip-permissions
+   * capability. The two refusals are the server's, not the chip's — a client
+   * that ignored the snapshot is refused too, with the same sentence.
+   */
+  describe('Bypass and its gates', () => {
+    /** A project directory, with a settings file when the test needs one. */
+    async function projectWith(name: string, settings?: unknown): Promise<string> {
+      const dir = path.join(root, name);
+      await mkdir(path.join(dir, '.claude'), { recursive: true });
+      if (settings !== undefined) {
+        await writeFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings));
+      }
+      return realpath(dir);
+    }
+
+    function send(client: BusClient, prompt: string, permissionMode?: PermissionMode): void {
+      client.send({
+        v: 1,
+        id: prompt,
+        type: 'send_prompt',
+        payload: permissionMode === undefined ? { prompt } : { prompt, permissionMode },
+      });
+    }
+
+    it('opens the snapshot with Bypass allowed, and the reason when it is not', async () => {
+      const cwd = await projectWith('alpha');
+      const { app, cookie } = await makeApp({}, { allowBypass: false });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      // The chip reads this before it offers anything: a gate the surface cannot
+      // see is a gate it cannot explain.
+      await expect(client.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { bypass: { allowed: false, reason: BYPASS_OFF_BY_SERVER } },
+      });
+    });
+
+    it('runs the query with the skip-permissions capability, and a plain Bash unasked', async () => {
+      const cwd = await projectWith('alpha');
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await expect(client.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { bypass: { allowed: true } },
+      });
+
+      send(client, 'tidy up', 'bypassPermissions');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('bypassPermissions');
+      // The capability is set at `query()` time, because a mid-turn switch has
+      // to be possible and the SDK reads the flag once (decision 10).
+      expect(provider.queryInputs[0]?.allowBypass).toBe(true);
+
+      // With no hook in front of it, an ordinary command is not parked.
+      await expect(provider.requestToolUse('Bash', { command: 'ls' })).resolves.toMatchObject({
+        asked: false,
+        result: { behavior: 'allow' },
+      });
+
+      provider.releaseRuns();
+    });
+
+    it('switches a running turn into Bypass, and the next turn stays there', async () => {
+      const cwd = await projectWith('alpha');
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+      expect(provider.queryInputs[0]?.permissionMode).toBe('default');
+      await client.nextMatching(
+        (event) => event.kind === 'sdk' && event.payload.type === 'assistant',
+      );
+
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'set_permission_mode',
+        payload: { mode: 'bypassPermissions' },
+      });
+      await expect(provider.waitForPermissionMode(1)).resolves.toBe('bypassPermissions');
+      provider.releaseRuns();
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // The run carried the capability from the start, so the turn after the
+      // switch runs in Bypass without asking for anything again.
+      send(client, 'two');
+      await provider.waitForQueryInput(2);
+      expect(provider.queryInputs[1]?.permissionMode).toBe('bypassPermissions');
+      expect(provider.queryInputs[1]?.allowBypass).toBe(true);
+    });
+
+    it('refuses Bypass when the deployment switched it off, and starts nothing', async () => {
+      const cwd = await projectWith('alpha');
+      const { app, provider, cookie } = await makeApp({ holdRuns: true }, { allowBypass: false });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+
+      send(client, 'tidy up', 'bypassPermissions');
+      const refused = await client.nextMatching((event) => event.kind === 'error');
+      expect(refused).toMatchObject({
+        payload: { code: 'bypass_unavailable', message: BYPASS_OFF_BY_SERVER },
+      });
+
+      // A refused send is not a turn: nothing reached the provider.
+      expect(provider.queryInputs).toEqual([]);
+
+      // And a running turn cannot be talked into it either.
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+      client.send({
+        v: 1,
+        id: 'c2',
+        type: 'set_permission_mode',
+        payload: { mode: 'bypassPermissions' },
+      });
+      const switchRefused = await client.nextMatching((event) => event.kind === 'error');
+      expect(switchRefused).toMatchObject({ payload: { code: 'bypass_unavailable' } });
+      expect(provider.permissionModes).toEqual([]);
+
+      provider.releaseRuns();
+    });
+
+    it('refuses Bypass for a project whose settings disable it, and says why', async () => {
+      const cwd = await projectWith('alpha', {
+        permissions: { disableBypassPermissionsMode: 'disable' },
+      });
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+
+      const client = await connect(port, cookie, idFor(cwd));
+      await expect(client.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { bypass: { allowed: false, reason: BYPASS_OFF_BY_PROJECT } },
+      });
+
+      send(client, 'tidy up', 'bypassPermissions');
+      const refused = await client.nextMatching((event) => event.kind === 'error');
+      expect(refused).toMatchObject({
+        payload: { code: 'bypass_unavailable', message: BYPASS_OFF_BY_PROJECT },
+      });
+      expect(provider.queryInputs).toEqual([]);
 
       provider.releaseRuns();
     });

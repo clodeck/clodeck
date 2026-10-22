@@ -16,9 +16,14 @@ import { warnToConsole, type Warn } from './logging.js';
  *
  * The reading is split in two on purpose. {@link readPin} is a pure function of
  * the parsed file, and what it does with a value it cannot use is what keeps a
- * malformed file from taking a server down. {@link readProjectPin} is the one
- * that touches a disk, and it goes through the project's own {@link ScopedFs}
- * rather than a bare `fs` beside it.
+ * malformed file from taking a server down. {@link readProjectSettings} is the
+ * one that touches a disk, and it goes through the project's own
+ * {@link ScopedFs} rather than a bare `fs` beside it.
+ *
+ * Since ticket 85 the same file is read for a second fact — whether it forbids
+ * **Bypass** — so the disk half returns both at once ({@link readSettings}).
+ * `readProjectPin` is kept as the provider-only door for the profile listing,
+ * which asks nothing about permissions.
  */
 
 /** Where a project states the environment its own runs get. */
@@ -114,42 +119,96 @@ function asEnvironment(block: Record<string, unknown>): NodeJS.ProcessEnv {
 }
 
 /**
- * The pin a project declares right now, read through the same {@link ScopedFs}
- * every other read of a project's files goes through — realpath'd, and confirmed
- * inside the project root — rather than a second `fs` with its own idea of where
- * the project ends (spec-08 §"Reading the project's pin").
+ * What a project's settings file says about the two things clodeck gates on it:
+ * the provider the project pins (ADR 0002), and whether it forbids **Bypass**
+ * (ticket 85). One shape, because it is one file and one read — two readers
+ * would be two parses of the same document, and a chance for them to disagree
+ * about a file that is half-written mid-edit.
+ */
+export interface ProjectSettings {
+  pin: ProjectPin;
+  /**
+   * True when `permissions.disableBypassPermissionsMode` is `"disable"`. The SDK
+   * enforces the same value itself; this is what lets clodeck refuse the mode
+   * with a reason *before* a run starts, and tell the client why its chip is
+   * shut.
+   */
+  bypassDisabled: boolean;
+}
+
+/** What a file clodeck cannot use says: no pin, and nothing about Bypass. */
+const NO_SETTINGS: ProjectSettings = { pin: NO_PIN, bypassDisabled: false };
+
+/**
+ * A parsed settings document as {@link ProjectSettings}. Only the SDK's own
+ * `"disable"` counts — the field is a one-value switch there, and a value it
+ * would not honour must not be read as a refusal here either.
+ */
+export function readSettings(settings: unknown, warn: Warn = warnToConsole): ProjectSettings {
+  return { pin: readPin(settings, warn), bypassDisabled: disablesBypass(settings) };
+}
+
+/** The SDK's one-value switch, read without warning: a file about permissions is normal. */
+function disablesBypass(settings: unknown): boolean {
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) return false;
+
+  const permissions = (settings as { permissions?: unknown }).permissions;
+  if (typeof permissions !== 'object' || permissions === null || Array.isArray(permissions)) {
+    return false;
+  }
+
+  return (
+    (permissions as { disableBypassPermissionsMode?: unknown }).disableBypassPermissionsMode ===
+    'disable'
+  );
+}
+
+/**
+ * The settings a project declares right now, read through the same
+ * {@link ScopedFs} every other read of a project's files goes through —
+ * realpath'd, and confirmed inside the project root — rather than a second `fs`
+ * with its own idea of where the project ends (spec-08 §"Reading the project's
+ * pin").
  *
  * Nothing here may take a session down, so every way this file can be unusable
- * means no pin: not readable as text, not JSON, or JSON of the wrong shape. An
- * **absent** file is the common case rather than a finding — most projects pin
- * nothing, and a line per turn for each of them would bury the lines that matter
- * (the same silence `listProfiles` keeps for an empty export).
+ * means {@link NO_SETTINGS}: not readable as text, not JSON, or JSON of the
+ * wrong shape. An **absent** file is the common case rather than a finding —
+ * most projects pin nothing, and a line per turn for each of them would bury the
+ * lines that matter (the same silence `listProfiles` keeps for an empty export).
  *
  * Read per call, not cached: the file is the project's, the user may edit it in
  * the drawer, and a turn that starts after the edit is a turn that should honour
- * it.
+ * it — for the pin and for Bypass alike.
  */
-export async function readProjectPin(files: ScopedFs, warn: Warn = warnToConsole): Promise<ProjectPin> {
+export async function readProjectSettings(
+  files: ScopedFs,
+  warn: Warn = warnToConsole,
+): Promise<ProjectSettings> {
   const settings = await files.resolve(SETTINGS_PATH);
-  if (settings.status === 'not_found') return NO_PIN;
+  if (settings.status === 'not_found') return NO_SETTINGS;
   if (settings.status !== 'ok' || settings.kind !== 'file') {
-    warn(`${SETTINGS_PATH} is not a file inside this project, so it pins no provider`);
-    return NO_PIN;
+    warn(`${SETTINGS_PATH} is not a file inside this project, so this project declares no settings`);
+    return NO_SETTINGS;
   }
 
   const content = await files.readFile(settings.scoped);
   if (content.kind !== 'text') {
-    warn(`${SETTINGS_PATH} is not readable text, so this project pins no provider`);
-    return NO_PIN;
+    warn(`${SETTINGS_PATH} is not readable text, so this project declares no settings`);
+    return NO_SETTINGS;
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(content.content);
   } catch {
-    warn(`${SETTINGS_PATH} is not valid JSON, so this project pins no provider`);
-    return NO_PIN;
+    warn(`${SETTINGS_PATH} is not valid JSON, so this project declares no settings`);
+    return NO_SETTINGS;
   }
 
-  return readPin(parsed, warn);
+  return readSettings(parsed, warn);
+}
+
+/** The pin a project declares right now — the provider half of {@link readProjectSettings}. */
+export async function readProjectPin(files: ScopedFs, warn: Warn = warnToConsole): Promise<ProjectPin> {
+  return (await readProjectSettings(files, warn)).pin;
 }
