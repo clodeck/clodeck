@@ -42,7 +42,7 @@ export type DrawerTab = 'terminal' | 'files' | null;
 
 /** The hooks, and the layout they feed — see {@link Workspace} for the split. */
 function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
-  const { state, reload, create } = useProjects();
+  const { state, reload, create, remove } = useProjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   /**
@@ -60,6 +60,22 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
     [create, reload],
   );
 
+  /**
+   * Delete one project for good, and reload the list (ticket 90). A deleted
+   * project that was the selected one clears the selection — the stage goes to
+   * its no-project state, **never** to a neighbour: picking the next row for the
+   * user would be a choice, not a convenience. A refusal propagates to the
+   * dialog that asked, and neither the list nor the selection moves.
+   */
+  const deleteProject = useCallback(
+    async (project: Project): Promise<void> => {
+      await remove(project.id);
+      setSelectedId((current) => (current === project.id ? null : current));
+      reload();
+    },
+    [remove, reload],
+  );
+
   return (
     <Workspace
       state={state}
@@ -69,6 +85,7 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
       }}
       onRefresh={reload}
       onCreate={createProject}
+      onDelete={deleteProject}
       onLogout={onLogout}
     />
   );
@@ -81,6 +98,8 @@ interface WorkspaceProps {
   onRefresh: () => void;
   /** Create a project by name; the shell selects it and reloads the list. */
   onCreate: (name: string) => Promise<void>;
+  /** Delete a project for good; the shell clears its selection and reloads. */
+  onDelete: (project: Project) => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -104,6 +123,7 @@ export function Workspace({
   onSelect,
   onRefresh,
   onCreate,
+  onDelete,
   onLogout,
 }: WorkspaceProps): ReactElement {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(null);
@@ -200,6 +220,7 @@ export function Workspace({
             }}
             onRefresh={onRefresh}
             onCreate={onCreate}
+            onDelete={onDelete}
           />
         </aside>
 

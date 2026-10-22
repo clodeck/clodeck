@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Project } from '@clodeck/shared';
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { dirsAbove, nameCell } from './testing/direction';
@@ -28,15 +28,29 @@ function noop(): void {
   // What the switcher is *for* is not what this file is about.
 }
 
-function renderSwitcher(projects: Project[]): void {
+function renderSwitcher(
+  projects: Project[],
+  handlers: {
+    selectedId?: string | null;
+    onSelect?: (project: Project) => void;
+    onDelete?: (project: Project) => Promise<void>;
+  } = {},
+): void {
+  const {
+    selectedId = null,
+    onSelect = noop,
+    onDelete = () => Promise.resolve(),
+  } = handlers;
+
   render(
     <ToastProvider>
       <ProjectSwitcher
         state={{ status: 'ready', projects }}
-        selectedId={null}
-        onSelect={noop}
+        selectedId={selectedId}
+        onSelect={onSelect}
         onRefresh={noop}
         onCreate={() => Promise.resolve()}
+        onDelete={onDelete}
       />
     </ToastProvider>,
   );
@@ -79,5 +93,61 @@ describe('a project row', () => {
     expect(dirsAbove(row)).toEqual([]);
     expect(nameCell(row).textContent).toBe(alpha.name);
     expect(row.getAttribute('title')).toBe(alpha.path);
+  });
+});
+
+/**
+ * The row's `⋯` menu (ticket 90). The one thing it must never do is select:
+ * it is a sibling of the row's pick rather than a child, and every assertion
+ * below that could see a selection checks that it did not happen.
+ */
+describe('the row menu', () => {
+  it('opens from the row’s ⋯ without selecting the project', () => {
+    const onSelect = vi.fn();
+    renderSwitcher([alpha, persian], { onSelect });
+
+    const actions = screen.getByRole('button', { name: 'Actions for alpha' });
+    expect(actions.getAttribute('aria-haspopup')).toBe('menu');
+    expect(actions.getAttribute('aria-expanded')).toBe('false');
+
+    // Revealed by the row's hover or by focus inside it above `md`; below it
+    // there is no hover to reveal it, so it is simply there for the tap.
+    expect(actions.className).toContain('md:group-hover:opacity-100');
+    expect(actions.className).toContain('md:group-focus-within:opacity-100');
+    expect(actions.className).not.toMatch(/(^|\s)opacity-0(\s|$)/);
+
+    fireEvent.click(actions);
+
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Delete…' })).toBeTruthy();
+    expect(actions.getAttribute('aria-expanded')).toBe('true');
+    // The menu is not the pick.
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'alpha' }).getAttribute('aria-current')).toBe('false');
+  });
+
+  it('opens the typed-name dialog from Delete…, and only its confirm deletes', async () => {
+    const onSelect = vi.fn();
+    const onDelete = vi.fn(async () => {});
+    renderSwitcher([alpha], { onSelect, onDelete });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for alpha' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }));
+
+    // The dialog names the project and shows the canonical path it will take.
+    const dialog = screen.getByRole('dialog', { name: 'Delete project' });
+    expect(dialog.textContent).toContain(alpha.path);
+    expect(dialog.textContent).toContain('This cannot be undone.');
+
+    const confirm = screen.getByRole('button', { name: 'Delete' });
+    expect(confirm.hasAttribute('disabled')).toBe(true);
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: alpha.name } });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith(alpha);
+    });
+    // Not a selection, even through a dialog the menu opened.
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

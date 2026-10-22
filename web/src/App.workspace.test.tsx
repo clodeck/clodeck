@@ -49,6 +49,7 @@ function workspace(
       onSelect={noop}
       onRefresh={noop}
       onCreate={() => Promise.resolve()}
+      onDelete={() => Promise.resolve()}
       onLogout={() => Promise.resolve()}
     />
   );

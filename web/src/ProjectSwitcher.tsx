@@ -17,18 +17,30 @@ interface ProjectSwitcherProps {
    * selected the new project by the time this resolves.
    */
   onCreate: (name: string) => Promise<void>;
+  /**
+   * Delete one project for good (ticket 90). A refusal rejects with the
+   * server's sentence, which the dialog shows; on success the caller has
+   * already cleared the selection when it named this project, and the toast is
+   * this component's own — `deleted <name>`, beside `created <name>`.
+   */
+  onDelete: (project: Project) => Promise<void>;
 }
 
 /**
- * The slice's only interactive surface: the discovered projects, with the two
- * affordances that change the list — a refresh, and a create — and the three
- * states a fetch can leave the UI in.
+ * The slice's only interactive surface: the discovered projects, with the three
+ * affordances that change the list — a refresh, a create, and a row's delete —
+ * and the three states a fetch can leave the UI in.
  *
  * The create is a `New project` button in the header rather than a rail icon
  * (the prototype's rail carried a mocked one): projects live in this column and
  * the refresh is already here, so the thing that adds one belongs beside it. The
  * dialog is the drawer's own `NameDialog`, with the project rule — one clean
  * segment, no leading dot — in place of the drawer's.
+ *
+ * The delete lives on the row it destroys, behind a `⋯` menu (ticket 90): it is
+ * one project's act, not the list's, and the file drawer already taught the eye
+ * that a row's menu is where an entry's own actions are. Its confirmation is the
+ * same `NameDialog` in its typed-name mode.
  */
 export function ProjectSwitcher({
   state,
@@ -36,10 +48,19 @@ export function ProjectSwitcher({
   onSelect,
   onRefresh,
   onCreate,
+  onDelete,
 }: ProjectSwitcherProps): ReactElement {
   const loading = state.status === 'loading';
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  /**
+   * Which row's `⋯` menu is open, by id. It is the row's own state because the
+   * menu belongs to that row and exactly one is open at a time; opening it is
+   * not selecting, so nothing here touches `selectedId`.
+   */
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Project | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const toast = useToast();
 
   const openCreate = (): void => {
@@ -59,10 +80,36 @@ export function ProjectSwitcher({
     }
   };
 
+  /** The menu's one item: shut the menu, which is not selecting, and ask. */
+  const openDelete = (project: Project): void => {
+    setMenuFor(null);
+    setDeleting(project);
+    setDeleteError(null);
+  };
+
+  const submitDelete = async (): Promise<void> => {
+    if (deleting === null) return;
+    try {
+      await onDelete(deleting);
+      setDeleting(null);
+      setDeleteError(null);
+      toast(`deleted ${deleting.name}`);
+    } catch (error) {
+      // A refusal keeps the dialog open with the server's sentence, as the
+      // create's does, and leaves the list and the selection untouched.
+      setDeleteError(messageOf(error));
+    }
+  };
+
+  const cancelDelete = (): void => {
+    setDeleting(null);
+    setDeleteError(null);
+  };
+
   return (
-    // `relative`, so the create dialog centres over this column rather than the
-    // window: the sidebar is the surface it belongs to, as the drawer is the
-    // file dialogs'.
+    // `relative`, so the create and delete dialogs centre over this column
+    // rather than the window: the sidebar is the surface they belong to, as the
+    // drawer is the file dialogs'.
     <section className="relative flex min-h-0 flex-1 flex-col" aria-label="Projects" aria-busy={loading}>
       <div className="flex items-center justify-between gap-2 px-4 py-2">
         <h2 className="text-[11px] font-semibold tracking-wider text-ink-dim uppercase">Projects</h2>
@@ -94,23 +141,16 @@ export function ProjectSwitcher({
           ) : (
             <ul className="flex flex-col gap-0.5">
               {state.projects.map((project) => (
-                <li key={project.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelect(project);
-                    }}
-                    aria-current={project.id === selectedId}
-                    title={project.path}
-                    className={`w-full truncate rounded px-2 py-1.5 text-left text-sm ${
-                      project.id === selectedId
-                        ? 'bg-white/10 text-ink'
-                        : 'text-ink-dim hover:bg-white/5 hover:text-ink'
-                    }`}
-                  >
-                    <Name>{project.name}</Name>
-                  </button>
-                </li>
+                <ProjectRow
+                  key={project.id}
+                  project={project}
+                  selected={project.id === selectedId}
+                  menuOpen={menuFor === project.id}
+                  onSelect={onSelect}
+                  onMenuToggle={() => { setMenuFor(menuFor === project.id ? null : project.id); }}
+                  onMenuClose={() => { setMenuFor(null); }}
+                  onDelete={openDelete}
+                />
               ))}
             </ul>
           ))}
@@ -127,7 +167,115 @@ export function ProjectSwitcher({
           onCancel={() => { setCreating(false); }}
         />
       )}
+
+      {deleting !== null && (
+        // The typed-name confirmation (ticket 88) with the project's own name
+        // and canonical path: the directory leaves the disk for good, so the
+        // dialog asks for the name exactly and says where it is.
+        <NameDialog
+          title="Delete project"
+          confirmLabel="Delete"
+          initial=""
+          error={deleteError}
+          typedName={{ name: deleting.name, path: deleting.path }}
+          onSubmit={submitDelete}
+          onCancel={cancelDelete}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * One project row: the pick, and the `⋯` menu holding the one destructive act
+ * (ticket 90). The menu button is a **sibling** of the pick, never a child:
+ * opening the menu is not selecting the project, so the click cannot fall
+ * through to the pick.
+ *
+ * Above `md` the button is revealed by the row's hover or by focus anywhere
+ * inside it; below `md` it is always visible, because a touch screen has no
+ * hover — there the deliberate tap on the `⋯` *is* the affordance, rather than
+ * a tap anywhere on the row doing something the user did not aim at.
+ */
+function ProjectRow({
+  project,
+  selected,
+  menuOpen,
+  onSelect,
+  onMenuToggle,
+  onMenuClose,
+  onDelete,
+}: {
+  project: Project;
+  selected: boolean;
+  menuOpen: boolean;
+  onSelect: (project: Project) => void;
+  onMenuToggle: () => void;
+  onMenuClose: () => void;
+  onDelete: (project: Project) => void;
+}): ReactElement {
+  return (
+    <li>
+      {/* `relative`, so the menu hangs off this row rather than the sidebar;
+          `group`, so the whole row is what reveals its `⋯`. */}
+      <div
+        className={`group relative flex items-center rounded ${
+          selected ? 'bg-white/10' : 'hover:bg-white/5'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onSelect(project);
+          }}
+          aria-current={selected}
+          title={project.path}
+          className={`min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm ${
+            selected ? 'text-ink' : 'text-ink-dim group-hover:text-ink'
+          }`}
+        >
+          <Name>{project.name}</Name>
+        </button>
+        <button
+          type="button"
+          aria-label={`Actions for ${project.name}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={onMenuToggle}
+          className={`mr-1 shrink-0 rounded px-1.5 py-1 text-ink-dim hover:bg-white/10 hover:text-ink focus-visible:outline-1 focus-visible:outline-accent ${
+            menuOpen ? '' : 'md:opacity-0'
+          } md:group-hover:opacity-100 md:group-focus-within:opacity-100`}
+        >
+          ⋯
+        </button>
+
+        {menuOpen && (
+          <>
+            {/* A tap anywhere else shuts the menu without choosing anything. */}
+            <button
+              type="button"
+              aria-label="Close menu"
+              className="fixed inset-0 z-10 cursor-default"
+              onClick={onMenuClose}
+            />
+            <div
+              role="menu"
+              aria-label={`Actions for ${project.name}`}
+              className="absolute top-full right-0 z-20 mt-1 flex w-32 flex-col rounded border border-line bg-panel py-1 shadow-lg"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { onDelete(project); }}
+                className="px-3 py-1 text-left text-[11px] text-err hover:bg-white/5"
+              >
+                Delete…
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 
