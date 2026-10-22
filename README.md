@@ -7,8 +7,9 @@ One project is one directory: one agent session, one shell, one file drawer. The
 you own — the same machine the project folders live on — and you drive it from any browser, on any
 machine. One user, one password.
 
-**Status: the MVP's four surfaces are built.** Project discovery, the project switcher, and creating a
-project from the sidebar (`POST /api/projects`) work end to end. So does the chat surface: streaming
+**Status: the MVP's four surfaces are built.** Project discovery, the project switcher, creating a
+project from the sidebar (`POST /api/projects`), and deleting one (`DELETE /api/projects/:id`) behind a
+typed-name confirmation work end to end. So does the chat surface: streaming
 Agent SDK turns over a WebSocket bus at `/ws`, tool cards, the approval modal, and session history /
 resume over REST. So does the terminal: a per-project shell (node-pty behind a facade) streamed as raw
 bytes over `/ws/terminal` into an xterm.js panel. So does the file drawer: a tree that expands in
@@ -24,6 +25,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 ## Contents
 
 - [What you get](#what-you-get)
+- [Deleting a project](#deleting-a-project)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Quickstart](#quickstart)
@@ -51,7 +53,7 @@ box, or Docker. Stuck? [Troubleshooting](#troubleshooting).
 
 | Surface | What it does |
 |---|---|
-| **Projects** | The sidebar lists the immediate child directories of `PROJECTS_ROOT`. Select one and its chat takes the stage. `New project` creates one for real — a `mkdir` under the root, nothing else. |
+| **Projects** | The sidebar lists the immediate child directories of `PROJECTS_ROOT`. Select one and its chat takes the stage. `New project` creates one for real — a `mkdir` under the root, nothing else. A row's `⋯` menu holds `Delete…`, which removes the directory for real — recursively, with no trash and no undo — after you type its name ([Deleting a project](#deleting-a-project)). |
 | **Chat** | One Agent SDK session per project: streamed turns, tool cards, an approval modal when the agent asks, session history you can resume — and a profile picker beside the composer for the provider each session runs on. |
 | **Terminal** | A real shell whose working directory is the selected project's folder — a pty (node-pty) streamed as raw bytes into xterm.js. |
 | **Files** | The project's tree, expanding in place: preview (markdown rendered, code with a numbered gutter and syntax colouring), edit and save, create, rename, delete, upload, download, and drag a file onto a folder to move it. |
@@ -72,6 +74,48 @@ the chat keeps the stage.
 │     │                 │  the stage                         │
 └─────┴─────────────────┴────────────────────────────────────┘
 ```
+
+## Deleting a project
+
+A project row's `⋯` menu — revealed on hover, and a deliberate tap on a phone — holds one item,
+`Delete…`. Neither opening the menu nor selecting the row commits to anything: the dialog asks you to
+type the project's exact **name** (case-sensitive), shows the canonical path that will leave the disk,
+and says it cannot be undone. `Cancel` is always there, and the confirm button stays dead until the name
+matches.
+
+**It is a real delete.** The directory is removed **recursively** — every file and subdirectory inside
+it. There is no trash directory and no undo, and nothing is hidden in a registry: `deleted` means the
+directory is gone. If the working tree matters, copy it off the server first. The route behind the
+sidebar is `DELETE /api/projects/:id`, behind the same login as every other `/api` route; it answers
+`204` on success and one of the refusals below on anything else.
+
+**A live turn or an attached terminal refuses it, with `409`.** A running turn answers
+`turn_in_progress`; a terminal the server still holds answers `terminal_attached`. clodeck does not stop
+either on your behalf — a `409` kills nothing. Press **Interrupt** in the chat, or close the terminal
+(switch the drawer to Files, or press its `✕`), then delete again. The dialog stays open with the
+server's sentence either way.
+
+**A project reached through a symlink is refused**, with `400 symlink`, and so is an id that more than
+one root entry names. The list deduplicates by canonical path, so a link `alpha → zulu` can be the row
+shown for `zulu`'s id; deleting by that id would destroy `zulu` while the label said `alpha`, and
+unlinking the link would leave every file in place and make "deleted" a lie. A project is therefore
+deletable only when exactly one root entry is the real directory itself — never a link. The projects
+root is never a target either: it is not an immediate child, so an id that resolves to it is a `404`.
+
+**The SDK's transcripts stay where they are.** Session history lives under the SDK's own directory,
+`~/.claude/projects/<sanitized path>/` by default (`CLAUDE_CONFIG_DIR`), not inside the project.
+Deleting the project does not touch it, and clodeck never purges it — a project delete is the one place
+clodeck destroys data, and it stays inside the projects root. A deleted project's disk is therefore
+**not** fully freed: its conversations remain under `CLAUDE_CONFIG_DIR` until you remove them yourself.
+
+**A project re-created at the same path may still see the old sessions in History**, because that is
+where those transcripts are. It does not silently continue one: the delete forgets the server's
+in-memory run entry for that id (the id is the canonical path, so the re-created project gets the same
+one), so the first send starts a new session. **Resume stays a button you press** — the old history is
+reachable, but only by asking for it.
+
+On success the sidebar reloads and shows `deleted <name>`; if the deleted project was the selected one,
+the stage goes back to its no-project empty state rather than jumping to a neighbour.
 
 ## How it works
 
@@ -988,6 +1032,11 @@ oversight in this one.
 - **The projects root is the whole world.** Every path from the file drawer and the file API is
   re-validated by `realpath` containment, so a symlink cannot lead out of the root, and the root itself
   can never be touched.
+- **A project delete stays inside the root.** `DELETE /api/projects/:id` re-resolves the id through the
+  allowlist, removes a real immediate-child directory recursively, and refuses a symlink or an ambiguous
+  entry with `400` — it never follows a link, and the root is not its own child, so the root is never a
+  target. It is refused while a turn or a terminal is live
+  ([Deleting a project](#deleting-a-project)).
 - **Writes never follow a symlink in the target's final segment**, and never overwrite an existing file
   on create, upload or move. The save route is the one deliberate overwrite, and it refuses a non-file
   target.

@@ -6,15 +6,15 @@ kār mikonad va che residue-i jā migozārad.
 
 **Blocked by:** 89 (the route), 90 (the sidebar flow)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Docs migooyand ke hazf az sidebar (row menu → `Delete…`) **vāghean** directory rā pāk mikonad:
+- [x] Docs migooyand ke hazf az sidebar (row menu → `Delete…`) **vāghean** directory rā pāk mikonad:
       recursive, bedoone trash va bedoone undo.
-- [ ] Docs migooyand ke yek run-e zende yā yek terminal-e attached hazf rā bā `409` rad mikonad, va kārbār
+- [x] Docs migooyand ke yek run-e zende yā yek terminal-e attached hazf rā bā `409` rad mikonad, va kārbār
       bāyad avval stop konad; `409` hich chiz rā kill nemikonad.
-- [ ] Docs migooyand ke project-i ke az tarigh-e symlink resid mishavad hazf nashavad va chera.
-- [ ] Docs migooyand ke transcript-hā-ye SDK zir-e `~/.claude/projects` bāqi mimānanad va clodeck ānhā rā
+- [x] Docs migooyand ke project-i ke az tarigh-e symlink resid mishavad hazf nashavad va chera.
+- [x] Docs migooyand ke transcript-hā-ye SDK zir-e `~/.claude/projects` bāqi mimānanad va clodeck ānhā rā
       pāk nemikonad — yani disk-e yek project-e hazf-shode kamel āzād nemishavad.
-- [ ] Docs migooyand ke project-i ke bā hamān esm dobāre sākhte mishavad momken ast session-hā-ye ghadimi rā
+- [x] Docs migooyand ke project-i ke bā hamān esm dobāre sākhte mishavad momken ast session-hā-ye ghadimi rā
       dar History neshoon bedahad, vali awwalin send tāze shoru mishavad (resume faghat bā dokme).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.
