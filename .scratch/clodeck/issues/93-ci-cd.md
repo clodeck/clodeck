@@ -8,7 +8,7 @@ va `/healthz` ra check mikone; shekast → rollback be commit-e ghabli.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## The model
 
@@ -121,18 +121,18 @@ bedoone terminal anjam dahad (credential helper ya read-only key); workflow term
 
 ## Acceptance criteria
 
-- [ ] Composite action-e `.github/actions/verify` har do workflow ra taghziye mikone.
-- [ ] `ci.yml` rooy-e push be `main` va PR be `master` ejra mishe; required check rooy-e `master`.
-- [ ] `deploy.yml` faghat ba'd az `verify` deploy mikone; force-deploy ba `workflow_dispatch`.
-- [ ] `scripts/clodeck-deploy.sh` fetch/reset/build/restart/health/rollback ra anjam midahad.
-- [ ] `npm run pr` `main` ra push mikone va PR-e `main → master` baz mikone (ya URL-e PR-e baz ra
+- [x] Composite action-e `.github/actions/verify` har do workflow ra taghziye mikone.
+- [x] `ci.yml` rooy-e push be `main` va PR be `master` ejra mishe; required check rooy-e `master`.
+- [x] `deploy.yml` faghat ba'd az `verify` deploy mikone; force-deploy ba `workflow_dispatch`.
+- [x] `scripts/clodeck-deploy.sh` fetch/reset/build/restart/health/rollback ra anjam midahad.
+- [x] `npm run pr` `main` ra push mikone va PR-e `main → master` baz mikone (ya URL-e PR-e baz ra
       chap mikone); bedoone `gh` payam-e rahnama midahad.
-- [ ] `e2e.yml` shabane + dasti ejra mishe va PR ra block nemikone.
-- [ ] Playwright dar CI chromium estefade mikone, mahalli hanooz Chrome.
-- [ ] README: branch model, setup-e CI/CD, deploy va rollback; Commands table.
-- [ ] AGENTS.md: merge-e mahalli → `main`; publish = PR be `master`; agent hich vaght `master` merge
+- [x] `e2e.yml` shabane + dasti ejra mishe va PR ra block nemikone.
+- [x] Playwright dar CI chromium estefade mikone, mahalli hanooz Chrome.
+- [x] README: branch model, setup-e CI/CD, deploy va rollback; Commands table.
+- [x] AGENTS.md: merge-e mahalli → `main`; publish = PR be `master`; agent hich vaght `master` merge
       ya force-push nemikone.
-- [ ] `npm run typecheck` va `npm test` pass.
+- [x] `npm run typecheck` va `npm test` pass.
 
 **Out of scope:** path-filter, staging, Dependabot, tag/release, `npm audit`/CodeQL, Docker/Caddy
 production, notification-e ezafi, idle-gate.
