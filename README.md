@@ -1225,8 +1225,9 @@ npm ci → node scripts/tickets.mjs check → npm run typecheck → npm test →
   protection points at.
 - **`.github/workflows/deploy.yml`** — on a push to `master` and `workflow_dispatch` (a deliberate
   force-deploy). The `verify` job runs the same composite action on `master` itself, and only then
-  does the `deploy` job SSH to the server. Concurrency is `deploy-production` with
-  `cancel-in-progress: false`: a running deploy is never cancelled, a queued one waits.
+  does the `deploy` job run the root-owned deploy script on the server's self-hosted runner
+  (`clodeck-prod`). Concurrency is `deploy-production` with `cancel-in-progress: false`: a running
+  deploy is never cancelled, a queued one waits.
 - **`.github/workflows/e2e.yml`** — nightly (`02:17 UTC`) and on demand. It is **not** a required
   check and does not run on pull requests: it starts `npm run dev:fake` against a temporary
   `PROJECTS_ROOT` holding `demo` and `hello`, installs Chromium, runs
@@ -1238,13 +1239,15 @@ under CI (`CI` set) it drives the Chromium the workflow installs (`web/playwrigh
 
 ### Deploying to production
 
-The `deploy` job holds a deploy key and runs **one SSH command**. The server's `authorized_keys` binds
-that key to a forced command — `/usr/local/bin/clodeck-deploy` — so the session cannot run a shell or
-a second command. The only argument it accepts is `deploy <40-hex-sha>`: the SHA the `verify` job
-checked, passed through so the server cannot pull a newer `master` that nobody verified. A bare
-`deploy` (or no command) falls back to `origin/master`, which is what a manual run uses. That installed
-script is the root-owned copy of [`scripts/clodeck-deploy.sh`](scripts/clodeck-deploy.sh), which is
-this repo's reference copy; update the two together.
+The `deploy` job does not connect to the server — it **runs on the server**. A self-hosted runner
+labelled `clodeck-prod` exists on that machine only, because its provider filters inbound SSH from
+GitHub's runners; being on the host needs no open port, no deploy key and no host pin. The job takes
+the SHA the `verify` job checked and runs the installed `/usr/local/bin/clodeck-deploy deploy
+<40-hex-sha>` — a root-owned copy of [`scripts/clodeck-deploy.sh`](scripts/clodeck-deploy.sh), this
+repo's reference copy; update the two together. The script accepts exactly that one request (a bare
+`deploy`, or none, falls back to `origin/master`), so the caller chooses *which commit* and never
+*what runs*. The same script still works as an SSH forced command, where the request arrives as
+`SSH_ORIGINAL_COMMAND` instead of arguments.
 
 One deploy:
 
@@ -1284,26 +1287,11 @@ status check **`check`**, **Require branches to be up to date off**, force-push 
 allow administrators to bypass on, and **Automatically delete head branches off** (the head is
 `main`, which must survive).
 
-**3. Deploy key.** On the publish machine:
-
-```powershell
-ssh-keygen -t ed25519 -f "$HOME/.ssh/clodeck_deploy" -C "clodeck deploy"   # Enter, Enter
-Get-Content "$HOME/.ssh/clodeck_deploy.pub"
-```
-
-**4. The server.** Install the script *before* the key — otherwise the forced command does not
-exist yet. As a sudo-capable user:
+**3. The server: the script, the checkout, npm.** As a sudo-capable user:
 
 ```sh
 sudo install -o root -g root -m 755 \
   /home/clodeck/clodeck/scripts/clodeck-deploy.sh /usr/local/bin/clodeck-deploy
-
-sudo -u clodeck mkdir -p /home/clodeck/.ssh
-sudo chmod 700 /home/clodeck/.ssh
-echo 'command="/usr/local/bin/clodeck-deploy",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA…' \
-  | sudo tee -a /home/clodeck/.ssh/authorized_keys
-sudo chown clodeck:clodeck /home/clodeck/.ssh/authorized_keys
-sudo chmod 600 /home/clodeck/.ssh/authorized_keys
 
 echo 'clodeck ALL=(root) NOPASSWD: /usr/bin/systemctl restart clodeck' \
   | sudo tee /etc/sudoers.d/clodeck-deploy
@@ -1315,24 +1303,28 @@ sudo -u clodeck git -C /home/clodeck/clodeck switch master
 sudo -u clodeck git -C /home/clodeck/clodeck status -sb     # ## master...origin/master
 ```
 
-The server checkout must be able to `git fetch` without a terminal — a credential helper or a
-read-only deploy key — because the workflow has no TTY. It must also find `npm` on the PATH sshd
-gives a non-interactive session: a distro package or NodeSource install is visible there, while an
-`nvm` install usually is not, and the deploy stops with `npm is not on PATH` rather than build with a
-different Node.
+The checkout must be owned by `clodeck`, and the runner below runs as `clodeck` too, so it needs
+`npm` on the PATH systemd gives a non-interactive session: a distro package or NodeSource install is
+visible there, while an `nvm` install usually is not, and the deploy stops with `npm is not on PATH`
+rather than build with a different Node.
 
-**5. GitHub secrets and variables.** In the repository:
+**4. The server: the self-hosted runner.** Take a registration token (good for one hour) and pipe
+[`scripts/clodeck-runner-setup.sh`](scripts/clodeck-runner-setup.sh) into the host; it downloads the
+runner, registers it, and installs the systemd service:
 
 ```powershell
-Get-Content -Raw "$HOME/.ssh/clodeck_deploy" | gh secret set DEPLOY_SSH_KEY
-ssh-keyscan -H <host> | gh secret set DEPLOY_KNOWN_HOSTS
-gh variable set DEPLOY_HOST --body "<address>"
-gh variable set DEPLOY_USER --body "clodeck"
+gh api -X POST repos/clodeck/clodeck/actions/runners/registration-token --jq .token
+ssh root@<host> "bash -s -- <token>" < scripts/clodeck-runner-setup.sh
 ```
 
-`DEPLOY_KNOWN_HOSTS` is a **pin**, not a convenience: compare its fingerprint with
-`/etc/ssh/ssh_host_ed25519_key.pub` on the server before storing it. The deploy job pins it on every
-connection (`StrictHostKeyChecking=yes`).
+The runner carries the `clodeck-prod` label — the only label the deploy job asks for — and shows up
+under **Settings → Actions → Runners** as *Idle*. Because the repository is **public**, its runner
+group must allow public repositories: organization **Settings → Actions → Runner groups → Default →
+Allow public repositories**. Without that, every deploy job waits for a runner that never matches.
+
+**5. Nothing else in GitHub.** There is no deploy secret and no variable: `verify` runs on GitHub's
+infrastructure and hands the SHA to the runner. (The `DEPLOY_SSH_KEY` / `DEPLOY_KNOWN_HOSTS` secrets
+and the `DEPLOY_HOST` / `DEPLOY_USER` variables belonged to the SSH transport and can be deleted.)
 
 ### Rollback
 
