@@ -56,6 +56,69 @@ va `/healthz` ra check mikone; shekast → rollback be commit-e ghabli.
 - GitHub secrets/variables: `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`.
 - Server checkout az `main` be `master`.
 
+### Runbook-e daghigh
+
+`gh` rooy-e machine-e publish:
+
+```powershell
+winget install --id GitHub.cli
+gh auth login
+```
+
+`master` az `main`:
+
+```sh
+git push origin main:master
+```
+
+Protection (GitHub UI → Settings → Branches → pattern `master`): PR ejbari (0 approval), required
+check `check`, **Require branches to be up to date off**, force-push va deletion off, admin bypass
+**on**, **Automatically delete head branches off** (head = `main` ast).
+
+Deploy key:
+
+```powershell
+ssh-keygen -t ed25519 -f "$HOME/.ssh/clodeck_deploy" -C "clodeck deploy"   # Enter, Enter
+Get-Content "$HOME/.ssh/clodeck_deploy.pub"
+```
+
+Server (as a sudo-capable user). Script ghabl az key nasb mishe, vagarna forced command peyda
+nemishavad:
+
+```sh
+sudo install -o root -g root -m 755 \
+  /home/clodeck/clodeck/scripts/clodeck-deploy.sh /usr/local/bin/clodeck-deploy
+
+sudo -u clodeck mkdir -p /home/clodeck/.ssh
+sudo chmod 700 /home/clodeck/.ssh
+echo 'command="/usr/local/bin/clodeck-deploy",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA…' \
+  | sudo tee -a /home/clodeck/.ssh/authorized_keys
+sudo chown clodeck:clodeck /home/clodeck/.ssh/authorized_keys
+sudo chmod 600 /home/clodeck/.ssh/authorized_keys
+
+echo 'clodeck ALL=(root) NOPASSWD: /usr/bin/systemctl restart clodeck' \
+  | sudo tee /etc/sudoers.d/clodeck-deploy
+sudo chmod 440 /etc/sudoers.d/clodeck-deploy
+sudo visudo -cf /etc/sudoers.d/clodeck-deploy
+
+sudo -u clodeck git -C /home/clodeck/clodeck fetch origin
+sudo -u clodeck git -C /home/clodeck/clodeck switch master
+sudo -u clodeck git -C /home/clodeck/clodeck status -sb     # ## master...origin/master
+```
+
+GitHub secrets/variables:
+
+```powershell
+Get-Content -Raw "$HOME/.ssh/clodeck_deploy" | gh secret set DEPLOY_SSH_KEY
+ssh-keyscan -H <host> | gh secret set DEPLOY_KNOWN_HOSTS
+gh variable set DEPLOY_HOST --body "<address>"
+gh variable set DEPLOY_USER --body "clodeck"
+```
+
+`DEPLOY_KNOWN_HOSTS` yek pin ast — fingerprint ra ghabl az zakhire kardan ba
+`/etc/ssh/ssh_host_ed25519_key.pub` rooy-e server moghayese kon. Server checkout bayad `git fetch` ra
+bedoone terminal anjam dahad (credential helper ya read-only key); workflow terminal nadarad.
+
 ## Acceptance criteria
 
 - [ ] Composite action-e `.github/actions/verify` har do workflow ra taghziye mikone.
