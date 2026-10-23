@@ -151,7 +151,7 @@ appears (tools, text blocks, `tool_use`, `tool_result`), and does not document
 
 But the empirical evidence on this machine says otherwise:
 
-- Six recent `.jsonl` transcripts under `C:\Users\Ehsan\.claude\projects` were
+- Six recent `.jsonl` transcripts under `C:\Users\<you>\.claude\projects` were
   aggregated by reading only `.message.model` and `.message.usage` (no prompt
   content). All assistant entries had usage. Examples:
   - `deepseek-flash`, this repo's subagent transcript:
@@ -305,7 +305,7 @@ Environment inspection on 2026-10-19 (values redacted where they are credentials
 
 Also:
 
-- `C:\Users\Ehsan\.claude\settings.json` has `"model": "tllm/claude_haiku_3_5"`,
+- `C:\Users\<you>\.claude\settings.json` has `"model": "tllm/claude_haiku_3_5"`,
   but `ANTHROPIC_MODEL` outranks settings, so a CLI with the user env uses
   `auto/best-free`.
 - `claude auth status --json` reports `authMethod: "oauth_token"`,
@@ -587,11 +587,11 @@ Run these on the deployment; none requires changing committed code.
   `ANTHROPIC_MODEL=auto/best-free`, `ANTHROPIC_BASE_URL=http://localhost:20128`,
   `ANTHROPIC_AUTH_TOKEN` set; Process `deepseek-flash[1m]`,
   `https://api.deepseek.com/anthropic`, token set; Machine unset.
-- `C:\Users\Ehsan\.claude\settings.json` — user-level `model:
+- `C:\Users\<you>\.claude\settings.json` — user-level `model:
   "tllm/claude_haiku_3_5"` plus hooks/plugins; no `effort`/`modelSettings`.
 - `claude auth status --json` — `authMethod: "oauth_token"`,
   `apiProvider: "firstParty"`.
-- Six recent transcripts under `C:\Users\Ehsan\.claude\projects` — usage
+- Six recent transcripts under `C:\Users\<you>\.claude\projects` — usage
   aggregates in §2.2 and the exact `modelUsage` cost reproductions in §3.2.
   Only `.message.model`, `.message.usage.*`, `modelUsage.*` were read; no prompt
   content was printed.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Install the self-hosted GitHub Actions runner that performs the production
-# deploy (see the README's "Publishing and CI/CD" section).
+# deploy (see docs/ci-cd.md).
 #
 # The deploy job runs on this machine because the host's provider filters
 # inbound SSH from GitHub's runners: being *on* the server needs no open port,

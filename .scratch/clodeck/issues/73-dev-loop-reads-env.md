@@ -86,11 +86,11 @@ chiz-hāyi rā dārad ke sakht-and:
 --- bytes of the .env the loader will read ---
 # a comment
 UI_PASSWORD=p#ss word
-PROJECTS_ROOT=C:\Users\Ehsan\clodeck-projects
+PROJECTS_ROOT=C:\Users\<you>\clodeck-projects
 ANTHROPIC_AUTH_TOKEN=sk-a-value-with-#-and-\-in-it
 --- FROM_SHELL is exported in the parent; .env overrides UI_PASSWORD ---
 clodeck: .env → 3 values (UI_PASSWORD, PROJECTS_ROOT, ANTHROPIC_AUTH_TOKEN) · npm run echo-env
-PROJECTS_ROOT=[C:\Users\Ehsan\clodeck-projects]
+PROJECTS_ROOT=[C:\Users\<you>\clodeck-projects]
 UI_PASSWORD=[p#ss word]
 FROM_SHELL=[inherited]
 ```

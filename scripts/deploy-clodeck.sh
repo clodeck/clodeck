@@ -193,7 +193,7 @@ TOTAL_STAGES=9
 # reads a root-owned copy of it. The split is deliberate: the staged file stays
 # user-owned so a re-run can read its own answers back (`_existing`), and the
 # copy under /etc is the one systemd reads — 0600 and root-owned, which is
-# where a service's environment belongs (README §"Linux server").
+# where a service's environment belongs (docs/deployment.md §"Linux server").
 STATE_DIR="$HOME/.config/clodeck"
 STAGE_ENV="$STATE_DIR/clodeck.env"
 STAGE_UNIT="$STATE_DIR/clodeck.service"
@@ -437,7 +437,7 @@ say "clodeck speaks the Anthropic Messages API and nothing else. Anthropic's own
 say "API is one; DeepSeek's /anthropic surface is another; a vendor with neither"
 say "reaches you through a translation proxy you run yourself."
 note ""
-say "The pages below are DeepSeek's, as the README's example. On another vendor,"
+say "The pages below are DeepSeek's, as the deployment guide's example. On another vendor,"
 say "ignore them and use that vendor's dashboard."
 
 step "Sign in, find the API keys section, and create a key."
