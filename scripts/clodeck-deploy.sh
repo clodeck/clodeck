@@ -9,7 +9,7 @@
 # passes that request as an argument; over SSH the same text arrives as
 # `SSH_ORIGINAL_COMMAND` through `authorized_keys`, where the key is bound to
 # this script as a forced command and cannot run anything else. Install it with
-# the runbook in the README's "Publishing and CI/CD" section; the two copies
+# the runbook in docs/ci-cd.md; the two copies
 # must be updated together.
 #
 # What one deploy is:

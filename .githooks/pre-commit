@@ -10,7 +10,7 @@
 # every checklist box still open.
 #
 # Wired by `core.hooksPath`, which the root `prepare` script sets on every
-# `npm install` (see the README's Commands table). Bypass a single commit with
+# `npm install` (see docs/development.md). Bypass a single commit with
 # `git commit --no-verify` when the red is deliberate.
 
 set -e
