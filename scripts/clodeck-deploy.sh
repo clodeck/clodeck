@@ -145,7 +145,7 @@ restart_and_wait() {
         log "healthy: $HEALTH_URL reports ${live:0:12}"
         return 0
       fi
-      log "$HEALTH_URL reports ${live:0:12}, not the deployed ${expected:0:12}"
+      log "$HEALTH_URL reports ${live:0:12}, not ${expected:0:12}"
       return 1
     fi
     sleep 2
@@ -212,5 +212,5 @@ git reset --hard "$previous" || die "rollback reset failed; production needs a h
 # `node_modules` half-written, and the rollback's job is a tree that builds.
 npm ci || log "rollback: npm ci failed"
 npm run build || log "rollback: build failed"
-restart_and_wait "$previous" || log "rollback: restart or health check failed"
+restart_and_wait "$previous" || log "rollback: restart or stamp check failed"
 die "deploy of ${target:0:12} failed; rolled back to ${previous:0:12}"
