@@ -1,0 +1,37 @@
+# 95: The deploy refuses to call a build live when it isn't
+
+**What to build:** Deploy, pas az restart, dige faghat "yek javāb-e 2xx" rā healthy nemishmārad: commit-i
+ke `/healthz` gozāresh midahad rā bā SHA-yi ke khodesh deploy kard moghāyese mikonad. Nabarābari —
+shāmel-e `unknown` — yek deploy failure-e, na yek health success, va hamoon rollback-e hamishte ejrā
+mishavad.
+
+In chizhāyi rā migirad ke hich chiz-e dige nemigirad: build script ejrā nashode, checkout-e ghalat, va
+**process-i ke restart nashode** — chon stamp vaqt-e boot khānde mishavad, process-e ghadimi stamp-e
+artifact-e ghadimi rā barmigardānad. `unknown` dar in masir hamishte failure ast, chon deploy az yek
+checkout-e git build mikonad.
+
+**Blocked by:** None (re-opened to run beside 94 at the operator's instruction of 2026-10-23 — the
+`/healthz` payload it checks is fixed by 94's ticket, so the two branches meet at the merge)
+
+**Status:** ready-for-agent
+
+- [x] Deploy, pas az restart, `/healthz` rā mikhānad va `build.commit` rā bā SHA-ye verified-e deploy
+      moghāyese mikonad (`jq` ro-ye server nist: parse bā `node -e`/`node -p`).
+- [x] Nabarābari yā `unknown` → deploy failure-e, ba exit-e non-zero va hamoon rollback-e hamishte.
+- [x] Parse-e yek body-e ghalat yā nā-motarāfez (server-e kohne ke `build` nadārad) ham failure-e, na
+      crash-e script.
+- [x] In check be `restart_and_wait` ezāfe mishavad ke ham forward va ham rollback az ān ostefāde mikonand —
+      ro-ye rollback niz mohim ast: rollback-e ghalat-mokhtoum yādi migirad.
+- [ ] Har do copy update mishavand: `scripts/clodeck-deploy.sh` (reference) va copy-e root-owned-e ro-ye
+      server (`/usr/local/bin/clodeck-deploy`). Ghesmat-e dovvom yek qadam-e ensāni-st — runbook-e nasb.
+- [x] `docs/ci-cd.md` update mishavad (ghadam-e 5 dige "che javābi healthy e" nist).
+- [ ] Verification: yek deploy-e vāghe'i ro-ye server, ba SHA-ye tamāshā-shode dar UI — evidence dar
+      ticket. (In repo Docker/deploy rā bā unit test tasdiq nemikonad.)
+- [x] `npm run typecheck` and `npm test` pass.
+
+**Bāqi-mānde barā-ye operator:** in pass reference copy va docs rā āvord; do checkbox-e bāz amdan tick
+nashodand, chon qadam-e ensāni-and va hich agenti injā server nadārad. Script-e jadid rā bā hamoon
+`sudo install`-e `docs/ci-cd.md` §3 rooy-e server nasb kon — copy-e nasb-shode
+(`/usr/local/bin/clodeck-deploy`) ejrā mishavad, na checkout — ba'd yek deploy-e vāghe'i bezan va
+evidence rā injā bezār: khatt-e `healthy: … reports <sha>` az log-e deploy, va hamoon SHA-ye kootāh dar
+UI (sidebar header / login screen). Ba'd in do checkbox rā tick kon va ticket rā close kon.

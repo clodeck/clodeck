@@ -1,7 +1,7 @@
 import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { Project } from '@clodeck/shared';
+import type { BuildStamp, Project } from '@clodeck/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -55,10 +55,33 @@ describe('the server API', () => {
     return app.inject({ method: 'GET', url: '/api/projects', headers: { cookie: await login(app) } });
   }
 
-  it('answers GET /healthz with 200 and no auth', async () => {
+  it('answers GET /healthz with 200, no auth, and the dev loop’s stamp', async () => {
     const response = await makeApp(root).inject({ method: 'GET', url: '/healthz' });
 
     expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: 'ok',
+      build: { commit: 'dev', builtAt: null, dirty: false },
+    });
+  });
+
+  it('answers the injected build stamp, with status first and no-store', async () => {
+    const build: BuildStamp = {
+      commit: 'fcbd770000000000000000000000000000000000',
+      builtAt: '2026-10-23T14:05:00.000Z',
+      dirty: true,
+    };
+    const app = createTestApp({ build });
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/healthz' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({ status: 'ok', build });
+    // The two setup scripts and the deploy script grep `"status":"ok"` as the
+    // first key: a reordered body would read as a dead server.
+    expect(Object.keys(response.json() as Record<string, unknown>)[0]).toBe('status');
   });
 
   it('returns the child directories at GET /api/projects, ordered by name', async () => {

@@ -193,7 +193,7 @@ TOTAL_STAGES=9
 # reads a root-owned copy of it. The split is deliberate: the staged file stays
 # user-owned so a re-run can read its own answers back (`_existing`), and the
 # copy under /etc is the one systemd reads — 0600 and root-owned, which is
-# where a service's environment belongs (README §"Linux server").
+# where a service's environment belongs (docs/deployment.md §"Linux server").
 STATE_DIR="$HOME/.config/clodeck"
 STAGE_ENV="$STATE_DIR/clodeck.env"
 STAGE_UNIT="$STATE_DIR/clodeck.service"
@@ -437,7 +437,7 @@ say "clodeck speaks the Anthropic Messages API and nothing else. Anthropic's own
 say "API is one; DeepSeek's /anthropic surface is another; a vendor with neither"
 say "reaches you through a translation proxy you run yourself."
 note ""
-say "The pages below are DeepSeek's, as the README's example. On another vendor,"
+say "The pages below are DeepSeek's, as the deployment guide's example. On another vendor,"
 say "ignore them and use that vendor's dashboard."
 
 step "Sign in, find the API keys section, and create a key."
@@ -771,6 +771,8 @@ stage "First light"
 say "Waiting for the server to answer /healthz…"
 
 answered=no
+# `status` is the first key of /healthz's JSON on purpose: this is a literal
+# match, and a reordered payload would read as a dead server (ADR 0004).
 for _ in $(seq 1 15); do
   if curl -fsS --max-time 3 "http://127.0.0.1:$PORT/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
     answered=yes

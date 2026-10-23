@@ -1,8 +1,25 @@
 {
   "name": "clodeck",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Remote browser access to Claude Code across multiple project directories",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clodeck/clodeck.git"
+  },
+  "homepage": "https://github.com/clodeck/clodeck#readme",
+  "bugs": {
+    "url": "https://github.com/clodeck/clodeck/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-agent-sdk",
+    "web-ui",
+    "self-hosted",
+    "terminal",
+    "xterm"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
@@ -13,7 +30,7 @@
   ],
   "scripts": {
     "build:shared": "npm run build --workspace @clodeck/shared",
-    "build": "npm run build:shared && npm run build --workspace @clodeck/server && npm run build --workspace @clodeck/web",
+    "build": "npm run build:shared && npm run build --workspace @clodeck/server && npm run build --workspace @clodeck/web && node scripts/build-stamp.mjs",
     "serve": "npm run preflight --workspace @clodeck/server && npm run build && npm start --workspace @clodeck/server",
     "typecheck:tooling": "tsc --project tsconfig.tooling.json",
     "typecheck": "npm run build:shared && npm run typecheck:tooling && npm run typecheck --workspaces --if-present",

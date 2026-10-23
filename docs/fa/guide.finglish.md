@@ -1,9 +1,8 @@
-# Clodeck — rahnamaye gheyre rasmi (Finglish)
+# Clodeck — rahnamaye Finglish
 
-> **In README-e rasmi nist.** Yad-dasht-e shakhsi-e man ast baraye ejra kardan-e clodeck:
-> Windows-e khodam, server-e Linux, vared kardane API key, va un chiz-hayi ke bayad bedoonam.
-> Manba-e rasmi hamishe `README.md` ast — har ja in do tafavot dashtan, un dorost ast.
-> In file be Finglish neveshte shode (chon default-e man hamine). Age be **khatte farsi** mikhay, bego tabdil konam.
+> **In README-e rasmi nist.** Yek rahnamaye Finglish baraye ejra kardan-e Clodeck ast: Windows,
+> server-e Linux, vared kardane API key, va un chiz-hayi ke bayad bedooni.
+> Manba-e rasmi hamishe [`README.md`](../../README.md) ast — har ja in do tafavot dashtan, un dorost ast.
 
 ---
 
@@ -32,7 +31,7 @@ rail baz mishavad, na yek column-e daemi.
 **Windows (mahale khodam):**
 
 ```powershell
-cd D:\projects\clodeck\clodeck
+cd $HOME\clodeck
 .\start-clodeck.ps1          # .env ra load mikonad, build mikonad, serve mikonad
 # bad: http://127.0.0.1:3001  →  password-e .env ra bezan
 
@@ -82,7 +81,7 @@ Mesle har platform:
 ### 3.1 Nasb
 
 ```powershell
-git clone <repo> $HOME\clodeck     # ya hamoon D:\projects\clodeck\clodeck
+git clone https://github.com/clodeck/clodeck.git $HOME\clodeck
 cd $HOME\clodeck
 npm install                        # har se workspace: shared, server, web
 ```
@@ -96,7 +95,7 @@ fael mishavad (typecheck + test + check-e ticket-ha).
 mkdir $HOME\clodeck-projects\hello
 ```
 
-Hamin. Man dar `.env`-e khodam `PROJECTS_ROOT=C:\Users\Ehsan\clodeck-projects` daram.
+Hamin. Dar `.env`-e khodam `PROJECTS_ROOT=C:\Users\<you>\clodeck-projects` daram.
 
 ### 3.3 Do rah-e ejra: `dev` ya `serve`
 
@@ -221,8 +220,15 @@ ANTHROPIC_API_KEY=sk-ant-... \
 Check:
 
 ```bash
-curl http://127.0.0.1:3001/healthz     # {"status":"ok"}
+curl http://127.0.0.1:3001/healthz     # {"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}
 ```
+
+- `status` **aval** ast chon script-haye setup/deploy daghighan `"status":"ok"` ra grep mikonand.
+- `build` stamp-e **artifact-i** ast ke run mishavad, na checkout-e git-e kenaresh (ADR 0004). Hamoon
+  khatt ro-ye login screen (ghabl az vorood) va sidebar header ham neshoon dade mishavad.
+- Dar dev loop `commit` = `dev` va `builtAt` = `null` ast. Dar image-e Docker bedoone
+  `--build-arg CLODECK_BUILD_COMMIT=$(git rev-parse HEAD)` `commit` = `unknown` ast. Hich kodoom
+  makhfi nemishavand.
 
 ### 4.4 Daemoon kardan — systemd
 
@@ -552,7 +558,7 @@ re-run).
 ▸ Stage 2/8 · The projects root
   Every immediate child directory of this path is one project. clodeck keeps
   no database, so the folders in here are the whole registry.
-  Projects root (Enter for ~/clodeck-projects): C:\Users\Ehsan\clodeck-projects
+  Projects root (Enter for ~/clodeck-projects): C:\Users\<you>\clodeck-projects
   found it ✓
   ✓ wrote PROJECTS_ROOT → .env
   clodeck.config.json can hold projectsRoot instead; nothing else goes in it.
@@ -663,7 +669,7 @@ Har do gitignored hastan, mesle `.env`.
 ▸ Stage 8/8 · Start it
   In a NEW PowerShell window — this one has to stay free — run:
 
-      cd C:\Users\Ehsan\clodeck\clodeck
+      cd C:\Users\<you>\clodeck\clodeck
       .\start-clodeck.ps1
 
   Press Enter once that line is on screen
@@ -672,7 +678,7 @@ Har do gitignored hastan, mesle `.env`.
 Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PWD`-e Git Bash yek
 `/c/...` ast ke PowerShell ghabool nemikonad). Bad az inke `Enter` bezani:
 
-- `curl http://127.0.0.1:3001/healthz` ra check mikonad → age `{"status":"ok"}` bianad, migoyad ✓
+- `curl http://127.0.0.1:3001/healthz` ra check mikonad → age `{"status":"ok",…}` bianad, migoyad ✓
 - Browser ra rooye `http://127.0.0.1:3001` baz mikonad.
 - Chand rahnamaye kootah midahad: project entekhab kon → picker-e balaye composer
   (`running on <model> · <profile>`) entekhab kon → yek turn beferest (baad az turn-e aval picker
@@ -758,7 +764,7 @@ Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PW
 | `npm run e2e` | Playwright — niaz be app-e bala darad |
 | `bash scripts/setup-clodeck.sh` | Wizard (section 6) |
 | `bash scripts/deploy-clodeck.sh` | Wizard-e **server**: pish-niaz-ha → `/etc/clodeck/clodeck.env` + systemd + firewall + `/healthz` |
-| `curl http://127.0.0.1:3001/healthz` | `{"status":"ok"}` = bala ast |
+| `curl http://127.0.0.1:3001/healthz` | `{"status":"ok","build":{…}}` = bala ast; `build` hamoon khatt-e build ast |
 
 ---
 
@@ -776,10 +782,10 @@ Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PW
 
 ---
 
-## 10) Baraye khodam, chand kalame
+## 10) Chand kalame dar payan
 
-- **`npm run serve` + launcher = hamishe.** `npm run dev` faghat vaghti rooye khode clodeck kar mikonam.
+- **`npm run serve` + launcher = hamishe.** `npm run dev` faghat vaghti ke rooye khode Clodeck kar mikonim.
 - Har taghir dar `.env` → restart-e launcher.
 - Har taghir dar `.claude/settings.json`-e yek project → hich restart-i niaz nist.
 - Aval khatt-haye server ra bekhan. Warning-haye un fix-e khodeshun ra minevisan.
-- `README.md` (61KB) manba-e kamel ast; in file faghat rah-e kootah-e shakhsi-e man ast.
+- [`README.md`](../../README.md) manba-e kamel ast; in file rah-e kootah-e Finglish ast.

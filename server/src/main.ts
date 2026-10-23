@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { createAuthOptions } from './auth/options.js';
+import { readBuildStamp } from './build-stamp.js';
 import { loadConfig } from './config.js';
 import { createProjectDiscovery } from './discovery.js';
 import { warnToConsole } from './logging.js';
@@ -33,6 +34,10 @@ const app = buildApp({
   // a build this checkout made, so null here means there was none to serve — the
   // dev loop, where Vite serves the client instead (spec-07 §"The web root").
   webRoot: config.webRoot,
+  // The artifact's own record, read once here — in the dev loop the file is
+  // absent and this is `dev` with no build time (ADR 0004). The HTTP layer
+  // never reads it again, so what `/healthz` says is what this boot loaded.
+  build: readBuildStamp(),
   // The proxies the operator put in front of this deployment, so the login
   // limiter counts failures against the browser's address rather than the
   // proxy's (ticket 65). Unset — the direct and tunnelled routes — trusts
