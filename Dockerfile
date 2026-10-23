@@ -38,6 +38,10 @@ COPY tsconfig.base.json ./
 COPY shared shared
 COPY server server
 COPY web web
+# `npm run build`'s last step writes the stamp, and it lives at the repo root
+# because it belongs to no one workspace (ADR 0004). Without this copy the
+# build fails on a missing script rather than stamping the image.
+COPY scripts/build-stamp.mjs scripts/
 RUN npm run build
 
 # ---------------------------------------------------------------------------
