@@ -12,6 +12,15 @@ import type { ChatEntry, ToolEntry, ToolResultView } from './reducer';
  * The live bubble lives here for that same reason (ticket 51): its head and a
  * settled assistant entry's are one component rather than two that agree today,
  * which is the only version of "the same head" a switch between them can keep.
+ *
+ * Every message's own text carries `dir="auto"`, the rule `Name` took for a file
+ * name (ticket 56) and the browser's rule for the same problem here: the shell is
+ * laid out left-to-right, so a Farsi answer with a Latin word in it otherwise
+ * orders its two halves like a left-to-right sentence and reads reversed from the
+ * right. The rule sits on the text element and never on a transcript, a head or a
+ * tile, which is where ticket 56's trap was — `dir` is inherited, so a tile beside
+ * the words would flip with them. A message beginning with a Latin word stays
+ * left-to-right, and its Farsi runs still read in their own order.
  */
 
 export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
@@ -20,7 +29,10 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
       return (
         <div className="flex flex-col items-end gap-1">
           <span className="text-[10px] tracking-wider text-ink-dim uppercase">You</span>
-          <p className="max-w-[85%] rounded-lg bg-bg-3 px-3 py-2 text-sm whitespace-pre-wrap text-ink">
+          <p
+            dir="auto"
+            className="max-w-[85%] rounded-lg bg-bg-3 px-3 py-2 text-sm whitespace-pre-wrap text-ink"
+          >
             {entry.text}
           </p>
         </div>
@@ -32,7 +44,7 @@ export function EntryView({ entry }: { entry: ChatEntry }): ReactElement {
       return (
         <details className="rounded border border-line bg-panel/60 px-3 py-2">
           <summary className="cursor-pointer text-[11px] tracking-wider text-ink-dim uppercase">Thinking</summary>
-          <p className="mt-2 text-xs whitespace-pre-wrap text-ink-dim">{entry.text}</p>
+          <p dir="auto" className="mt-2 text-xs whitespace-pre-wrap text-ink-dim">{entry.text}</p>
         </details>
       );
     case 'notice':
@@ -61,7 +73,7 @@ function AssistantMessage({ children, className = '' }: { children: ReactNode; c
   return (
     <div className={`flex items-start gap-3 ${className}`}>
       <AssistantTile />
-      <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap text-ink">{children}</p>
+      <p dir="auto" className="min-w-0 flex-1 text-sm whitespace-pre-wrap text-ink">{children}</p>
     </div>
   );
 }
