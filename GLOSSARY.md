@@ -36,6 +36,12 @@ The addresses of the proxies in front of a deployment, stated as `CLODECK_TRUSTE
 decisions — today, the login lockout — on the connecting peer instead.
 _Avoid_: trusted proxy, proxy allowlist, forwarded header
 
+**Build stamp**:
+The record of which commit the running server was built from — the commit, the build time, and whether
+the tree was dirty — served at `/healthz` so the UI can show it before anyone signs in. It describes the
+built artifact that is running, not the git checkout the process happens to sit in.
+_Avoid_: version, revision, build number, git version
+
 **Provider**:
 An API endpoint a session can be run against, together with the credential and the model that go to it.
 clodeck speaks exactly one API shape — the Anthropic Messages API — so any other vendor arrives through
