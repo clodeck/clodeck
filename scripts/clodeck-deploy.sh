@@ -20,12 +20,22 @@
 #      fresh checkout with no `node_modules`);
 #   3. `npm run build`;
 #   4. `sudo systemctl restart clodeck`;
-#   5. poll `/healthz` for up to 60 seconds.
+#   5. poll `/healthz` for up to 60 seconds, and require the commit it reports
+#      to be the one just deployed.
 #
-# If build, restart or health fails, it resets to the commit that was live
-# before, rebuilds, restarts and exits non-zero. The rollback is local: GitHub's
-# `master` still points at the bad merge commit, and undoing that is a manual
-# revert PR — deliberately, so the two histories cannot disagree silently.
+# A 2xx is not health. The stamp `/healthz` reports is read from the built
+# artifact at boot (docs/adr/0004-build-stamp-is-baked-at-build-time.md), so a
+# process that did not restart keeps reporting the previous artifact's commit —
+# and a build step that did nothing, a wrong checkout, or a server too old to
+# carry a stamp all have to fail the deploy rather than pass it. Anything but
+# an exact match, `unknown` included, is a failed deploy.
+#
+# If build, restart or the stamp check fails, it resets to the commit that was
+# live before, rebuilds, restarts and exits non-zero. The rollback checks
+# `previous` the same way, so a rollback that did not take is said out loud too.
+# The rollback is local: GitHub's `master` still points at the bad merge commit,
+# and undoing that is a manual revert PR — deliberately, so the two histories
+# cannot disagree silently.
 #
 # It runs as `clodeck`, not root. The one privileged step is the restart, and
 # `/etc/sudoers.d/clodeck-deploy` allows exactly that command. There is no idle
@@ -95,9 +105,28 @@ install_deps() {
   fi
 }
 
-# Restart, then wait for the app's own liveness answer. `/healthz` is
-# unauthenticated on purpose (server/src/app.ts), so this needs no cookie.
+# The commit `/healthz` says it is running, or a non-zero exit when the body is
+# not JSON carrying a string `build.commit` — an old server, a proxy's error
+# page, or a body cut short. `jq` is not installed on the server, and `npm` (so
+# `node`) is already required, so Node does the parsing.
+health_commit() {
+  node -e '
+    const body = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    const commit = body?.build?.commit;
+    if (typeof commit !== "string") process.exit(1);
+    process.stdout.write(commit);
+  ' 2>/dev/null
+}
+
+# Restart, then wait for the app to answer with the commit this deploy built.
+# `/healthz` is unauthenticated on purpose (server/src/app.ts), so this needs no
+# cookie. A 2xx alone proves only that *something* is listening: the stamp is
+# read at boot, so an unrestarted process answers 200 with the previous build's
+# commit. The first readable answer is therefore final — waiting cannot turn a
+# wrong stamp into a right one — and anything other than `expected` fails.
 restart_and_wait() {
+  local expected="$1"
+
   log "restarting $SERVICE"
   if ! sudo -n "$SYSTEMCTL" restart "$SERVICE"; then
     log "systemctl restart $SERVICE failed"
@@ -105,10 +134,19 @@ restart_and_wait() {
   fi
 
   local deadline=$((SECONDS + HEALTH_TIMEOUT))
+  local body live
   while ((SECONDS < deadline)); do
-    if curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-      log "healthy: $HEALTH_URL"
-      return 0
+    if body="$(curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null)"; then
+      if ! live="$(printf '%s' "$body" | health_commit)"; then
+        log "$HEALTH_URL answered without a readable build.commit"
+        return 1
+      fi
+      if [[ "$live" == "$expected" ]]; then
+        log "healthy: $HEALTH_URL reports ${live:0:12}"
+        return 0
+      fi
+      log "$HEALTH_URL reports ${live:0:12}, not ${expected:0:12}"
+      return 1
     fi
     sleep 2
   done
@@ -120,11 +158,13 @@ restart_and_wait() {
 # Build and bring the service up for one commit. `npm run build` covers all
 # three workspaces and the shared package they import through.
 build_and_restart() {
-  npm run build && restart_and_wait
+  local expected="$1"
+  npm run build && restart_and_wait "$expected"
 }
 
 command -v git >/dev/null 2>&1 || die "git is not on PATH"
 command -v npm >/dev/null 2>&1 || die "npm is not on PATH"
+command -v node >/dev/null 2>&1 || die "node is not on PATH"
 command -v curl >/dev/null 2>&1 || die "curl is not on PATH"
 
 log "deploy requested${EXPECTED_COMMIT:+ for ${EXPECTED_COMMIT:0:12}}"
@@ -158,7 +198,7 @@ else
   log "deploying ${target:0:12} (was ${previous:0:12})"
 fi
 
-if install_deps "$previous" "$target" && build_and_restart; then
+if install_deps "$previous" "$target" && build_and_restart "$target"; then
   log "deployed ${target:0:12}"
   exit 0
 fi
@@ -172,5 +212,5 @@ git reset --hard "$previous" || die "rollback reset failed; production needs a h
 # `node_modules` half-written, and the rollback's job is a tree that builds.
 npm ci || log "rollback: npm ci failed"
 npm run build || log "rollback: build failed"
-restart_and_wait || log "rollback: restart or health check failed"
+restart_and_wait "$previous" || log "rollback: restart or stamp check failed"
 die "deploy of ${target:0:12} failed; rolled back to ${previous:0:12}"

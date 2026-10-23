@@ -66,15 +66,26 @@ One deploy:
    `node_modules` is missing);
 3. `npm run build` (shared → server → web);
 4. `sudo /usr/bin/systemctl restart clodeck`;
-5. poll `http://127.0.0.1:3001/healthz` for up to 60 seconds — the answer is
+5. poll `http://127.0.0.1:3001/healthz` for up to 60 seconds, and require its `build.commit` to be
+   the commit just deployed. The answer is
    `{"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}`, with `status` first so the
-   setup and deploy scripts' literal match keeps working. `build` names the artifact that actually
-   started, which is the fact a later check can compare against the deployed commit (ADR 0004).
+   setup and deploy scripts' literal match keeps working.
 
-If the build, the restart or the health check fails, it resets to the commit that was live before, runs
+A 2xx alone is **not** healthy. The stamp `/healthz` reports is baked into the build and read once at
+boot ([ADR 0004](adr/0004-build-stamp-is-baked-at-build-time.md)), so a process that did not restart
+keeps reporting the previous artifact's commit. Comparing the two catches exactly that: a build step
+that did nothing, a checkout reset to the wrong commit, and a restart that never took. `unknown` — a
+build made outside git, such as the Docker image — and a body with no `build.commit` at all (a server
+from before the stamp, a proxy's error page) are failures too. There is no "probably fine": only an
+exact match with the deployed SHA passes.
+
+If the build, the restart or the stamp check fails, it resets to the commit that was live before, runs
 `npm ci` (unconditionally — a half-finished install must not survive into the rollback), rebuilds,
-restarts, and exits non-zero. There is **no idle gate**: a restart drops live sessions, which is
-accepted rather than engineered around.
+restarts, and exits non-zero. The rollback's restart waits for `previous` the same way, so a rollback
+that did not actually take is reported rather than assumed. A mismatch after the restart is final
+rather than polled until the timeout: the stamp is read at boot, so waiting cannot turn a wrong commit
+into the right one. There is **no idle gate**: a restart drops live sessions, which is accepted rather
+than engineered around.
 
 ## One-time setup
 
@@ -116,6 +127,10 @@ sudo -u clodeck git -C /home/clodeck/clodeck fetch origin
 sudo -u clodeck git -C /home/clodeck/clodeck switch master
 sudo -u clodeck git -C /home/clodeck/clodeck status -sb     # ## master...origin/master
 ```
+
+The **installed** copy is the one that runs — editing the checkout's `scripts/clodeck-deploy.sh` changes
+nothing until the `install` line above is run again, and the deploy that ships a change to the script
+still runs the old one. Re-run it after every change to the reference copy.
 
 The checkout must be owned by `clodeck`, and the runner below runs as `clodeck` too, so it needs `npm`
 on the PATH systemd gives a non-interactive session: a distro package or NodeSource install is visible
