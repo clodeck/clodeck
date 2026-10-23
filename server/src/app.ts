@@ -2,7 +2,7 @@ import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import type { BuildStamp, PermissionMode } from '@clodeck/shared';
+import type { BuildStamp, HealthResponse, PermissionMode } from '@clodeck/shared';
 
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import { registerCommandRoutes } from './commands.js';
@@ -151,9 +151,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // `grep -q '"status":"ok"'`, so a reordered payload would read as a dead
   // server. `no-store` keeps a proxy or a browser from answering with a stamp
   // the process has already replaced.
-  app.get('/healthz', async (_request, reply) => {
+  app.get('/healthz', async (_request, reply): Promise<HealthResponse> => {
     reply.header('cache-control', 'no-store');
-    return { status: 'ok' as const, build: options.build };
+    return { status: 'ok', build: options.build };
   });
 
   app.register(

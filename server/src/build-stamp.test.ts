@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { UNKNOWN_BUILD_STAMP } from '@clodeck/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEV_BUILD_STAMP, readBuildStamp, UNKNOWN_BUILD_STAMP } from './build-stamp.js';
+import { DEV_BUILD_STAMP, readBuildStamp } from './build-stamp.js';
 
 /**
  * The one boot-time read of the build stamp (ADR 0004). The file's *content* is

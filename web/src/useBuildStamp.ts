@@ -1,4 +1,4 @@
-import type { BuildStamp, HealthResponse } from '@clodeck/shared';
+import { isBuildStamp, UNKNOWN_BUILD_STAMP, type BuildStamp, type HealthResponse } from '@clodeck/shared';
 import { useEffect, useState } from 'react';
 
 /**
@@ -37,8 +37,6 @@ export function useBuildStamp(): BuildStamp | null {
   return build;
 }
 
-const UNKNOWN_BUILD_STAMP: BuildStamp = { commit: 'unknown', builtAt: null, dirty: false };
-
 /** `GET /healthz` — public, uncached, and the only source of the stamp. */
 async function fetchBuildStamp(signal: AbortSignal): Promise<BuildStamp> {
   const response = await fetch('/healthz', {
@@ -63,15 +61,4 @@ function isHealthResponse(body: unknown): body is HealthResponse {
   if (typeof body !== 'object' || body === null) return false;
   const candidate = body as { status?: unknown; build?: unknown };
   return candidate.status === 'ok' && isBuildStamp(candidate.build);
-}
-
-function isBuildStamp(value: unknown): value is BuildStamp {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate['commit'] === 'string' &&
-    candidate['commit'] !== '' &&
-    (candidate['builtAt'] === null || typeof candidate['builtAt'] === 'string') &&
-    typeof candidate['dirty'] === 'boolean'
-  );
 }

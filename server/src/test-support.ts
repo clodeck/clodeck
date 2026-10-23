@@ -8,6 +8,7 @@ import { WebSocket } from 'ws';
 import { buildApp, type AppOptions } from './app.js';
 import { createSessionStore } from './auth/sessions.js';
 import { SESSION_COOKIE, type AuthOptions } from './auth/transport.js';
+import { DEV_BUILD_STAMP } from './build-stamp.js';
 import { createProjectDiscovery } from './discovery.js';
 import { createProviderProfiles } from './profiles.js';
 import { createFakePtySpawner } from './testing/fake-pty.js';
@@ -67,7 +68,7 @@ export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInsta
     webRoot: null,
     // The dev loop's stamp: no suite but the health check's is about the build
     // that is running, and a suite that is overrides it (ADR 0004).
-    build: { commit: 'dev', builtAt: null, dirty: false },
+    build: DEV_BUILD_STAMP,
     trustedProxies: null,
     // This ticket's default: the suite that is about a deployment default says
     // so by overriding it, and every other suite runs in Ask.

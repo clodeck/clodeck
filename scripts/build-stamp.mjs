@@ -32,8 +32,9 @@ import { fileURLToPath } from "node:url";
  * @returns {string}
  */
 
-/** What git alone says about the tree being built. */
 /**
+ * What git alone says about the tree being built.
+ *
  * @typedef {object} GitFacts
  * @property {string} commit
  * @property {boolean} dirty
@@ -105,8 +106,12 @@ export function collectBuildStamp({
   const fromGit = stampFromGit(run);
   const declared = env["CLODECK_BUILD_COMMIT"]?.trim();
 
+  let commit = UNKNOWN_COMMIT;
+  if (fromGit !== null) commit = fromGit.commit;
+  else if (declared) commit = declared;
+
   return {
-    commit: fromGit?.commit ?? (declared ? declared : UNKNOWN_COMMIT),
+    commit,
     builtAt: now.toISOString(),
     // Without a repository there is no working tree to call dirty.
     dirty: fromGit?.dirty ?? false,

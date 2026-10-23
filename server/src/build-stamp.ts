@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { BuildStamp } from '@clodeck/shared';
+import { isBuildStamp, UNKNOWN_BUILD_STAMP, type BuildStamp } from '@clodeck/shared';
 
 /**
  * The stamp `npm run build` baked beside this file (ADR 0004).
@@ -15,13 +15,6 @@ import type { BuildStamp } from '@clodeck/shared';
 
 /** The dev loop (`tsx src/main.ts`): no build ran, and the line says so. */
 export const DEV_BUILD_STAMP: BuildStamp = { commit: 'dev', builtAt: null, dirty: false };
-
-/**
- * A stamp file that exists but cannot be read as one. This is not the dev loop —
- * a build did happen — and it is not a commit name either, so it is shown as the
- * one word that does not pretend to be either.
- */
-export const UNKNOWN_BUILD_STAMP: BuildStamp = { commit: 'unknown', builtAt: null, dirty: false };
 
 const STAMP_FILE = 'build-stamp.json';
 
@@ -50,20 +43,4 @@ export function readBuildStamp(beside: string = import.meta.url): BuildStamp {
   } catch {
     return UNKNOWN_BUILD_STAMP;
   }
-}
-
-/**
- * The wire is not a literal: the file could have been hand-edited, truncated by
- * a failed copy, or written by a future version. One guard at the boundary keeps
- * a drifted stamp out of `/healthz` instead of letting it reach the client.
- */
-function isBuildStamp(value: unknown): value is BuildStamp {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate['commit'] === 'string' &&
-    candidate['commit'] !== '' &&
-    (candidate['builtAt'] === null || typeof candidate['builtAt'] === 'string') &&
-    typeof candidate['dirty'] === 'boolean'
-  );
 }
