@@ -10,7 +10,8 @@ In chizhāyi rā migirad ke hich chiz-e dige nemigirad: build script ejrā nasho
 artifact-e ghadimi rā barmigardānad. `unknown` dar in masir hamishte failure ast, chon deploy az yek
 checkout-e git build mikonad.
 
-**Blocked by:** 94 (the stamp and the `/healthz` payload)
+**Blocked by:** None (re-opened to run beside 94 at the operator's instruction of 2026-10-23 — the
+`/healthz` payload it checks is fixed by 94's ticket, so the two branches meet at the merge)
 
 **Status:** ready-for-agent
 
