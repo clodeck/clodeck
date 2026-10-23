@@ -1,14 +1,16 @@
-import type { Project } from '@clodeck/shared';
+import type { BuildStamp, Project } from '@clodeck/shared';
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 
 import { LoginScreen } from './auth/LoginScreen';
 import { useAuth } from './auth/useAuth';
+import { BuildStampLine } from './BuildStamp';
 import { ChatPanel } from './chat/ChatPanel';
 import { FilePanel } from './files/FilePanel';
 import { Icon } from './icons';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { TerminalPanel } from './terminal/TerminalPanel';
 import { ToastProvider } from './toast/ToastProvider';
+import { useBuildStamp } from './useBuildStamp';
 import { useProjects, type ProjectsState } from './useProjects';
 
 /**
@@ -22,14 +24,18 @@ import { useProjects, type ProjectsState } from './useProjects';
  */
 export function App(): ReactElement {
   const { status, login, logout } = useAuth();
+  // Read once here, above the gate: the login screen draws the same line as the
+  // sidebar, and only one of the two is ever mounted — a fetch in each would be
+  // the same fact asked twice (ticket 94).
+  const build = useBuildStamp();
 
   switch (status) {
     case 'checking':
       return <CheckingSession />;
     case 'unauthenticated':
-      return <LoginScreen login={login} />;
+      return <LoginScreen login={login} build={build} />;
     case 'authenticated':
-      return <Shell onLogout={logout} />;
+      return <Shell onLogout={logout} build={build} />;
   }
 }
 
@@ -41,7 +47,13 @@ export function App(): ReactElement {
 export type DrawerTab = 'terminal' | 'files' | null;
 
 /** The hooks, and the layout they feed — see {@link Workspace} for the split. */
-function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
+function Shell({
+  onLogout,
+  build,
+}: {
+  onLogout: () => Promise<void>;
+  build: BuildStamp | null;
+}): ReactElement {
   const { state, reload, create, remove } = useProjects();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -87,6 +99,7 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }): ReactElement {
       onCreate={createProject}
       onDelete={deleteProject}
       onLogout={onLogout}
+      build={build}
     />
   );
 }
@@ -101,6 +114,12 @@ interface WorkspaceProps {
   /** Delete a project for good; the shell clears its selection and reloads. */
   onDelete: (project: Project) => Promise<void>;
   onLogout: () => Promise<void>;
+  /**
+   * The running build, drawn in the sidebar header under "remote Claude Code"
+   * (ticket 94). `null` is "not read yet", which draws nothing; the hook above
+   * answers it, and a suite that is about the header passes one directly.
+   */
+  build?: BuildStamp | null;
 }
 
 /**
@@ -125,6 +144,7 @@ export function Workspace({
   onCreate,
   onDelete,
   onLogout,
+  build = null,
 }: WorkspaceProps): ReactElement {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>(null);
   // The sidebar is an off-canvas overlay below `md`, and a fixed column above
@@ -200,6 +220,10 @@ export function Workspace({
             <div>
               <p className="text-sm font-semibold">Clodeck</p>
               <p className="font-mono text-[11px] text-ink-dim">remote Claude Code</p>
+              {/* The running build, directly under the product's own line: the
+                  first thing an operator checks after a deploy, on the same
+                  header they are already looking at (ticket 94). */}
+              <BuildStampLine build={build} className="font-mono text-[11px] text-ink-dim" />
             </div>
             <button
               type="button"

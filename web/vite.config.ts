@@ -21,13 +21,18 @@ const BACKEND_ORIGIN = `http://127.0.0.1:${backendPort === undefined || backendP
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // Proxy `/api` and `/ws` to the backend so the client develops against the
-    // real endpoints with no CORS configuration (and no second origin to reason
-    // about). `ws: true` makes this origin carry the chat socket too, so the
-    // client opens a relative URL and never needs a host baked in.
+    // Proxy `/api`, `/ws` and `/healthz` to the backend so the client develops
+    // against the real endpoints with no CORS configuration (and no second
+    // origin to reason about). `ws: true` makes this origin carry the chat
+    // socket too, so the client opens a relative URL and never needs a host
+    // baked in. `/healthz` rides along because the build stamp on the login
+    // screen is read from it before any session exists (ticket 94): without
+    // this, the dev loop's own Vite server would answer the fetch with its
+    // index fallback.
     proxy: {
       '/api': { target: BACKEND_ORIGIN },
       '/ws': { target: BACKEND_ORIGIN, ws: true },
+      '/healthz': { target: BACKEND_ORIGIN },
     },
   },
   test: {

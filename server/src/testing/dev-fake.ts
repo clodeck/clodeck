@@ -2,6 +2,7 @@ import type { SDKMessage, SessionMessage, SessionSummary } from '@clodeck/shared
 
 import { buildApp } from '../app.js';
 import { createAuthOptions } from '../auth/options.js';
+import { readBuildStamp } from '../build-stamp.js';
 import { loadConfig } from '../config.js';
 import { createProjectDiscovery } from '../discovery.js';
 import { createProviderProfiles } from '../profiles.js';
@@ -112,6 +113,9 @@ const app = buildApp({
   // working directory is served from this port too, which the loop never sees —
   // its browser talks to Vite (spec-07 §"The web root").
   webRoot: config.webRoot,
+  // The dev loop's own stamp: there is no build beside this process, so the
+  // line honestly reads `dev` (ADR 0004).
+  build: readBuildStamp(),
   // The same config seam as `main.ts` here too — the fake stands in for a real
   // provider, not for the deployment around it (ticket 65).
   trustedProxies: config.trustedProxies,

@@ -65,6 +65,9 @@ export function createTestApp(overrides: Partial<AppOptions> = {}): FastifyInsta
     spawner: createFakePtySpawner(),
     auth: createTestAuth(),
     webRoot: null,
+    // The dev loop's stamp: no suite but the health check's is about the build
+    // that is running, and a suite that is overrides it (ADR 0004).
+    build: { commit: 'dev', builtAt: null, dirty: false },
     trustedProxies: null,
     // This ticket's default: the suite that is about a deployment default says
     // so by overriding it, and every other suite runs in Ask.

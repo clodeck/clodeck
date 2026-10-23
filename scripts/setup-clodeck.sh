@@ -489,6 +489,8 @@ say "It needs UI_PASSWORD and PROJECTS_ROOT, both of which are in .env now."
 
 pause "Press Enter once that line is on screen"
 
+# `status` is the first key of /healthz's JSON on purpose: this is a literal
+# match, and a reordered payload would read as a dead server (ADR 0004).
 if curl -fsS --max-time 5 http://127.0.0.1:3001/healthz 2>/dev/null | grep -q '"status":"ok"'; then
   say "the server answers /healthz with {\"status\":\"ok\"} ✓"
 else

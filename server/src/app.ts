@@ -2,7 +2,7 @@ import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import type { PermissionMode } from '@clodeck/shared';
+import type { BuildStamp, PermissionMode } from '@clodeck/shared';
 
 import { createAuthGate, registerAuthMeRoute, registerAuthRoutes, type AuthOptions } from './auth/transport.js';
 import { registerCommandRoutes } from './commands.js';
@@ -57,6 +57,14 @@ export interface AppOptions {
    * fake.
    */
   webRoot: string | null;
+  /**
+   * Which build is running, read once at boot from the artifact beside the
+   * server's own code (ADR 0004). Configuration, like `webRoot`: a fact about
+   * this artifact that `main.ts` reads, never something the HTTP layer looks up
+   * — `/healthz` must answer from the build the process started from, not from
+   * the checkout it happens to be near.
+   */
+  build: BuildStamp;
   /**
    * The proxies whose `X-Forwarded-For` the app believes, as the loader checked
    * and normalized it (`CLODECK_TRUSTED_PROXIES`), or `null` for "trust nothing"
@@ -137,8 +145,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
     permissionMode: options.permissionMode,
   });
 
-  // Auth-exempt: used by the proxy's and Docker's healthchecks (wayfinder 08).
-  app.get('/healthz', async () => ({ status: 'ok' }));
+  // Auth-exempt: used by the proxy's and Docker's healthchecks (wayfinder 08),
+  // and the one place the running build names itself (ADR 0004). `status` stays
+  // the **first** key: the setup and deploy scripts match this body with
+  // `grep -q '"status":"ok"'`, so a reordered payload would read as a dead
+  // server. `no-store` keeps a proxy or a browser from answering with a stamp
+  // the process has already replaced.
+  app.get('/healthz', async (_request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return { status: 'ok' as const, build: options.build };
+  });
 
   app.register(
     async (api) => {

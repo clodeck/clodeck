@@ -15,6 +15,14 @@
 FROM node:22 AS builder
 WORKDIR /app
 
+# Which commit this image is built from (ADR 0004). The build context excludes
+# `.git`, so without the argument the artifact honestly stamps itself `unknown`:
+# pass `--build-arg CLODECK_BUILD_COMMIT=$(git rev-parse HEAD)` to name it.
+# `ENV` is what `npm run build`'s stamp step reads, and it stays in this stage —
+# the shipped image carries the stamp in `server/dist`, not in its environment.
+ARG CLODECK_BUILD_COMMIT
+ENV CLODECK_BUILD_COMMIT=${CLODECK_BUILD_COMMIT}
+
 # Manifests first: `npm ci` reads nothing else, so editing a source file does
 # not re-resolve the dependency graph.
 COPY package.json package-lock.json ./
