@@ -164,6 +164,14 @@ apply — in Bypass too — while its `allow` rules are neutralised for these fo
 cannot auto-approve a call the picker says will ask. That rule is what makes the table above a promise
 rather than a summary.
 
+**A Bash prompt can be remembered for the session.** The modal offers **Always allow Bash** when — and
+only when — Clodeck's own Bash gate raised the prompt. Answered that way, the call is allowed and every
+later Bash call in this session runs without asking; a badge beside the composer says so until you
+click it away or start a `New chat`. The grant is memory, not configuration: it is held by the run,
+never written to disk, and a restart starts asking again. It cannot loosen a project: a prompt forced
+by the project's own `permissions.ask` rule carries no such offer, and the flag on an answer to one is
+ignored.
+
 **The mode is session state, not a stored preference.** It starts at `CLODECK_PERMISSION_MODE` — Ask
 when the variable says nothing — a `New chat` goes back to that value, a reconnect restores the run's
 mode, and switching to another project and back keeps that project's run. Nothing is ever written to

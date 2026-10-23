@@ -70,7 +70,7 @@ SDK ro faghat be `server` add mikonim va mirror ro bar-ash pin mikonim (assignab
 ### Approvals
 
 - `canUseTool` bridge ast beyn-e SDK (dakhel-e real provider) va client. Bus callback ra be `query` midahad; vaghti SDK tool-i ra miporsad, bus `approval_request` emite mikonad, ye promise-e pending be `requestId` register mikonad, va bar `approval_response`-e client resolve mikonad → callback natije ra bar migardanad. `AskUserQuestion` ham az hamin path miad (`toolName === 'AskUserQuestion'`; research 01 §5).
-- `snapshot.pendingApprovals` approval-haye outstanding ra bar reconnect dobare miferestad (pas ye modal-e pending az reconnect zende mimoonad). Client-e MVP faqat Allow / Deny miferestad (`{ behavior }`); allow-with-edits va "always allow" (echo-e `suggestions`) dar payload hast vali UI-esh optional-e in slice.
+- `snapshot.pendingApprovals` approval-haye outstanding ra bar reconnect dobare miferestad (pas ye modal-e pending az reconnect zende mimoonad). Client-e MVP faqat Allow / Deny miferestad (`{ behavior }`); allow-with-edits va "always allow" (echo-e `suggestions`) dar payload hast vali UI-esh optional-e in slice. **Superseded (ticket 96, 2026-10-23):** modal yek javāb-e sevvom dārad — **"Always allow Bash"** — ke faghat gate-e Bash-e clodeck rā barāye hamān run khāmush mikonad (`canAllowBashForSession` ro-ye request, `allowBashForSession` ro-ye response, event-e `session_allow`, va `clear_bash_session_allow`); project ask rule-hā hanuz miporsand (`.scratch/clodeck/issues/96-always-allow-bash-session.md`).
 
 ### Session history & resume (REST)
 
