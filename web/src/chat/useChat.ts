@@ -48,8 +48,14 @@ export interface ChatController {
    */
   setPermissionMode: (mode: PermissionMode) => void;
   interrupt: () => void;
-  /** Answers the approval modal (Allow/Deny only for the MVP). */
+  /** Answers the approval modal (Allow/Deny, or the session allow). */
   respond: (response: ApprovalResponsePayload) => void;
+  /**
+   * Takes back this session's "Always allow Bash" (ticket 96) — the badge beside
+   * the composer. The run turns it off and tells every socket; the next Bash
+   * call parks again.
+   */
+  clearBashSessionAllow: () => void;
   /**
    * Arms the next `send_prompt` to resume from `target` — by id (optionally
    * forked) or the latest session. Sends no prompt of its own (spec-02
@@ -191,6 +197,13 @@ export function useChat(project: Project): ChatController {
     setView(clearError);
   }, []);
 
+  const clearBashSessionAllow = useCallback((): void => {
+    // No local edit: the run owns the flag (`session_allow` is the answer), and
+    // a click that did not reach the server must not hide a grant still in
+    // force.
+    send(clientMessage({ type: 'clear_bash_session_allow', payload: {} }));
+  }, [send]);
+
   const resume = useCallback(
     (target: ResumePayload): void => {
       // Shown at once so the next send is not a surprise; the bus holds the same
@@ -217,6 +230,7 @@ export function useChat(project: Project): ChatController {
     setPermissionMode,
     interrupt,
     respond,
+    clearBashSessionAllow,
     resume,
     newChat,
     dismissError,
