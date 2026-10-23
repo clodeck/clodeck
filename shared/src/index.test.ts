@@ -32,6 +32,8 @@ function labelOf(event: ServerEvent): string {
       return `commands:${String(event.payload.commands.length)}`;
     case 'stream_status':
       return `stream_status:${event.payload.status}`;
+    case 'session_allow':
+      return `session_allow:${String(event.payload.bash)}`;
     case 'error':
       return `error:${event.payload.code}`;
     default: {
@@ -77,6 +79,7 @@ describe('@clodeck/shared', () => {
           state: 'running',
           permissionMode: 'default',
           bypass: { allowed: true },
+          bashAllowedForSession: false,
           blocks: [],
           pendingApprovals: [],
           lastSeq: 2,

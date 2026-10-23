@@ -36,7 +36,7 @@ password, no database — the directories *are* the registry.
 | **Files** | A tree that expands in place: markdown preview, a code view with line numbers and syntax colouring, edit and save, create, rename, delete, upload, download, and drag-to-move. Every path is re-validated against the project root. |
 | **Auth** | A single password, an `HttpOnly` session cookie, a per-address login lockout, and every API route and WebSocket behind it. |
 | **Provider profiles** | A *session* picks the endpoint and model it runs on — a cheap model for grunt work, a strong one for design, in the same project. Credentials never leave the server's environment. |
-| **Permission modes** | A *session* picks what the agent may do without asking: **Ask**, **Accept edits**, **Plan** or **Bypass** — with a stricter contract than the SDK's own names, and a project's deny rules always on top. |
+| **Permission modes** | A *session* picks what the agent may do without asking: **Ask**, **Accept edits**, **Plan** or **Bypass** — with a stricter contract than the SDK's own names, and a project's deny rules always on top. A Bash prompt can be answered **“Always allow Bash”** for the session. |
 | **Command menu** | `/` in the composer lists the session's own slash commands, filtered as you type. |
 
 The terminal and the files share **one summonable drawer** below the chat; the chat keeps the stage.

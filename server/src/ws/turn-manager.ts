@@ -17,6 +17,7 @@ import {
 import { logToConsole, type Log } from '../logging.js';
 import type { RunProfile } from '../profiles.js';
 import type { ProjectPin } from '../project-pin.js';
+import { BASH_APPROVAL_REASON } from '../sdk/bash-approval.js';
 import type { SdkProvider, SdkRun } from '../sdk/provider.js';
 import type { EmitDraft, EventDraft } from './events.js';
 
@@ -69,6 +70,12 @@ export interface TurnManager {
   setPermissionMode(projectId: string, mode: PermissionMode): Promise<ModeChange>;
   /** Resolve a parked approval. False when no pending request matches the id. */
   resolveApproval(projectId: string, response: ApprovalResponsePayload): boolean;
+  /**
+   * Take back this run's "Always allow Bash" (ticket 96) — the badge beside the
+   * composer. A no-op when the run never granted it, so a stale click cannot
+   * announce a change nobody made. The next Bash call parks again.
+   */
+  clearBashSessionAllow(projectId: string): void;
   /** Set the target the next `sendPrompt` resumes from. The next send consumes it. */
   setResumeTarget(projectId: string, target: ResumePayload): void;
   /**
@@ -146,6 +153,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // Until the bus has read the gates, Bypass is not offered: the safe
       // answer is the one that cannot run every tool without asking.
       bypass: { allowed: false },
+      bashAllowedForSession: false,
       blocks: [],
       pending: new Map(),
       subscribers: new Set(),
@@ -242,7 +250,7 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
           ...(profile.sent === null ? {} : { provider: profile.sent }),
           ...resumeInput(target),
           // Gated tools come back through the callback the whole stack shares.
-          canUseTool: (request) => park(state, request),
+          canUseTool: (request) => answer(state, request),
         });
       } catch (error) {
         // A query that cannot start must not leave the project wedged as
@@ -304,8 +312,26 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       if (state.status === 'requires_action') {
         state.status = state.active === undefined ? 'idle' : 'running';
       }
-      entry.resolve(response);
+      // The third answer (ticket 96): only a request the gate *offered* can grant
+      // the session allow. The check reads the parked request rather than the
+      // response, so a client cannot grant itself more than the modal showed.
+      if (response.allowBashForSession === true && entry.request.canAllowBashForSession === true) {
+        grantBashSessionAllow(state);
+      }
+      // The control flag is the bus's business; the provider receives a
+      // permission answer, not an instruction about the run.
+      const { allowBashForSession: _grant, ...permissionAnswer } = response;
+      entry.resolve(permissionAnswer);
       return true;
+    },
+
+    clearBashSessionAllow(projectId) {
+      const state = run(projectId);
+      // A clear that changes nothing is no event: the badge is only shown while
+      // the run holds the grant, so this is reachable only through a stale tab.
+      if (!state.bashAllowedForSession) return;
+      state.bashAllowedForSession = false;
+      broadcast(state, { ...envelope(state), kind: 'session_allow', payload: { bash: false } });
     },
 
     setResumeTarget(projectId, target) {
@@ -340,6 +366,10 @@ export function createTurnManager(provider: SdkProvider, options: TurnManagerOpt
       // into the next one. The SDK's own conversation reset does *not* do this —
       // that is the same conversation moving on, not a new chat.
       state.permissionMode = defaultPermissionMode;
+      // The session allow is session state for the same reason (ticket 96): a
+      // grant that outlived its session would be a permission nobody gave to
+      // this one. The snapshot `forgetTranscript` broadcasts carries it.
+      state.bashAllowedForSession = false;
       forgetTranscript(state, undefined);
     },
   };
@@ -393,6 +423,9 @@ function snapshotOf(state: ProjectRun): EventDraft {
       // Whether Bypass may be offered here, and why not when it may not: a gate
       // the surface cannot see is a chip that goes missing with no explanation.
       bypass: state.bypass,
+      // The run's session allow, so a reconnecting client shows the badge it
+      // granted in another connection (ticket 96).
+      bashAllowedForSession: state.bashAllowedForSession,
       // Copies: a snapshot is a point in time, and the run keeps appending.
       blocks: [...state.blocks],
       pendingApprovals: [...state.pending.values()].map((entry) => entry.request),
@@ -535,10 +568,58 @@ function admitMode(state: ProjectRun, mode: PermissionMode): boolean {
 /** Emits `approval_request` and parks the run until `resolveApproval` answers it. */
 function park(state: ProjectRun, request: ApprovalRequestPayload): Promise<ApprovalResponsePayload> {
   state.status = 'requires_action';
+  // Only clodeck's own gate is the user's to remember: the modal offers the
+  // third answer exactly when this run could honour it (ticket 96).
+  const offered: ApprovalRequestPayload =
+    isOwnBashGate(request) && !state.bashAllowedForSession
+      ? { ...request, canAllowBashForSession: true }
+      : request;
+
   return new Promise((resolve) => {
-    state.pending.set(request.requestId, { request, resolve });
-    broadcast(state, { ...envelope(state), kind: 'approval_request', payload: request });
+    state.pending.set(request.requestId, { request: offered, resolve });
+    broadcast(state, { ...envelope(state), kind: 'approval_request', payload: offered });
   });
+}
+
+/**
+ * The run's side of a gated tool: a Bash call it has been told to stop asking
+ * about is answered here, before it can park; everything else goes to the modal.
+ *
+ * Answering inside `canUseTool` rather than in the hook is deliberate. The hook
+ * runs before the SDK's own deny/ask rules, so an `allow` there would silence a
+ * project's rules too; here, the project has already had its say, and a rule
+ * that forced the prompt arrives with no `decisionReason` and still parks.
+ */
+function answer(
+  state: ProjectRun,
+  request: ApprovalRequestPayload,
+): Promise<ApprovalResponsePayload> {
+  if (state.bashAllowedForSession && isOwnBashGate(request)) {
+    return Promise.resolve({ requestId: request.requestId, behavior: 'allow' });
+  }
+  return park(state, request);
+}
+
+/**
+ * The prompt clodeck's own Bash hook opened — as opposed to one a project's
+ * `permissions.ask` rule forced.
+ *
+ * The hook's reason is the tag, and it is the only one the SDK gives: probed
+ * against the installed SDK (2026-10-23), a prompt the hook raised carries
+ * `decisionReason === BASH_APPROVAL_REASON`, while one a project's ask rule
+ * raised carries **no** `decisionReason` at all (`matchedAskRule` was not
+ * populated here). A future SDK that stops passing the reason would simply stop
+ * offering the session allow — the safe direction.
+ */
+function isOwnBashGate(request: ApprovalRequestPayload): boolean {
+  return request.toolName === 'Bash' && request.decisionReason === BASH_APPROVAL_REASON;
+}
+
+/** Records the session allow and tells every socket, once. */
+function grantBashSessionAllow(state: ProjectRun): void {
+  if (state.bashAllowedForSession) return;
+  state.bashAllowedForSession = true;
+  broadcast(state, { ...envelope(state), kind: 'session_allow', payload: { bash: true } });
 }
 
 /** Reads the run's messages in order, forwarding each as an `sdk` event. */
@@ -647,6 +728,13 @@ interface ProjectRun {
    * snapshot, every `query()`'s Bypass flag, and the refusal itself.
    */
   bypass: BypassAvailability;
+  /**
+   * Whether this run answers its own Bash gate without asking — the modal's
+   * third answer (ticket 96). Session state, in memory only: born false, set by
+   * an approval that offered it, cleared by the badge or a New chat, and gone
+   * with the process.
+   */
+  bashAllowedForSession: boolean;
   readonly blocks: SDKMessage[];
   readonly pending: Map<string, PendingApproval>;
   readonly subscribers: Set<EmitDraft>;

@@ -17,6 +17,7 @@ export type ClientIntent =
   | { type: 'send_prompt'; payload: SendPromptPayload }
   | { type: 'interrupt' }
   | { type: 'set_permission_mode'; mode: PermissionMode }
+  | { type: 'clear_bash_session_allow' }
   | { type: 'approval_response'; response: ApprovalResponsePayload }
   | { type: 'resume'; target: ResumePayload }
   | { type: 'clear_resume' };
@@ -53,6 +54,10 @@ export function parseClientMessage(raw: string): ClientIntent | null {
     // whole of the message.
     case 'clear_resume':
       return { type: 'clear_resume' };
+    // The badge's off switch (ticket 96): like `clear_resume`, the project is
+    // the socket's and there is nothing else to read.
+    case 'clear_bash_session_allow':
+      return { type: 'clear_bash_session_allow' };
     case 'set_permission_mode': {
       const payload = asObject(message['payload']);
       const mode = payload?.['mode'];
@@ -108,6 +113,11 @@ function parseApprovalResponse(
   if (updatedPermissions !== null) response.updatedPermissions = updatedPermissions;
   const message = payload['message'];
   if (typeof message === 'string') response.message = message;
+  // The third answer (ticket 96): present must be a boolean, and only `true`
+  // means anything — the run decides whether it was on offer.
+  const allowBashForSession = payload['allowBashForSession'];
+  if (allowBashForSession !== undefined && typeof allowBashForSession !== 'boolean') return null;
+  if (allowBashForSession === true) response.allowBashForSession = true;
   return response;
 }
 

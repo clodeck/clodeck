@@ -115,6 +115,13 @@ export interface ChatView {
    * only while this says it may, and shows the reason when it says no.
    */
   bypass: BypassAvailability;
+  /**
+   * Whether this run answers its own Bash gate without asking — the modal's
+   * "Always allow Bash" (ticket 96). Server state, carried by every snapshot
+   * and moved by the `session_allow` frame, so every tab shows the same badge
+   * and a reconnect does not forget the grant.
+   */
+  bashAllowedForSession: boolean;
   entries: readonly ChatEntry[];
   /** Text accumulated from `stream_event` deltas, not yet reconciled by a block. */
   streamingText: string;
@@ -168,6 +175,8 @@ export function emptyView(): ChatView {
     // And until the snapshot says otherwise, Bypass is not offered: the safe
     // answer is the one that cannot run every tool without asking.
     bypass: { allowed: false },
+    // No session allow until the run says it granted one (ticket 96).
+    bashAllowedForSession: false,
     entries: [],
     streamingText: '',
     streamingTool: null,
@@ -211,6 +220,10 @@ function foldEvent(view: ChatView, event: ServerEvent): ChatView {
       return withCommands(view, commandsOf(event.payload.commands));
     case 'stream_status':
       return withStreamStatus(view, event.payload.status);
+    case 'session_allow':
+      // The run's own word on the grant (ticket 96): a `true` turns the badge
+      // on, a `false` — the badge's clear, or another tab's — turns it off.
+      return { ...view, bashAllowedForSession: event.payload.bash === true };
     case 'error':
       return { ...view, lastError: { code: event.payload.code, message: event.payload.message } };
     default:
@@ -236,6 +249,9 @@ function fromSnapshot(payload: SnapshotPayload): ChatView {
       // can render.
       permissionModeOf(payload.permissionMode),
       bypassOf(payload.bypass),
+      // The wire is untrusted here too: an older emitter that never heard of
+      // the session allow lands on "no grant", which is what asks again.
+      payload.bashAllowedForSession === true,
     ),
     // The run's list, kept outside the blocks because it never travelled as one.
     // It goes in *before* the blocks, so a `commands_changed` the run pushed
@@ -262,8 +278,16 @@ function runState(
   pendingApprovals: readonly ApprovalRequestPayload[],
   permissionMode: PermissionMode,
   bypass: BypassAvailability,
+  bashAllowedForSession: boolean,
 ): ChatView {
-  return { ...emptyView(), state, permissionMode, bypass, pendingApprovals: [...pendingApprovals] };
+  return {
+    ...emptyView(),
+    state,
+    permissionMode,
+    bypass,
+    bashAllowedForSession,
+    pendingApprovals: [...pendingApprovals],
+  };
 }
 
 function withStreamStatus(view: ChatView, status: 'turn_started' | 'turn_ended' | 'interrupted'): ChatView {
@@ -309,9 +333,16 @@ export function applySdkMessage(view: ChatView, message: SDKMessage): ChatView {
       // The SDK threw the conversation away — `/clear`, a plan-mode exit, a flow
       // of its own — so everything on screen goes with it. Identity is not read
       // out of the frame here: `new_conversation_id` reaches this view on the
-      // envelope, the way every other session id does (ticket 74). The mode
-      // stays: this is the same session moving on, not a New chat.
-      return runState(view.state, view.pendingApprovals, view.permissionMode, view.bypass);
+      // envelope, the way every other session id does (ticket 74). The mode and
+      // the session allow stay: this is the same session moving on, not a New
+      // chat.
+      return runState(
+        view.state,
+        view.pendingApprovals,
+        view.permissionMode,
+        view.bypass,
+        view.bashAllowedForSession,
+      );
     case 'result':
       return applyResult(view, message);
     default:

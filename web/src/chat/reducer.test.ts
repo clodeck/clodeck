@@ -47,7 +47,15 @@ function snapshot(
     seq,
     ts: '2026-01-01T00:00:00.000Z',
     kind: 'snapshot',
-    payload: { state, permissionMode, bypass: { allowed: false }, blocks, pendingApprovals, lastSeq: 0 },
+    payload: {
+      state,
+      permissionMode,
+      bypass: { allowed: false },
+      bashAllowedForSession: false,
+      blocks,
+      pendingApprovals,
+      lastSeq: 0,
+    },
   };
 }
 
@@ -817,6 +825,7 @@ describe('chat reducer — the commands the menu offers', () => {
           state: 'idle',
           permissionMode: 'default',
           bypass: { allowed: false },
+          bashAllowedForSession: false,
           blocks,
           pendingApprovals: [],
           commands,
