@@ -15,27 +15,27 @@ Bedoone git (Docker) `commit` = `unknown`; dar dev loop = `dev`. Hich kodomi mak
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `npm run build` stamp rā dakhele artifact-e build-shode minevisad: commit-e kāmel (40-hex), zamān-e
+- [x] `npm run build` stamp rā dakhele artifact-e build-shode minevisad: commit-e kāmel (40-hex), zamān-e
       build (ISO), va `dirty` az `git status --porcelain`. Bedoone repository, `CLODECK_BUILD_COMMIT` rā
       tarjih midahad va vagarna `unknown` minevisad — build nemishekand.
-- [ ] Server stamp rā vaqt-e boot yek bār az kenār-e kod-e khodesh mikhānad; agar file nabāshad (dev loop)
+- [x] Server stamp rā vaqt-e boot yek bār az kenār-e kod-e khodesh mikhānad; agar file nabāshad (dev loop)
       `dev` ba `builtAt: null` ast. `app.ts` hich vāght git yā file nemikhānad: stamp az tarigh-e
       `AppOptions` miresad, mesl-e `webRoot`.
-- [ ] `GET /healthz` → `{status:'ok', build:{commit, builtAt, dirty}}`, ba `status` **aval** (do script-e
+- [x] `GET /healthz` → `{status:'ok', build:{commit, builtAt, dirty}}`, ba `status` **aval** (do script-e
       setup/deploy bā `grep -q '"status":"ok"'` match mikonan) va `cache-control: no-store`.
-- [ ] Dar dev loop, proxy-e Vite `/healthz` rā ham be backend mifrestad, pas stamp ro-ye login screen ham
+- [x] Dar dev loop, proxy-e Vite `/healthz` rā ham be backend mifrestad, pas stamp ro-ye login screen ham
       zhāher mishavad.
-- [ ] Sidebar header (zir-e "remote Claude Code") va login screen stamp rā neshoon midahand:
+- [x] Sidebar header (zir-e "remote Claude Code") va login screen stamp rā neshoon midahand:
       `fcbd770 · 2026-10-23 14:05`, bā suffix-e `-dirty` vaghti nāpāk ast, `unknown` va `dev` bedoone
       māsk. `title` SHA-ye kāmel-e 40-harf-i rā dārad. `builtAt` ro-ye client be vaqt-e mahalli-e browser
       format mishavad.
-- [ ] Dockerfile `CLODECK_BUILD_COMMIT` rā be onvāne `ARG` mipazirad va be `ENV` tabdil mikonad.
-- [ ] Docs-i ke body-e `/healthz` rā literally neveshteand (`docs/deployment.md`, `docs/fa/guide.finglish.md`,
+- [x] Dockerfile `CLODECK_BUILD_COMMIT` rā be onvāne `ARG` mipazirad va be `ENV` tabdil mikonad.
+- [x] Docs-i ke body-e `/healthz` rā literally neveshteand (`docs/deployment.md`, `docs/fa/guide.finglish.md`,
       `docs/ci-cd.md`) update mishavand; do script-e `grep` dast nakhorde mimānanad vali yek comment
       migirand ke `status` bāyad aval bemoonad.
-- [ ] Test-hā: `app.test.ts` (shape-e `/healthz`, `no-store`, va stamp-e injected), suite-e hook-e client
+- [x] Test-hā: `app.test.ts` (shape-e `/healthz`, `no-store`, va stamp-e injected), suite-e hook-e client
       (fetch va fallback-hā), `App`/`LoginScreen` (namāyesh-e se hālat: `commit`, `-dirty`, `dev`/`unknown`),
       va test-e script-e build-stamp (git-e mojood, bedoone git, `CLODECK_BUILD_COMMIT`).
-- [ ] `npm run typecheck` and `npm test` pass.
+- [x] `npm run typecheck` and `npm test` pass.

@@ -220,8 +220,15 @@ ANTHROPIC_API_KEY=sk-ant-... \
 Check:
 
 ```bash
-curl http://127.0.0.1:3001/healthz     # {"status":"ok"}
+curl http://127.0.0.1:3001/healthz     # {"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}
 ```
+
+- `status` **aval** ast chon script-haye setup/deploy daghighan `"status":"ok"` ra grep mikonand.
+- `build` stamp-e **artifact-i** ast ke run mishavad, na checkout-e git-e kenaresh (ADR 0004). Hamoon
+  khatt ro-ye login screen (ghabl az vorood) va sidebar header ham neshoon dade mishavad.
+- Dar dev loop `commit` = `dev` va `builtAt` = `null` ast. Dar image-e Docker bedoone
+  `--build-arg CLODECK_BUILD_COMMIT=$(git rev-parse HEAD)` `commit` = `unknown` ast. Hich kodoom
+  makhfi nemishavand.
 
 ### 4.4 Daemoon kardan — systemd
 
@@ -671,7 +678,7 @@ Har do gitignored hastan, mesle `.env`.
 Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PWD`-e Git Bash yek
 `/c/...` ast ke PowerShell ghabool nemikonad). Bad az inke `Enter` bezani:
 
-- `curl http://127.0.0.1:3001/healthz` ra check mikonad → age `{"status":"ok"}` bianad, migoyad ✓
+- `curl http://127.0.0.1:3001/healthz` ra check mikonad → age `{"status":"ok",…}` bianad, migoyad ✓
 - Browser ra rooye `http://127.0.0.1:3001` baz mikonad.
 - Chand rahnamaye kootah midahad: project entekhab kon → picker-e balaye composer
   (`running on <model> · <profile>`) entekhab kon → yek turn beferest (baad az turn-e aval picker
@@ -757,7 +764,7 @@ Script path-e dorost ra ba `cygpath -w` be shekl-e PowerShell midahad (chon `$PW
 | `npm run e2e` | Playwright — niaz be app-e bala darad |
 | `bash scripts/setup-clodeck.sh` | Wizard (section 6) |
 | `bash scripts/deploy-clodeck.sh` | Wizard-e **server**: pish-niaz-ha → `/etc/clodeck/clodeck.env` + systemd + firewall + `/healthz` |
-| `curl http://127.0.0.1:3001/healthz` | `{"status":"ok"}` = bala ast |
+| `curl http://127.0.0.1:3001/healthz` | `{"status":"ok","build":{…}}` = bala ast; `build` hamoon khatt-e build ast |
 
 ---
 

@@ -100,9 +100,13 @@ built. `WEB_ROOT` needs no value here — unset, the build that command made is 
 
 (The key is inline here for brevity; the systemd unit below keeps it in a root-owned file instead.)
 
-`clodeck server listening on http://127.0.0.1:3001` and `curl http://127.0.0.1:3001/healthz` →
-`{"status":"ok"}` mean it is up. The bind address stays loopback: the tunnel reaches it, the network
-does not. Then open [The SSH tunnel](#the-ssh-tunnel) and point it at **3001**.
+`clodeck server listening on http://127.0.0.1:3001` and
+`curl http://127.0.0.1:3001/healthz` →
+`{"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}` mean it is up. `status` is the
+first key on purpose: the setup and deploy scripts match it literally. `build` names the artifact that
+is **running** — read once at boot, never from the checkout beside it — and the same line is drawn on
+the login screen and in the sidebar header (ADR 0004). The bind address stays loopback: the tunnel
+reaches it, the network does not. Then open [The SSH tunnel](#the-ssh-tunnel) and point it at **3001**.
 
 To reach it from other machines directly instead — from a phone, with no tunnel to hold open — add
 `HOST=0.0.0.0` and `CLODECK_PUBLIC_URL=http://<the address a browser types>:3001` to the same
@@ -230,8 +234,9 @@ docker run -d --name clodeck --restart unless-stopped \
   `docker inspect`; for the stricter shape, mount a file and use `UI_PASSWORD_FILE` instead — that is
   what the compose deployment below does.
 
-`curl http://127.0.0.1:3001/healthz` → `{"status":"ok"}` means it is up. Then
-[The SSH tunnel](#the-ssh-tunnel), pointed at **3001**.
+`curl http://127.0.0.1:3001/healthz` → `{"status":"ok","build":{…}}` means it is up — `commit` is
+`unknown` in this image unless you passed `--build-arg CLODECK_BUILD_COMMIT=<the 40-hex SHA>` when
+building it (ADR 0004). Then [The SSH tunnel](#the-ssh-tunnel), pointed at **3001**.
 
 ## Docker Compose with a domain
 
@@ -255,8 +260,12 @@ docker compose up -d
 ```
 
 `docker compose` reads `.env` from this directory automatically, so `docker compose up -d` is the
-whole happy path. Then `curl https://$CLODECK_DOMAIN/healthz` answers `{"status":"ok"}`, and
-`https://$CLODECK_DOMAIN` is the login screen; sign in with the contents of the password file.
+whole happy path. Then `curl https://$CLODECK_DOMAIN/healthz` answers
+`{"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}` — `status` first, then the build
+that is running. `docker compose build --build-arg CLODECK_BUILD_COMMIT=$(git rev-parse HEAD)` names
+that commit; without it the stamp says `unknown`, because the image has no repository to ask
+(ADR 0004). And `https://$CLODECK_DOMAIN` is the login screen, which carries the same line; sign in
+with the contents of the password file.
 
 | Variable | What it is |
 |---|---|
@@ -292,7 +301,7 @@ want the login lockout to see one client where there are many. Nothing in the ap
 | Task | Command |
 |---|---|
 | Logs | `docker compose logs -f app` — or `docker logs -f clodeck` for a standalone container |
-| Health | `curl -s http://127.0.0.1:3001/healthz`; compose also healthchecks the app and Caddy every 30s |
+| Health | `curl -s http://127.0.0.1:3001/healthz` — the answer carries the running `build`; compose also healthchecks the app and Caddy every 30s |
 | Update | `git pull && docker compose up -d --build` (compose) or `docker build -t clodeck . && docker rm -f clodeck && docker run …` again |
 | Restart | `docker compose restart app` — but note a restart **drops every session**: session ids live in the server's memory, so you log in again |
 | Change the password | Edit `secrets/ui_password.txt`, then `docker compose up -d` to recreate the container. The new password is hashed at boot. |

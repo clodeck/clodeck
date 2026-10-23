@@ -771,6 +771,8 @@ stage "First light"
 say "Waiting for the server to answer /healthz…"
 
 answered=no
+# `status` is the first key of /healthz's JSON on purpose: this is a literal
+# match, and a reordered payload would read as a dead server (ADR 0004).
 for _ in $(seq 1 15); do
   if curl -fsS --max-time 3 "http://127.0.0.1:$PORT/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
     answered=yes

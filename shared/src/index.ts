@@ -14,11 +14,13 @@
  * - `session.ts` — the session-history shapes the two REST endpoints serve.
  * - `files.ts` — the file-drawer shapes the file-viewer endpoints serve.
  * - `auth.ts` — the `Principal` an authenticated session resolves to.
+ * - `build.ts` — the build stamp `/healthz` answers, and the line the UI shows.
  *
  * The envelope and SDK types are declared here ahead of the transport that
  * carries them, so the chat slice never re-models them.
  */
 export * from './auth.js';
+export * from './build.js';
 export * from './commands.js';
 export * from './files.js';
 export * from './project.js';

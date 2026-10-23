@@ -1,5 +1,7 @@
+import type { BuildStamp } from '@clodeck/shared';
 import { useState, type FormEvent, type ReactElement } from 'react';
 
+import { BuildStampLine } from '../BuildStamp';
 import { isCleartextOrigin } from './origin';
 import type { LoginRefusal, LoginResult } from './transport';
 
@@ -25,6 +27,11 @@ export interface LoginScreenProps {
    * browser is, never a configured host.
    */
   origin?: string;
+  /**
+   * The running build, drawn before anyone signs in (ticket 94). `null` while
+   * `/healthz` is still in flight, or when the caller passed none at all.
+   */
+  build?: BuildStamp | null;
 }
 
 type Attempt =
@@ -32,7 +39,11 @@ type Attempt =
   | { status: 'busy' }
   | { status: 'refused'; reason: LoginRefusal; message: string };
 
-export function LoginScreen({ login, origin = window.location.origin }: LoginScreenProps): ReactElement {
+export function LoginScreen({
+  login,
+  origin = window.location.origin,
+  build = null,
+}: LoginScreenProps): ReactElement {
   const [password, setPassword] = useState('');
   const [attempt, setAttempt] = useState<Attempt>({ status: 'idle' });
 
@@ -57,6 +68,10 @@ export function LoginScreen({ login, origin = window.location.origin }: LoginScr
       <form onSubmit={(event) => void submit(event)} className="w-full max-w-sm">
         <h1 className="text-sm font-semibold">Clodeck</h1>
         <p className="mt-1 text-[11px] text-ink-dim">Sign in to reach your projects.</p>
+        {/* The same line the sidebar header carries: after a deploy the
+            question "which commit is this?" is asked before signing in as
+            often as after, and the answer is on this screen too (ticket 94). */}
+        <BuildStampLine build={build} className="mt-1 font-mono text-[11px] text-ink-dim" />
 
         <label className="mt-6 block text-[11px] font-semibold tracking-wider text-ink-dim uppercase" htmlFor="password">
           Password

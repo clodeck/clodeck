@@ -66,7 +66,10 @@ One deploy:
    `node_modules` is missing);
 3. `npm run build` (shared → server → web);
 4. `sudo /usr/bin/systemctl restart clodeck`;
-5. poll `http://127.0.0.1:3001/healthz` for up to 60 seconds.
+5. poll `http://127.0.0.1:3001/healthz` for up to 60 seconds — the answer is
+   `{"status":"ok","build":{"commit":"…","builtAt":"…","dirty":false}}`, with `status` first so the
+   setup and deploy scripts' literal match keeps working. `build` names the artifact that actually
+   started, which is the fact a later check can compare against the deployed commit (ADR 0004).
 
 If the build, the restart or the health check fails, it resets to the commit that was live before, runs
 `npm ci` (unconditionally — a half-finished install must not survive into the rollback), rebuilds,

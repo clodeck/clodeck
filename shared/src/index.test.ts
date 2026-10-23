@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 import {
+  isBuildStamp,
   PROTOCOL_VERSION,
+  UNKNOWN_BUILD_STAMP,
+  type BuildStamp,
   type ClientMessage,
   type FileContent,
   type FileEntry,
@@ -170,6 +173,21 @@ describe('@clodeck/shared', () => {
     };
 
     expect(Object.keys(provider).sort()).toEqual(['authToken', 'baseUrl', 'model']);
+  });
+
+  it('recognises only a complete build stamp, on either side of the wire', () => {
+    const stamp: BuildStamp = { commit: 'dev', builtAt: null, dirty: false };
+    expect(isBuildStamp(stamp)).toBe(true);
+    expect(isBuildStamp(UNKNOWN_BUILD_STAMP)).toBe(true);
+    expect(isBuildStamp({ commit: 'abc', builtAt: '2026-10-23T14:05:00.000Z', dirty: true })).toBe(true);
+
+    // A missing or empty field is not a stamp: the server must not serve a
+    // hand-edited file, and the client must not draw an older `{"status":"ok"}`.
+    expect(isBuildStamp({ commit: '', builtAt: null, dirty: false })).toBe(false);
+    expect(isBuildStamp({ commit: 'abc', builtAt: null })).toBe(false);
+    expect(isBuildStamp({ commit: 'abc', dirty: false })).toBe(false);
+    expect(isBuildStamp(null)).toBe(false);
+    expect(isBuildStamp('dev')).toBe(false);
   });
 
   it('is the single source of the principal shape', () => {
