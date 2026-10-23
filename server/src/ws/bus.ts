@@ -207,6 +207,11 @@ async function dispatchFrame(
         // project's buffered transcript go, so the next send is a new session.
         context.options.turns.clearResume(context.projectId);
         break;
+      case 'clear_bash_session_allow':
+        // The badge's off switch (ticket 96): the run keeps nothing, and the
+        // next Bash call parks again.
+        context.options.turns.clearBashSessionAllow(context.projectId);
+        break;
     }
   } catch (error) {
     // A stale name is the one failure the user can act on, so it is reported as
