@@ -125,6 +125,9 @@ describe('the /ws event bus', () => {
       // The suite's app allows Bypass, which is the server's own default: the
       // snapshot states it — and the reason when it does not (ticket 85).
       bypass: { allowed: true },
+      // The run has granted no session allow: a fresh run's snapshot says so
+      // rather than leaving the field to be inferred (ticket 96).
+      bashAllowedForSession: false,
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -583,6 +586,9 @@ describe('the /ws event bus', () => {
       state: 'idle',
       permissionMode: 'default',
       bypass: { allowed: true },
+      // The run has granted no session allow: a fresh run's snapshot says so
+      // rather than leaving the field to be inferred (ticket 96).
+      bashAllowedForSession: false,
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -637,6 +643,9 @@ describe('the /ws event bus', () => {
       state: 'running',
       permissionMode: 'default',
       bypass: { allowed: true },
+      // The run has granted no session allow: a fresh run's snapshot says so
+      // rather than leaving the field to be inferred (ticket 96).
+      bashAllowedForSession: false,
       blocks: [],
       pendingApprovals: [],
       lastSeq: 0,
@@ -1616,6 +1625,277 @@ describe('the /ws event bus', () => {
         kind: 'snapshot',
         payload: { permissionMode: 'acceptEdits' },
       });
+
+      provider.releaseRuns();
+    });
+  });
+
+  /**
+   * The modal's third answer (ticket 96): "Always allow Bash" skips clodeck's
+   * own Bash gate for the rest of the run, and nothing else. It is session
+   * state like the mode — never written down, reset by a New chat, and a
+   * project's ask rule still wins.
+   */
+  describe('a Bash approval remembered for the session', () => {
+    function send(client: BusClient, prompt: string, permissionMode?: PermissionMode): void {
+      client.send({
+        v: 1,
+        id: prompt,
+        type: 'send_prompt',
+        payload: permissionMode === undefined ? { prompt } : { prompt, permissionMode },
+      });
+    }
+
+    /** One held run in Ask, with its first send already dispatched. */
+    async function startedRun(): Promise<{
+      client: BusClient;
+      provider: FakeProvider;
+      port: number;
+      cookie: string;
+      cwd: string;
+    }> {
+      await mkdir(path.join(root, 'alpha'));
+      const cwd = await realpath(path.join(root, 'alpha'));
+      const { app, provider, cookie } = await makeApp({
+        messages: partialTranscript(cwd),
+        holdRuns: true,
+      });
+      const port = await listen(app);
+      const client = await connect(port, cookie, idFor(cwd));
+      await client.next(); // the snapshot
+      send(client, 'one');
+      await provider.waitForQueryInput(1);
+      return { client, provider, port, cookie, cwd };
+    }
+
+    /** Answers the parked request with the third answer, and waits for the run's record. */
+    async function rememberBash(client: BusClient, requestId: string): Promise<ServerEvent> {
+      client.send({
+        v: 1,
+        id: `remember-${requestId}`,
+        type: 'approval_response',
+        payload: { requestId, behavior: 'allow', allowBashForSession: true },
+      });
+      return client.nextMatching((event) => event.kind === 'session_allow');
+    }
+
+    /**
+     * A tool call that settles without anyone answering it. The gate is still
+     * consulted (the hook asks), so `asked` is true either way — what the run
+     * does differently is answer it itself, which a parked call cannot do: it
+     * waits for `approval_response` and would hang here.
+     */
+    async function answered(tool: Promise<unknown>): Promise<unknown> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const parked = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('the call parked in the modal')), 100);
+      });
+      try {
+        return await Promise.race([tool, parked]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    it('offers it on clodeck’s own Bash gate, and stops parking after it', async () => {
+      const { client, provider } = await startedRun();
+
+      const first = provider.requestToolUse('Bash', { command: 'ls' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      // The gate that opened this modal is clodeck's own, so the third answer
+      // is the one that can silence it.
+      expect(request.payload).toMatchObject({
+        toolName: 'Bash',
+        canAllowBashForSession: true,
+      });
+
+      await expect(rememberBash(client, request.payload.requestId)).resolves.toMatchObject({
+        kind: 'session_allow',
+        payload: { bash: true },
+      });
+      // The answer reaches the run as a permission answer: the control flag is
+      // the bus's business, not the SDK's.
+      await expect(first).resolves.toEqual({
+        asked: true,
+        result: { requestId: request.payload.requestId, behavior: 'allow' },
+      });
+
+      // The rest of the turn and the next turn's Bash calls run unprompted —
+      // the gate is still consulted, and the run answers it instead of asking.
+      await expect(
+        answered(provider.requestToolUse('Bash', { command: 'rm -rf build' })),
+      ).resolves.toMatchObject({ asked: true, result: { behavior: 'allow' } });
+
+      // Another tool is another gate: an Edit still parks, and offers nothing.
+      const edit = provider.requestApproval({
+        ...APPROVAL_REQUEST,
+        requestId: 'edit-1',
+        toolName: 'Edit',
+        input: { file_path: 'a.ts', old_string: 'a', new_string: 'b' },
+      });
+      const editRequest = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (editRequest.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${editRequest.kind}`);
+      }
+      expect(editRequest.payload).not.toHaveProperty('canAllowBashForSession');
+      client.send({
+        v: 1,
+        id: 'allow-edit',
+        type: 'approval_response',
+        payload: { requestId: 'edit-1', behavior: 'allow' },
+      });
+      await expect(edit).resolves.toMatchObject({ behavior: 'allow' });
+
+      // A fresh turn is a fresh query() reading the same run, so the allow
+      // outlives the turn it was granted in. The held run returns on the next
+      // microtask; the send has to wait for the project to be idle.
+      provider.releaseRuns();
+      await new Promise((resolve) => setImmediate(resolve));
+      send(client, 'two');
+      await provider.waitForQueryInput(2);
+      await expect(
+        answered(provider.requestToolUse('Bash', { command: 'npm test' })),
+      ).resolves.toMatchObject({ result: { behavior: 'allow' } });
+
+      provider.releaseRuns();
+    });
+
+    it('never offers it — or remembers it — for a prompt a project ask rule opened', async () => {
+      const { client, provider } = await startedRun();
+
+      // The SDK calls `canUseTool` for a project's `permissions.ask` rule too,
+      // but without clodeck's reason. That gate is the project's, and the
+      // contract lets a project tighten, never loosen.
+      const ruled = provider.requestApproval({ ...APPROVAL_REQUEST, requestId: 'project-rule' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      expect(request.payload).not.toHaveProperty('canAllowBashForSession');
+
+      // Even a client that sends the flag anyway changes nothing.
+      client.send({
+        v: 1,
+        id: 'remember-project-rule',
+        type: 'approval_response',
+        payload: { requestId: 'project-rule', behavior: 'allow', allowBashForSession: true },
+      });
+      await expect(ruled).resolves.toEqual({ requestId: 'project-rule', behavior: 'allow' });
+
+      // clodeck's own gate is still up on the very next call.
+      const next = provider.requestToolUse('Bash', { command: 'ls' });
+      const parked = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (parked.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${parked.kind}`);
+      }
+      expect(parked.payload).toMatchObject({ canAllowBashForSession: true });
+      client.send({
+        v: 1,
+        id: 'allow-next',
+        type: 'approval_response',
+        payload: { requestId: parked.payload.requestId, behavior: 'allow' },
+      });
+      await expect(next).resolves.toMatchObject({ asked: true });
+
+      provider.releaseRuns();
+    });
+
+    it('restores the session allow on a reconnecting socket', async () => {
+      const { client, provider, port, cookie, cwd } = await startedRun();
+
+      const first = provider.requestToolUse('Bash', { command: 'ls' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      await rememberBash(client, request.payload.requestId);
+      await first;
+      client.close();
+      await client.waitForClose();
+
+      // The allow is the run's, not the connection's: a new socket reads it back
+      // from the snapshot, like the mode.
+      const second = await connect(port, cookie, idFor(cwd));
+      await expect(second.next()).resolves.toMatchObject({
+        kind: 'snapshot',
+        payload: { bashAllowedForSession: true },
+      });
+      await expect(
+        answered(provider.requestToolUse('Bash', { command: 'mkdir build' })),
+      ).resolves.toMatchObject({ result: { behavior: 'allow' } });
+
+      provider.releaseRuns();
+    });
+
+    it('stops asking again when the badge’s clear arrives', async () => {
+      const { client, provider } = await startedRun();
+
+      const first = provider.requestToolUse('Bash', { command: 'ls' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      await rememberBash(client, request.payload.requestId);
+      await first;
+
+      client.send({ v: 1, id: 'clear-allow', type: 'clear_bash_session_allow', payload: {} });
+      await expect(
+        client.nextMatching((event) => event.kind === 'session_allow'),
+      ).resolves.toMatchObject({ payload: { bash: false } });
+
+      const again = provider.requestToolUse('Bash', { command: 'ls' });
+      const parked = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (parked.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${parked.kind}`);
+      }
+      client.send({
+        v: 1,
+        id: 'allow-again',
+        type: 'approval_response',
+        payload: { requestId: parked.payload.requestId, behavior: 'allow' },
+      });
+      await expect(again).resolves.toMatchObject({ asked: true });
+
+      provider.releaseRuns();
+    });
+
+    it('forgets it on a New chat, like the mode', async () => {
+      const { client, provider } = await startedRun();
+
+      const first = provider.requestToolUse('Bash', { command: 'ls' });
+      const request = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (request.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${request.kind}`);
+      }
+      await rememberBash(client, request.payload.requestId);
+      await first;
+
+      // End the turn first: a New chat is the next session's reset, not a
+      // mid-turn flag flip.
+      provider.releaseRuns();
+      await new Promise((resolve) => setImmediate(resolve));
+      client.send({ v: 1, id: 'new-chat', type: 'clear_resume', payload: {} });
+      const cleared = await client.nextMatching((event) => event.kind === 'snapshot');
+      expect(cleared).toMatchObject({ kind: 'snapshot', payload: { bashAllowedForSession: false } });
+
+      // The next session starts asking again.
+      send(client, 'two');
+      await provider.waitForQueryInput(2);
+      const again = provider.requestToolUse('Bash', { command: 'ls' });
+      const parked = await client.nextMatching((event) => event.kind === 'approval_request');
+      if (parked.kind !== 'approval_request') {
+        throw new Error(`expected an approval_request, got ${parked.kind}`);
+      }
+      client.send({
+        v: 1,
+        id: 'allow-again',
+        type: 'approval_response',
+        payload: { requestId: parked.payload.requestId, behavior: 'allow' },
+      });
+      await expect(again).resolves.toMatchObject({ asked: true });
 
       provider.releaseRuns();
     });

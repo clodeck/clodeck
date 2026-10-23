@@ -51,6 +51,15 @@ export interface ApprovalRequestPayload {
   /** Ready-made "always allow" rules; echoed back unread by `approval_response`. */
   suggestions?: readonly unknown[];
   defaultToNo?: boolean;
+  /**
+   * Whether this request may be answered with "Always allow Bash for this
+   * session" (ticket 96). Present — and true — only when clodeck's own Bash
+   * gate opened the prompt, which the server proves from the request's
+   * `decisionReason`: a prompt a project's `permissions.ask` rule forced
+   * carries no such offer, because a session allow never loosens a project
+   * rule. Absent means the third answer is not the user's to give here.
+   */
+  canAllowBashForSession?: boolean;
 }
 
 /** Sent on (re)connect: the run's state plus the session's complete blocks. */
@@ -70,6 +79,14 @@ export interface SnapshotPayload {
    * connection — a client that reconnects learns the current answer again.
    */
   bypass: BypassAvailability;
+  /**
+   * Whether this run answers its own Bash gate without asking — the modal's
+   * "Always allow Bash" (ticket 96). Always present, like the mode: it is
+   * session state the run keeps, so a reconnecting client shows the badge again
+   * without having granted it in this connection. `false` for every run that
+   * has not granted it.
+   */
+  bashAllowedForSession: boolean;
   /** Complete messages only — buffered deltas are collapsed, never replayed. */
   blocks: readonly SDKMessage[];
   pendingApprovals: readonly ApprovalRequestPayload[];
@@ -104,6 +121,16 @@ export interface StreamStatusPayload {
   status: StreamStatus;
 }
 
+/**
+ * The run's session allow changed (ticket 96). Its own frame rather than a
+ * snapshot: the grant is one fact, and replaying the transcript to state it
+ * would disturb a live stream. Every socket on the project receives it, so two
+ * tabs agree on whether Bash still asks.
+ */
+export interface SessionAllowPayload {
+  bash: boolean;
+}
+
 export interface ServerErrorPayload {
   code: string;
   message: string;
@@ -117,6 +144,7 @@ export type ServerEvent = ServerEventBase &
     | { kind: 'snapshot'; payload: SnapshotPayload }
     | { kind: 'commands'; payload: CommandsPayload }
     | { kind: 'stream_status'; payload: StreamStatusPayload }
+    | { kind: 'session_allow'; payload: SessionAllowPayload }
     | { kind: 'error'; payload: ServerErrorPayload }
   );
 
@@ -178,11 +206,27 @@ export interface ApprovalResponsePayload {
   updatedPermissions?: readonly unknown[];
   /** Deny reason, shown to the model. */
   message?: string;
+  /**
+   * The modal's third answer (ticket 96): allow this call *and* stop asking for
+   * Bash for the rest of the session. Only honoured when the parked request
+   * carried `canAllowBashForSession` — the server checks the request it is
+   * answering, not this flag, so a client cannot grant itself more than the
+   * gate offered.
+   */
+  allowBashForSession?: boolean;
 }
 
 export interface SetPermissionModePayload {
   mode: PermissionMode;
 }
+
+/**
+ * No fields: the project is the socket's, and the clear is the whole message.
+ * It takes back the session's "Always allow Bash" (ticket 96) — the badge beside
+ * the composer — so the next Bash call parks again. The grant itself needs no
+ * frame of its own: it rides the `approval_response` that made it.
+ */
+export type ClearBashSessionAllowPayload = Record<string, never>;
 
 /** `continue` needs no id (most recent session in the cwd); `fork` branches the history. */
 export type ResumePayload = { mode: 'continue' } | { sessionId: string; fork?: boolean };
@@ -194,5 +238,6 @@ export type ClientMessage = ClientMessageBase &
     | { type: 'clear_resume'; payload: ClearResumePayload }
     | { type: 'approval_response'; payload: ApprovalResponsePayload }
     | { type: 'set_permission_mode'; payload: SetPermissionModePayload }
+    | { type: 'clear_bash_session_allow'; payload: ClearBashSessionAllowPayload }
     | { type: 'resume'; payload: ResumePayload }
   );

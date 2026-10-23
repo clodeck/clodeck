@@ -42,6 +42,11 @@ export interface FakeProviderOptions {
    * A scripted turn otherwise drains inside a microtask — long before a second
    * frame is read — so the bus's busy paths (`turn_in_progress`, `interrupt`)
    * are only reachable deterministically against a run a test holds open.
+   *
+   * Each run gets its own latch, so a test can end one turn and hold the next
+   * (ticket 96 drives a second turn with a session allow already in force):
+   * `releaseRuns()` opens the runs started so far, and a run created afterwards
+   * waits on its own.
    */
   holdRuns?: boolean;
   /**
@@ -88,7 +93,7 @@ export interface FakeProvider extends SdkProvider {
    * "the gate never opened".
    */
   requestToolUse(toolName: string, input: Record<string, unknown>): Promise<ToolRun>;
-  /** Let every held run finish. A no-op when `holdRuns` was not set. */
+  /** Let every run held so far finish. A no-op when `holdRuns` was not set. */
   releaseRuns(): void;
   /** Every `deleteSession()` call, in order. */
   readonly deletedSessions: readonly DeletedSession[];
@@ -129,7 +134,9 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
   // returns, so a test that has its response has its record too — there is no
   // race for a waiter to close.
   const deletions: DeletedSession[] = [];
-  const hold = createGate();
+  // Every run's own latch, so `releaseRuns()` ends the turns started so far and
+  // a later run waits on a fresh one (ticket 96).
+  const gates: Gate[] = [];
   // Ids for the calls `requestToolUse` drives: the test reads the request's own
   // id off the wire, so these only have to be unique within the process.
   let toolSeq = 0;
@@ -142,8 +149,11 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
       const run: FakeRun = { input, mode: input.permissionMode ?? 'default' };
       runs.push(run);
 
+      const ending = endingFor(options);
+      if (ending.kind === 'hold') gates.push(ending.gate);
+
       return {
-        messages: streamMessages(scripted, endingFor(options, hold)),
+        messages: streamMessages(scripted, ending),
         async supportedCommands() {
           if (options.commandsFail === true) throw new Error('scripted command-list failure');
           return [...commands];
@@ -263,7 +273,7 @@ export function createFakeProvider(options: FakeProviderOptions = {}): FakeProvi
     },
 
     releaseRuns() {
-      hold.open();
+      for (const gate of gates.splice(0)) gate.open();
     },
 
     get deletedSessions() {
@@ -294,9 +304,11 @@ async function* streamMessages(
 
 type Ending = { kind: 'complete' } | { kind: 'hold'; gate: Gate } | { kind: 'fail' };
 
-function endingFor(options: FakeProviderOptions, gate: Gate): Ending {
+function endingFor(options: FakeProviderOptions): Ending {
   if (options.failRuns === true) return { kind: 'fail' };
-  if (options.holdRuns === true) return { kind: 'hold', gate };
+  // A new latch per run: a test that ends one turn and starts another holds
+  // each on its own.
+  if (options.holdRuns === true) return { kind: 'hold', gate: createGate() };
   return { kind: 'complete' };
 }
 

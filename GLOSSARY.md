@@ -91,3 +91,10 @@ _Avoid_: planning mode, read-only mode
 The permission mode where every call runs without a prompt. Gated by the server, by the project and by
 a confirmation; a project's deny/ask rules still apply. The wire value is `bypassPermissions`.
 _Avoid_: full access, god mode, skip permissions, YOLO mode
+
+**Session allow**:
+A permission the user grants from the approval modal for the rest of the run — today only **"Always
+allow Bash"**. The run holds it in memory and never writes it down; a New chat ends it, and a click on
+its badge takes it back. It silences clodeck's own Bash gate and never a project's ask rule: only a
+request that gate raised carries the offer.
+_Avoid_: always allow (alone — that is the button), remember me, permanent allow, whitelist

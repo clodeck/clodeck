@@ -55,6 +55,7 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
     setPermissionMode,
     interrupt,
     respond,
+    clearBashSessionAllow,
     resume,
     newChat,
     dismissError,
@@ -298,6 +299,11 @@ export function ChatPanel({ project }: { project: Project }): ReactElement {
                   is in it, the line beside the composer says so, in the error
                   colour, until the mode changes. */}
               {view.permissionMode === 'bypassPermissions' && <BypassBadge />}
+              {/* The other visible grant (ticket 96): while the run answers its
+                  own Bash gate, the line says so and offers the way back. */}
+              {view.bashAllowedForSession && (
+                <BashSessionAllowBadge onClear={clearBashSessionAllow} />
+              )}
             </div>
             <Composer
               onSend={(prompt) => {
@@ -400,6 +406,33 @@ function BypassBadge(): ReactElement {
       className="rounded border border-err/40 bg-err/10 px-2 py-1 text-[11px] font-semibold text-err"
     >
       Bypass — every tool runs without asking
+    </span>
+  );
+}
+
+/**
+ * The session allow, while it is in force (ticket 96). A grant the user gave from
+ * a modal is shown on the line beside the composer until it is taken back — and
+ * it carries the way back, because a policy nobody can see is a policy nobody can
+ * leave.
+ */
+function BashSessionAllowBadge({ onClear }: { onClear: () => void }): ReactElement {
+  return (
+    <span
+      role="status"
+      title="Bash runs without asking for the rest of this session. A project’s own ask rules still prompt."
+      className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-[11px] text-ink"
+    >
+      Bash always allowed
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label="Stop always allowing Bash"
+        title="Take it back — the next Bash call asks again"
+        className="text-ink-dim hover:text-ink"
+      >
+        ×
+      </button>
     </span>
   );
 }
@@ -588,7 +621,31 @@ function ApprovalDialog({
           {formatInput(request.input)}
         </pre>
 
+        {/* The third answer (ticket 96): offered only on clodeck's own Bash
+            gate, which the server proves from the request's `decisionReason`. */}
+        {request.canAllowBashForSession === true && (
+          <p className="mt-2 text-[11px] text-ink-dim">
+            “Always allow Bash” lasts for this session — until New chat, and never for anything but
+            Bash. A project’s own ask rules still prompt.
+          </p>
+        )}
+
         <div className="mt-4 flex justify-end gap-2">
+          {request.canAllowBashForSession === true && (
+            <button
+              type="button"
+              onClick={() => {
+                onRespond({
+                  requestId: request.requestId,
+                  behavior: 'allow',
+                  allowBashForSession: true,
+                });
+              }}
+              className="mr-auto rounded border border-line px-3 py-1.5 text-sm text-ink hover:bg-white/5"
+            >
+              Always allow Bash
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
